@@ -14,7 +14,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 
 const adminItems = [
-  { title: 'Dashboard', url: '/', icon: LayoutDashboard },
+  { title: 'Dashboard', url: '/dashboard', icon: LayoutDashboard },
   { title: 'Ventas', url: '/ventas', icon: ShoppingCart },
   { title: 'Finanzas', url: '/finanzas', icon: Wallet },
   { title: 'Stock', url: '/stock', icon: Package, conditional: 'has_stock' },
