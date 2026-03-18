@@ -1,5 +1,6 @@
-import { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { useState, useEffect } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
+import { supabase } from '@/integrations/supabase/client';
 import { motion, useInView } from 'framer-motion';
 import { useRef } from 'react';
 import { Button } from '@/components/ui/button';
@@ -58,7 +59,18 @@ const testimonials = [
 
 export default function Landing() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const navigate = useNavigate();
 
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setIsLoggedIn(!!session);
+    });
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setIsLoggedIn(!!session);
+    });
+    return () => subscription.unsubscribe();
+  }, []);
   return (
     <div className="min-h-screen bg-background">
       {/* Navbar */}
@@ -75,8 +87,14 @@ export default function Landing() {
             <a href="#features" className="text-sm text-muted-foreground hover:text-foreground transition-colors">Funcionalidades</a>
             <a href="#how-it-works" className="text-sm text-muted-foreground hover:text-foreground transition-colors">Cómo funciona</a>
             <a href="#benefits" className="text-sm text-muted-foreground hover:text-foreground transition-colors">Beneficios</a>
-            <Link to="/login"><Button variant="ghost" size="sm">Ingresar</Button></Link>
-            <Link to="/register"><Button size="sm">Empezar gratis <ArrowRight className="h-3.5 w-3.5 ml-1" /></Button></Link>
+            {isLoggedIn ? (
+              <Link to="/dashboard"><Button size="sm">Ir al Dashboard <ArrowRight className="h-3.5 w-3.5 ml-1" /></Button></Link>
+            ) : (
+              <>
+                <Link to="/login"><Button variant="ghost" size="sm">Ingresar</Button></Link>
+                <Link to="/register"><Button size="sm">Empezar gratis <ArrowRight className="h-3.5 w-3.5 ml-1" /></Button></Link>
+              </>
+            )}
           </div>
 
           <Button variant="ghost" size="icon" className="md:hidden" onClick={() => setMobileMenuOpen(!mobileMenuOpen)}>
@@ -93,10 +111,16 @@ export default function Landing() {
             <a href="#features" className="block py-2 text-sm" onClick={() => setMobileMenuOpen(false)}>Funcionalidades</a>
             <a href="#how-it-works" className="block py-2 text-sm" onClick={() => setMobileMenuOpen(false)}>Cómo funciona</a>
             <a href="#benefits" className="block py-2 text-sm" onClick={() => setMobileMenuOpen(false)}>Beneficios</a>
-            <div className="flex gap-2 pt-2">
-              <Link to="/login" className="flex-1"><Button variant="outline" className="w-full">Ingresar</Button></Link>
-              <Link to="/register" className="flex-1"><Button className="w-full">Empezar gratis</Button></Link>
-            </div>
+            {isLoggedIn ? (
+              <div className="flex gap-2 pt-2">
+                <Link to="/dashboard" className="flex-1"><Button className="w-full">Ir al Dashboard <ArrowRight className="h-3.5 w-3.5 ml-1" /></Button></Link>
+              </div>
+            ) : (
+              <div className="flex gap-2 pt-2">
+                <Link to="/login" className="flex-1"><Button variant="outline" className="w-full">Ingresar</Button></Link>
+                <Link to="/register" className="flex-1"><Button className="w-full">Empezar gratis</Button></Link>
+              </div>
+            )}
           </motion.div>
         )}
       </nav>
@@ -128,11 +152,19 @@ export default function Landing() {
               transition={{ duration: 0.6, delay: 0.3 }}
               className="flex flex-col sm:flex-row gap-3 justify-center"
             >
-              <Link to="/register">
-                <Button size="lg" className="text-base px-8 h-12 w-full sm:w-auto">
-                  Empezar gratis <ArrowRight className="h-4 w-4 ml-2" />
-                </Button>
-              </Link>
+              {isLoggedIn ? (
+                <Link to="/dashboard">
+                  <Button size="lg" className="text-base px-8 h-12 w-full sm:w-auto">
+                    Ir al Dashboard <ArrowRight className="h-4 w-4 ml-2" />
+                  </Button>
+                </Link>
+              ) : (
+                <Link to="/register">
+                  <Button size="lg" className="text-base px-8 h-12 w-full sm:w-auto">
+                    Empezar gratis <ArrowRight className="h-4 w-4 ml-2" />
+                  </Button>
+                </Link>
+              )}
               <a href="#features">
                 <Button size="lg" variant="outline" className="text-base px-8 h-12 w-full sm:w-auto">
                   Ver funcionalidades
