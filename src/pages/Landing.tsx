@@ -111,10 +111,16 @@ export default function Landing() {
             <a href="#features" className="block py-2 text-sm" onClick={() => setMobileMenuOpen(false)}>Funcionalidades</a>
             <a href="#how-it-works" className="block py-2 text-sm" onClick={() => setMobileMenuOpen(false)}>Cómo funciona</a>
             <a href="#benefits" className="block py-2 text-sm" onClick={() => setMobileMenuOpen(false)}>Beneficios</a>
-            <div className="flex gap-2 pt-2">
-              <Link to="/login" className="flex-1"><Button variant="outline" className="w-full">Ingresar</Button></Link>
-              <Link to="/register" className="flex-1"><Button className="w-full">Empezar gratis</Button></Link>
-            </div>
+            {isLoggedIn ? (
+              <div className="flex gap-2 pt-2">
+                <Link to="/dashboard" className="flex-1"><Button className="w-full">Ir al Dashboard <ArrowRight className="h-3.5 w-3.5 ml-1" /></Button></Link>
+              </div>
+            ) : (
+              <div className="flex gap-2 pt-2">
+                <Link to="/login" className="flex-1"><Button variant="outline" className="w-full">Ingresar</Button></Link>
+                <Link to="/register" className="flex-1"><Button className="w-full">Empezar gratis</Button></Link>
+              </div>
+            )}
           </motion.div>
         )}
       </nav>
