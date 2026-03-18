@@ -55,8 +55,7 @@ export default function Forecast() {
                 <XAxis dataKey="month" tick={{ fontSize: 10 }} />
                 <YAxis tick={{ fontSize: 10 }} tickFormatter={v => `$${(v/1000000).toFixed(1)}M`} />
                 <Tooltip formatter={(v: number) => formatCurrency(v)} />
-                <Line type="monotone" dataKey="value" stroke="hsl(217,71%,45%)" strokeWidth={2}
-                  strokeDasharray={(d: any) => d?.forecast ? '8 4' : '0'} dot={{ r: 3 }} />
+                <Line type="monotone" dataKey="value" stroke="hsl(217,71%,45%)" strokeWidth={2} dot={{ r: 3 }} />
               </LineChart>
             </ResponsiveContainer>
           </div>
