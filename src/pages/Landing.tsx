@@ -152,11 +152,19 @@ export default function Landing() {
               transition={{ duration: 0.6, delay: 0.3 }}
               className="flex flex-col sm:flex-row gap-3 justify-center"
             >
-              <Link to="/register">
-                <Button size="lg" className="text-base px-8 h-12 w-full sm:w-auto">
-                  Empezar gratis <ArrowRight className="h-4 w-4 ml-2" />
-                </Button>
-              </Link>
+              {isLoggedIn ? (
+                <Link to="/dashboard">
+                  <Button size="lg" className="text-base px-8 h-12 w-full sm:w-auto">
+                    Ir al Dashboard <ArrowRight className="h-4 w-4 ml-2" />
+                  </Button>
+                </Link>
+              ) : (
+                <Link to="/register">
+                  <Button size="lg" className="text-base px-8 h-12 w-full sm:w-auto">
+                    Empezar gratis <ArrowRight className="h-4 w-4 ml-2" />
+                  </Button>
+                </Link>
+              )}
               <a href="#features">
                 <Button size="lg" variant="outline" className="text-base px-8 h-12 w-full sm:w-auto">
                   Ver funcionalidades
