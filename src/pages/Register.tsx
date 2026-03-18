@@ -19,16 +19,18 @@ export default function Register() {
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
-    const { error } = await supabase.auth.signUp({
+    const { data, error } = await supabase.auth.signUp({
       email,
       password,
       options: {
         data: { full_name: fullName },
-        emailRedirectTo: window.location.origin,
       },
     });
     if (error) {
       toast.error(error.message);
+    } else if (data.session) {
+      toast.success('¡Cuenta creada exitosamente!');
+      navigate('/onboarding');
     } else {
       toast.success('¡Registro exitoso! Revisá tu email para verificar tu cuenta.');
       navigate('/login');
