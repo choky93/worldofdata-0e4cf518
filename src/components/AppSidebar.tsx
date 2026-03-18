@@ -85,7 +85,7 @@ export function AppSidebar() {
                       {!collapsed && <span>{item.title}</span>}
                       {!collapsed && 'badge' in item && item.badge && (
                         <Badge variant="destructive" className="ml-auto h-5 min-w-5 text-xs">
-                          {item.badge}
+                          {String(item.badge)}
                         </Badge>
                       )}
                     </NavLink>
