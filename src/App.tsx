@@ -5,6 +5,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import { AppLayout } from "@/components/AppLayout";
+import Landing from "./pages/Landing";
 import Dashboard from "./pages/Dashboard";
 import Login from "./pages/Login";
 import Register from "./pages/Register";
@@ -45,7 +46,7 @@ function OnboardingRoute() {
 function PublicRoute({ children }: { children: React.ReactNode }) {
   const { user, loading, companySettings } = useAuth();
   if (loading) return <div className="min-h-screen flex items-center justify-center"><p>Cargando...</p></div>;
-  if (user && companySettings?.onboarding_completed) return <Navigate to="/" replace />;
+  if (user && companySettings?.onboarding_completed) return <Navigate to="/dashboard" replace />;
   if (user && companySettings && !companySettings.onboarding_completed) return <Navigate to="/onboarding" replace />;
   return <>{children}</>;
 }
@@ -58,12 +59,13 @@ const App = () => (
       <BrowserRouter>
         <AuthProvider>
           <Routes>
+            <Route path="/" element={<Landing />} />
             <Route path="/login" element={<PublicRoute><Login /></PublicRoute>} />
             <Route path="/register" element={<PublicRoute><Register /></PublicRoute>} />
             <Route path="/reset-password" element={<ResetPassword />} />
             <Route path="/forgot-password" element={<PublicRoute><ForgotPassword /></PublicRoute>} />
             <Route path="/onboarding" element={<OnboardingRoute />} />
-            <Route path="/" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+            <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
             <Route path="/ventas" element={<ProtectedRoute><Ventas /></ProtectedRoute>} />
             <Route path="/finanzas" element={<ProtectedRoute><Finanzas /></ProtectedRoute>} />
             <Route path="/stock" element={<ProtectedRoute><Stock /></ProtectedRoute>} />
