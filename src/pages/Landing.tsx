@@ -87,8 +87,14 @@ export default function Landing() {
             <a href="#features" className="text-sm text-muted-foreground hover:text-foreground transition-colors">Funcionalidades</a>
             <a href="#how-it-works" className="text-sm text-muted-foreground hover:text-foreground transition-colors">Cómo funciona</a>
             <a href="#benefits" className="text-sm text-muted-foreground hover:text-foreground transition-colors">Beneficios</a>
-            <Link to="/login"><Button variant="ghost" size="sm">Ingresar</Button></Link>
-            <Link to="/register"><Button size="sm">Empezar gratis <ArrowRight className="h-3.5 w-3.5 ml-1" /></Button></Link>
+            {isLoggedIn ? (
+              <Link to="/dashboard"><Button size="sm">Ir al Dashboard <ArrowRight className="h-3.5 w-3.5 ml-1" /></Button></Link>
+            ) : (
+              <>
+                <Link to="/login"><Button variant="ghost" size="sm">Ingresar</Button></Link>
+                <Link to="/register"><Button size="sm">Empezar gratis <ArrowRight className="h-3.5 w-3.5 ml-1" /></Button></Link>
+              </>
+            )}
           </div>
 
           <Button variant="ghost" size="icon" className="md:hidden" onClick={() => setMobileMenuOpen(!mobileMenuOpen)}>
