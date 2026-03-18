@@ -120,7 +120,6 @@ export default function Dashboard() {
                 <p className="text-3xl font-bold tabular-nums">{formatCurrency(mockCashFlow.availableToday)}</p>
                 <p className="text-xs text-muted-foreground mt-1">Disponible hoy</p>
                 <div className={`mt-3 rounded-lg p-3 text-sm ${
-                  mockCashFlow.status === 'positive' ? 'bg-success/10 text-success' :
                   mockCashFlow.status === 'warning' ? 'bg-warning/10 text-warning' :
                   'bg-destructive/10 text-destructive'
                 }`}>
