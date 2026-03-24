@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap');
 
 @tailwind base;
 @tailwind components;
@@ -6,104 +6,114 @@
 
 @layer base {
   :root {
-    --background: 210 33% 98%;
-    --foreground: 220 40% 13%;
+    --background: 220 25% 97%;
+    --foreground: 222 47% 11%;
 
     --card: 0 0% 100%;
-    --card-foreground: 220 40% 13%;
+    --card-foreground: 222 47% 11%;
 
     --popover: 0 0% 100%;
-    --popover-foreground: 220 40% 13%;
+    --popover-foreground: 222 47% 11%;
 
-    --primary: 217 71% 45%;
-    --primary-foreground: 0 0% 100%;
+    --primary: 221 83% 53%;
+    --primary-foreground: 210 40% 98%;
 
-    --secondary: 210 30% 94%;
-    --secondary-foreground: 220 40% 13%;
+    --secondary: 217 33% 17%;
+    --secondary-foreground: 210 40% 98%;
 
-    --muted: 210 25% 95%;
-    --muted-foreground: 215 16% 47%;
+    --muted: 220 15% 93%;
+    --muted-foreground: 220 9% 46%;
 
-    --accent: 210 30% 94%;
-    --accent-foreground: 220 40% 13%;
+    --accent: 221 83% 53%;
+    --accent-foreground: 210 40% 98%;
 
-    --destructive: 0 72% 51%;
+    --destructive: 0 84% 60%;
     --destructive-foreground: 0 0% 100%;
 
-    --success: 152 60% 40%;
+    --success: 160 84% 39%;
     --success-foreground: 0 0% 100%;
 
     --warning: 38 92% 50%;
     --warning-foreground: 0 0% 100%;
 
-    --border: 214 20% 90%;
-    --input: 214 20% 90%;
-    --ring: 217 71% 45%;
+    --border: 220 13% 91%;
+    --input: 220 13% 91%;
+    --ring: 221 83% 53%;
 
     --radius: 0.75rem;
 
-    /* Layered shadow tokens */
-    --shadow-card: 0 1px 3px 0 hsl(220 40% 13% / 0.04), 0 1px 2px -1px hsl(220 40% 13% / 0.03);
-    --shadow-card-hover: 0 4px 12px -2px hsl(220 40% 13% / 0.08), 0 2px 6px -2px hsl(220 40% 13% / 0.04);
-    --shadow-elevated: 0 8px 24px -4px hsl(220 40% 13% / 0.1), 0 4px 12px -4px hsl(220 40% 13% / 0.06);
+    /* Module accent colors */
+    --module-ventas: 221 83% 53%;
+    --module-finanzas: 160 84% 39%;
+    --module-stock: 25 95% 53%;
+    --module-clientes: 262 83% 58%;
+    --module-marketing: 340 82% 52%;
+    --module-operaciones: 199 89% 48%;
 
-    --sidebar-background: 220 40% 13%;
-    --sidebar-foreground: 210 25% 85%;
-    --sidebar-primary: 217 71% 55%;
-    --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 220 35% 18%;
-    --sidebar-accent-foreground: 210 25% 90%;
-    --sidebar-border: 220 30% 20%;
-    --sidebar-ring: 217 71% 55%;
+    /* Layered shadow tokens */
+    --shadow-card: 0 1px 3px 0 hsl(222 47% 11% / 0.04), 0 1px 2px -1px hsl(222 47% 11% / 0.02);
+    --shadow-card-hover: 0 10px 25px -5px hsl(222 47% 11% / 0.08), 0 4px 10px -4px hsl(222 47% 11% / 0.03);
+    --shadow-elevated: 0 20px 50px -12px hsl(222 47% 11% / 0.12), 0 8px 20px -8px hsl(222 47% 11% / 0.06);
+    --shadow-glow: 0 0 20px -5px hsl(221 83% 53% / 0.15);
+
+    --sidebar-background: 222 47% 11%;
+    --sidebar-foreground: 213 31% 91%;
+    --sidebar-primary: 221 83% 53%;
+    --sidebar-primary-foreground: 210 40% 98%;
+    --sidebar-accent: 217 33% 17%;
+    --sidebar-accent-foreground: 210 40% 98%;
+    --sidebar-border: 215 28% 17%;
+    --sidebar-ring: 221 83% 53%;
   }
 
   .dark {
-    --background: 220 40% 7%;
-    --foreground: 210 25% 92%;
+    --background: 224 71% 4%;
+    --foreground: 213 31% 91%;
 
-    --card: 220 35% 10%;
-    --card-foreground: 210 25% 92%;
+    --card: 222 47% 11%;
+    --card-foreground: 213 31% 91%;
 
-    --popover: 220 35% 10%;
-    --popover-foreground: 210 25% 92%;
+    --popover: 222 47% 11%;
+    --popover-foreground: 213 31% 91%;
 
-    --primary: 217 71% 55%;
-    --primary-foreground: 0 0% 100%;
+    --primary: 221 83% 53%;
+    --primary-foreground: 210 40% 98%;
 
-    --secondary: 220 30% 16%;
-    --secondary-foreground: 210 25% 92%;
+    --secondary: 217 33% 17%;
+    --secondary-foreground: 210 40% 98%;
 
-    --muted: 220 25% 15%;
-    --muted-foreground: 215 16% 55%;
+    --muted: 223 47% 11%;
+    --muted-foreground: 218 11% 55%;
 
-    --accent: 220 30% 16%;
-    --accent-foreground: 210 25% 92%;
+    --accent: 217 33% 17%;
+    --accent-foreground: 210 40% 98%;
 
     --destructive: 0 62% 40%;
     --destructive-foreground: 0 0% 100%;
 
-    --success: 152 55% 35%;
+    --success: 160 60% 35%;
     --success-foreground: 0 0% 100%;
 
     --warning: 38 85% 45%;
     --warning-foreground: 0 0% 100%;
 
-    --border: 220 25% 18%;
-    --input: 220 25% 18%;
-    --ring: 217 71% 55%;
+    --border: 216 34% 17%;
+    --input: 216 34% 17%;
+    --ring: 221 83% 53%;
 
-    --shadow-card: 0 1px 3px 0 hsl(0 0% 0% / 0.15), 0 1px 2px -1px hsl(0 0% 0% / 0.1);
-    --shadow-card-hover: 0 4px 12px -2px hsl(0 0% 0% / 0.25), 0 2px 6px -2px hsl(0 0% 0% / 0.15);
-    --shadow-elevated: 0 8px 24px -4px hsl(0 0% 0% / 0.35), 0 4px 12px -4px hsl(0 0% 0% / 0.2);
+    --shadow-card: 0 1px 3px 0 hsl(0 0% 0% / 0.2), 0 1px 2px -1px hsl(0 0% 0% / 0.15);
+    --shadow-card-hover: 0 10px 25px -5px hsl(0 0% 0% / 0.3), 0 4px 10px -4px hsl(0 0% 0% / 0.2);
+    --shadow-elevated: 0 20px 50px -12px hsl(0 0% 0% / 0.4), 0 8px 20px -8px hsl(0 0% 0% / 0.25);
+    --shadow-glow: 0 0 20px -5px hsl(221 83% 53% / 0.25);
 
-    --sidebar-background: 220 45% 6%;
-    --sidebar-foreground: 210 25% 80%;
-    --sidebar-primary: 217 71% 55%;
-    --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 220 40% 12%;
-    --sidebar-accent-foreground: 210 25% 85%;
-    --sidebar-border: 220 35% 12%;
-    --sidebar-ring: 217 71% 55%;
+    --sidebar-background: 224 71% 4%;
+    --sidebar-foreground: 213 31% 80%;
+    --sidebar-primary: 221 83% 53%;
+    --sidebar-primary-foreground: 210 40% 98%;
+    --sidebar-accent: 217 33% 12%;
+    --sidebar-accent-foreground: 213 31% 85%;
+    --sidebar-border: 215 28% 12%;
+    --sidebar-ring: 221 83% 53%;
   }
 }
 
@@ -118,20 +128,56 @@
   }
 
   h1, h2, h3, h4, h5, h6 {
-    letter-spacing: -0.02em;
+    letter-spacing: -0.025em;
+    font-weight: 700;
   }
 }
 
 @layer components {
-  /* Card with layered shadows - no solid borders */
+  .card-glass {
+    background: hsl(var(--card) / 0.7);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid hsl(var(--border) / 0.5);
+    box-shadow: var(--shadow-card);
+    transition: box-shadow 0.3s ease, transform 0.2s ease;
+  }
+
+  .card-glass:hover {
+    box-shadow: var(--shadow-card-hover);
+    transform: translateY(-1px);
+  }
+
   .card-elevated {
     border: none;
     box-shadow: var(--shadow-card);
-    transition: box-shadow 0.2s ease;
+    transition: box-shadow 0.3s ease, transform 0.2s ease;
   }
 
   .card-elevated:hover {
     box-shadow: var(--shadow-card-hover);
+    transform: translateY(-1px);
+  }
+
+  .sidebar-gradient {
+    background: linear-gradient(180deg, hsl(222 47% 11%) 0%, hsl(224 71% 4%) 100%);
+  }
+
+  .module-border-ventas { border-top: 3px solid hsl(var(--module-ventas)); }
+  .module-border-finanzas { border-top: 3px solid hsl(var(--module-finanzas)); }
+  .module-border-stock { border-top: 3px solid hsl(var(--module-stock)); }
+  .module-border-clientes { border-top: 3px solid hsl(var(--module-clientes)); }
+  .module-border-marketing { border-top: 3px solid hsl(var(--module-marketing)); }
+  .module-border-operaciones { border-top: 3px solid hsl(var(--module-operaciones)); }
+
+  .kpi-value {
+    @apply text-3xl font-extrabold tabular-nums tracking-tight;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .kpi-value-xl {
+    @apply text-4xl font-black tabular-nums tracking-tight;
+    font-variant-numeric: tabular-nums;
   }
 }
 

@@ -43,7 +43,7 @@ export function AppSidebar() {
 
   const visibleItems = items.filter((item) => {
     if (!('conditional' in item) || !item.conditional) return true;
-    if (!companySettings) return true; // Show all if settings not loaded yet (demo mode)
+    if (!companySettings) return true;
     if (item.conditional === 'has_stock') return companySettings.has_stock || companySettings.sells_products;
     if (item.conditional === 'has_ads') return companySettings.uses_meta_ads || companySettings.uses_google_ads;
     return true;
@@ -51,63 +51,65 @@ export function AppSidebar() {
 
   return (
     <Sidebar collapsible="icon" className="border-r-0">
-      <SidebarHeader className="p-4">
-        {!collapsed && (
-          <div className="flex items-center gap-2">
-            <div className="h-8 w-8 rounded-lg bg-sidebar-primary flex items-center justify-center">
-              <BarChart3 className="h-4 w-4 text-sidebar-primary-foreground" />
+      <div className="sidebar-gradient h-full flex flex-col">
+        <SidebarHeader className="p-4">
+          {!collapsed && (
+            <div className="flex items-center gap-2.5">
+              <div className="h-9 w-9 rounded-xl bg-primary flex items-center justify-center shadow-lg shadow-primary/25">
+                <BarChart3 className="h-4.5 w-4.5 text-primary-foreground" />
+              </div>
+              <span className="font-bold text-sm text-sidebar-foreground tracking-tight">{APP_NAME}</span>
             </div>
-            <span className="font-semibold text-sm text-sidebar-foreground">{APP_NAME}</span>
-          </div>
-        )}
-        {collapsed && (
-          <div className="flex justify-center">
-            <div className="h-8 w-8 rounded-lg bg-sidebar-primary flex items-center justify-center">
-              <BarChart3 className="h-4 w-4 text-sidebar-primary-foreground" />
+          )}
+          {collapsed && (
+            <div className="flex justify-center">
+              <div className="h-9 w-9 rounded-xl bg-primary flex items-center justify-center shadow-lg shadow-primary/25">
+                <BarChart3 className="h-4.5 w-4.5 text-primary-foreground" />
+              </div>
             </div>
-          </div>
-        )}
-      </SidebarHeader>
+          )}
+        </SidebarHeader>
 
-      <SidebarContent>
-        <SidebarGroup>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {visibleItems.map((item) => (
-                <SidebarMenuItem key={item.title}>
-                  <SidebarMenuButton asChild>
-                    <NavLink
-                      to={item.url}
-                      end={item.url === '/'}
-                      className="hover:bg-sidebar-accent/50"
-                      activeClassName="bg-sidebar-accent text-sidebar-primary font-medium"
-                    >
-                      <item.icon className="h-4 w-4" />
-                      {!collapsed && <span>{item.title}</span>}
-                      {!collapsed && 'badge' in item && item.badge && (
-                        <Badge variant="destructive" className="ml-auto h-5 min-w-5 text-xs">
-                          {String(item.badge)}
-                        </Badge>
-                      )}
-                    </NavLink>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
-      </SidebarContent>
+        <SidebarContent className="px-2">
+          <SidebarGroup>
+            <SidebarGroupContent>
+              <SidebarMenu>
+                {visibleItems.map((item) => (
+                  <SidebarMenuItem key={item.title}>
+                    <SidebarMenuButton asChild>
+                      <NavLink
+                        to={item.url}
+                        end={item.url === '/'}
+                        className="hover:bg-sidebar-accent/60 rounded-lg transition-all duration-200"
+                        activeClassName="bg-sidebar-accent text-sidebar-primary font-semibold shadow-sm"
+                      >
+                        <item.icon className="h-4 w-4" />
+                        {!collapsed && <span>{item.title}</span>}
+                        {!collapsed && 'badge' in item && item.badge && (
+                          <Badge variant="destructive" className="ml-auto h-5 min-w-5 text-xs font-semibold">
+                            {String(item.badge)}
+                          </Badge>
+                        )}
+                      </NavLink>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                ))}
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        </SidebarContent>
 
-      <SidebarFooter className="p-2">
-        <Button
-          variant="ghost"
-          className="w-full justify-start text-sidebar-foreground/70 hover:text-sidebar-foreground hover:bg-sidebar-accent/50"
-          onClick={signOut}
-        >
-          <LogOut className="h-4 w-4 mr-2" />
-          {!collapsed && <span>Cerrar sesión</span>}
-        </Button>
-      </SidebarFooter>
+        <SidebarFooter className="p-2">
+          <Button
+            variant="ghost"
+            className="w-full justify-start text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-sidebar-accent/50"
+            onClick={signOut}
+          >
+            <LogOut className="h-4 w-4 mr-2" />
+            {!collapsed && <span>Cerrar sesión</span>}
+          </Button>
+        </SidebarFooter>
+      </div>
     </Sidebar>
   );
 }
