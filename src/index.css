@@ -42,6 +42,11 @@
 
     --radius: 0.75rem;
 
+    /* Layered shadow tokens */
+    --shadow-card: 0 1px 3px 0 hsl(220 40% 13% / 0.04), 0 1px 2px -1px hsl(220 40% 13% / 0.03);
+    --shadow-card-hover: 0 4px 12px -2px hsl(220 40% 13% / 0.08), 0 2px 6px -2px hsl(220 40% 13% / 0.04);
+    --shadow-elevated: 0 8px 24px -4px hsl(220 40% 13% / 0.1), 0 4px 12px -4px hsl(220 40% 13% / 0.06);
+
     --sidebar-background: 220 40% 13%;
     --sidebar-foreground: 210 25% 85%;
     --sidebar-primary: 217 71% 55%;
@@ -87,6 +92,10 @@
     --input: 220 25% 18%;
     --ring: 217 71% 55%;
 
+    --shadow-card: 0 1px 3px 0 hsl(0 0% 0% / 0.15), 0 1px 2px -1px hsl(0 0% 0% / 0.1);
+    --shadow-card-hover: 0 4px 12px -2px hsl(0 0% 0% / 0.25), 0 2px 6px -2px hsl(0 0% 0% / 0.15);
+    --shadow-elevated: 0 8px 24px -4px hsl(0 0% 0% / 0.35), 0 4px 12px -4px hsl(0 0% 0% / 0.2);
+
     --sidebar-background: 220 45% 6%;
     --sidebar-foreground: 210 25% 80%;
     --sidebar-primary: 217 71% 55%;
@@ -110,6 +119,19 @@
 
   h1, h2, h3, h4, h5, h6 {
     letter-spacing: -0.02em;
+  }
+}
+
+@layer components {
+  /* Card with layered shadows - no solid borders */
+  .card-elevated {
+    border: none;
+    box-shadow: var(--shadow-card);
+    transition: box-shadow 0.2s ease;
+  }
+
+  .card-elevated:hover {
+    box-shadow: var(--shadow-card-hover);
   }
 }
 

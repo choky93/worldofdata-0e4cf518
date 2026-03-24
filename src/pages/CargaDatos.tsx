@@ -2,7 +2,7 @@ import { useState, useCallback, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Upload, FileText, Image, FileSpreadsheet, Trash2, HelpCircle, Loader2 } from 'lucide-react';
+import { Upload, FileText, Image, FileSpreadsheet, Trash2, Lightbulb, Loader2, CheckCircle2, Circle } from 'lucide-react';
 import { formatDate } from '@/lib/formatters';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
@@ -18,7 +18,6 @@ interface FileRecord {
   uploaded_by: string | null;
   created_at: string | null;
   company_id: string;
-  uploader_name?: string;
 }
 
 const fileIcons: Record<string, typeof FileText> = { PDF: FileText, CSV: FileSpreadsheet, XLS: FileSpreadsheet, Imagen: Image };
@@ -32,8 +31,121 @@ function detectFileType(name: string): string {
   return 'Otro';
 }
 
+interface SuggestionItem {
+  icon: string;
+  title: string;
+  description: string;
+  condition: boolean;
+  priority: 'high' | 'medium' | 'low';
+}
+
+function ContextualAssistant({ companySettings }: { companySettings: any }) {
+  const suggestions: SuggestionItem[] = [
+    {
+      icon: '📊',
+      title: 'Hoja de ventas',
+      description: 'Subí tu Excel o CSV con las ventas del mes para calcular facturación, ticket promedio y tendencias.',
+      condition: true, // siempre relevante
+      priority: 'high',
+    },
+    {
+      icon: '💰',
+      title: 'Facturas de proveedores',
+      description: 'Subí PDFs o fotos de facturas para registrar costos y calcular tu margen real.',
+      condition: true,
+      priority: 'high',
+    },
+    {
+      icon: '📦',
+      title: 'Lista de productos / stock',
+      description: 'Subí tu inventario con cantidades, precios y costos para detectar faltantes y sobrestock.',
+      condition: !companySettings || companySettings.sells_products || companySettings.has_stock,
+      priority: 'high',
+    },
+    {
+      icon: '📈',
+      title: 'Reporte de Meta Ads',
+      description: 'Exportá el rendimiento de campañas desde Meta Business Suite y subilo acá.',
+      condition: !companySettings || companySettings.uses_meta_ads,
+      priority: 'medium',
+    },
+    {
+      icon: '🔍',
+      title: 'Reporte de Google Ads',
+      description: 'Descargá el informe de rendimiento desde Google Ads y subilo para analizar ROAS.',
+      condition: !companySettings || companySettings.uses_google_ads,
+      priority: 'medium',
+    },
+    {
+      icon: '🚚',
+      title: 'Registro de envíos',
+      description: 'Si tenés un registro de despachos o logística, subilo para cruzar con ventas.',
+      condition: !companySettings || companySettings.has_logistics,
+      priority: 'low',
+    },
+    {
+      icon: '🏦',
+      title: 'Resumen bancario',
+      description: 'Subí tu extracto bancario (CSV o PDF) para conciliar ingresos y egresos.',
+      condition: true,
+      priority: 'low',
+    },
+  ];
+
+  const activeSuggestions = suggestions.filter(s => s.condition);
+  const highPriority = activeSuggestions.filter(s => s.priority === 'high');
+  const otherPriority = activeSuggestions.filter(s => s.priority !== 'high');
+
+  return (
+    <Card className="h-fit sticky top-4">
+      <CardHeader className="pb-3">
+        <CardTitle className="text-sm flex items-center gap-2">
+          <Lightbulb className="h-4 w-4 text-warning" />
+          ¿Qué archivos subir?
+        </CardTitle>
+        <p className="text-xs text-muted-foreground mt-1">
+          Basado en la configuración de tu negocio, te recomendamos cargar estos datos:
+        </p>
+      </CardHeader>
+      <CardContent className="space-y-1 pb-4">
+        {highPriority.length > 0 && (
+          <>
+            <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-2">Prioritarios</p>
+            {highPriority.map((s, i) => (
+              <div key={i} className="flex items-start gap-2.5 p-2.5 rounded-lg hover:bg-muted/50 transition-colors">
+                <span className="text-base mt-0.5">{s.icon}</span>
+                <div className="min-w-0">
+                  <p className="text-sm font-medium">{s.title}</p>
+                  <p className="text-xs text-muted-foreground leading-relaxed">{s.description}</p>
+                </div>
+              </div>
+            ))}
+          </>
+        )}
+        {otherPriority.length > 0 && (
+          <>
+            <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mt-3 mb-2">Opcionales</p>
+            {otherPriority.map((s, i) => (
+              <div key={i} className="flex items-start gap-2.5 p-2.5 rounded-lg hover:bg-muted/50 transition-colors">
+                <span className="text-base mt-0.5">{s.icon}</span>
+                <div className="min-w-0">
+                  <p className="text-sm font-medium">{s.title}</p>
+                  <p className="text-xs text-muted-foreground leading-relaxed">{s.description}</p>
+                </div>
+              </div>
+            ))}
+          </>
+        )}
+        <p className="text-[10px] text-muted-foreground border-t pt-3 mt-3">
+          Formatos: PDF, CSV, XLS/XLSX, imágenes (capturas de reportes). Máx. 20MB por archivo.
+        </p>
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function CargaDatos() {
-  const { user, profile, role } = useAuth();
+  const { user, profile, role, companySettings } = useAuth();
   const [files, setFiles] = useState<FileRecord[]>([]);
   const [dragging, setDragging] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -75,7 +187,6 @@ export default function CargaDatos() {
       for (const file of filesToUpload) {
         const storagePath = `${user.id}/${Date.now()}_${file.name}`;
 
-        // Upload to storage
         const { error: storageError } = await supabase.storage
           .from('uploads')
           .upload(storagePath, file);
@@ -85,7 +196,6 @@ export default function CargaDatos() {
           continue;
         }
 
-        // Register in file_uploads table
         const { error: dbError } = await supabase.from('file_uploads').insert({
           file_name: file.name,
           file_type: detectFileType(file.name),
@@ -140,7 +250,7 @@ export default function CargaDatos() {
       <div className="grid gap-6 lg:grid-cols-3">
         <div className="lg:col-span-2 space-y-4">
           <div
-            className={`border-2 border-dashed rounded-xl p-12 text-center transition-colors cursor-pointer ${dragging ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/50'} ${uploading ? 'pointer-events-none opacity-60' : ''}`}
+            className={`border-2 border-dashed rounded-xl p-12 text-center transition-all cursor-pointer ${dragging ? 'border-primary bg-primary/5 scale-[1.01]' : 'border-border hover:border-primary/50'} ${uploading ? 'pointer-events-none opacity-60' : ''}`}
             onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
             onDragLeave={() => setDragging(false)}
             onDrop={handleDrop}
@@ -180,7 +290,7 @@ export default function CargaDatos() {
                   {files.map(f => {
                     const Icon = fileIcons[f.file_type || ''] || FileText;
                     return (
-                      <div key={f.id} className="flex items-center gap-3 p-3 rounded-lg hover:bg-muted/50 text-sm">
+                      <div key={f.id} className="flex items-center gap-3 p-3 rounded-lg hover:bg-muted/50 text-sm transition-colors">
                         <Icon className="h-5 w-5 text-muted-foreground shrink-0" />
                         <div className="flex-1 min-w-0">
                           <p className="font-medium truncate">{f.file_name}</p>
@@ -198,25 +308,14 @@ export default function CargaDatos() {
                       </div>
                     );
                   })}
-                  {files.length === 0 && <p className="text-sm text-muted-foreground text-center py-4">No hay archivos cargados</p>}
+                  {files.length === 0 && <p className="text-sm text-muted-foreground text-center py-4">No hay archivos cargados todavía</p>}
                 </div>
               )}
             </CardContent>
           </Card>
         </div>
 
-        <Card className="h-fit">
-          <CardHeader>
-            <CardTitle className="text-sm flex items-center gap-1"><HelpCircle className="h-4 w-4" /> Asistente de carga</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3 text-sm text-muted-foreground">
-            <p>📊 <strong>Ventas:</strong> Subí tu hoja de ventas del mes para calcular tu facturación.</p>
-            <p>📦 <strong>Stock:</strong> Si tenés una lista de productos con precios, subila para armar tu inventario.</p>
-            <p>💰 <strong>Gastos:</strong> Subí facturas de proveedores o un resumen de gastos.</p>
-            <p>📈 <strong>Ads:</strong> Exportá tus reportes de Meta o Google Ads y subílos acá.</p>
-            <p className="text-xs border-t pt-3">Formatos aceptados: PDF, CSV, XLS/XLSX, imágenes (capturas de informes)</p>
-          </CardContent>
-        </Card>
+        <ContextualAssistant companySettings={companySettings} />
       </div>
     </div>
   );
