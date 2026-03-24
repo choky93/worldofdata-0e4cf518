@@ -118,6 +118,50 @@ export type Database = {
           },
         ]
       }
+      diagnostic_results: {
+        Row: {
+          company_id: string
+          created_at: string | null
+          id: string
+          maturity_classification: string | null
+          maturity_scores: Json | null
+          pain_point: string | null
+          potential_improvement_pct: number | null
+          priority_indicators: string[] | null
+          updated_at: string | null
+        }
+        Insert: {
+          company_id: string
+          created_at?: string | null
+          id?: string
+          maturity_classification?: string | null
+          maturity_scores?: Json | null
+          pain_point?: string | null
+          potential_improvement_pct?: number | null
+          priority_indicators?: string[] | null
+          updated_at?: string | null
+        }
+        Update: {
+          company_id?: string
+          created_at?: string | null
+          id?: string
+          maturity_classification?: string | null
+          maturity_scores?: Json | null
+          pain_point?: string | null
+          potential_improvement_pct?: number | null
+          priority_indicators?: string[] | null
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "diagnostic_results_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: true
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       file_uploads: {
         Row: {
           company_id: string
