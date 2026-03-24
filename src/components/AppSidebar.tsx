@@ -21,7 +21,7 @@ const adminItems = [
   { title: 'Stock', url: '/stock', icon: Package, conditional: 'has_stock' },
   { title: 'Clientes', url: '/clientes', icon: Users },
   { title: 'Forecast', url: '/forecast', icon: TrendingUp },
-  { title: 'Alertas', url: '/alertas', icon: Bell, badge: 5 },
+  { title: 'Alertas', url: '/alertas', icon: Bell, badge: mockAlerts.filter(a => !a.read).length },
   { title: 'Métricas', url: '/metricas', icon: BarChart3 },
   { title: 'Marketing', url: '/marketing', icon: Megaphone, conditional: 'has_ads' },
   { title: 'Operaciones', url: '/operaciones', icon: FileBox },

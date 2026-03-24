@@ -144,7 +144,7 @@ export default function Onboarding() {
 
       await refreshProfile();
       toast.success('¡Configuración completada!');
-      navigate('/');
+      navigate('/dashboard');
     } catch {
       toast.error('Error al guardar. Intentá de nuevo.');
     }

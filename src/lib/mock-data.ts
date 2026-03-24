@@ -22,15 +22,18 @@ export const mockMonthlySales = [
   { month: 'Mar 2026', value: 1240000 },
 ];
 
+const dailyValues = [72000, 58000, 95000, 43000, 81000, 67000, 110000, 54000, 88000, 76000, 63000, 99000, 47000, 85000, 71000, 104000, 59000, 92000];
+const projectedValues = [78000, 65000, 88000, 72000, 95000];
+
 export const mockDailySales = [
-  ...Array.from({ length: 18 }, (_, i) => ({
+  ...dailyValues.map((value, i) => ({
     day: `${i + 1}/03`,
-    value: Math.round(40000 + Math.random() * 80000),
+    value,
     projected: false,
   })),
-  ...Array.from({ length: 5 }, (_, i) => ({
+  ...projectedValues.map((value, i) => ({
     day: `${19 + i}/03`,
-    value: Math.round(55000 + Math.random() * 60000),
+    value,
     projected: true,
   })),
 ];

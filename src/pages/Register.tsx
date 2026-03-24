@@ -28,12 +28,9 @@ export default function Register() {
     });
     if (error) {
       toast.error(error.message);
-    } else if (data.session) {
+    } else {
       toast.success('¡Cuenta creada exitosamente!');
       navigate('/onboarding');
-    } else {
-      toast.success('¡Registro exitoso! Revisá tu email para verificar tu cuenta.');
-      navigate('/login');
     }
     setLoading(false);
   };
