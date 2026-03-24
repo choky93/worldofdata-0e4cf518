@@ -78,7 +78,7 @@ export default function Onboarding() {
           .single();
 
         if (company || settings) {
-          const isCustomIndustry = company?.industry && !INDUSTRIES.includes(company.industry);
+          const isCustomIndustry = company?.industry && !(INDUSTRIES as readonly string[]).includes(company.industry);
           setData(prev => ({
             ...prev,
             companyName: company?.name || prev.companyName,
