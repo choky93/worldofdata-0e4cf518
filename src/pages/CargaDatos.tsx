@@ -227,7 +227,8 @@ export default function CargaDatos() {
     if (e.dataTransfer.files.length > 0) {
       uploadFiles(e.dataTransfer.files);
     }
-  }, [user, profile?.company_id]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id, profile?.company_id]);
 
   const handleDelete = async (file: FileRecord) => {
     try {
