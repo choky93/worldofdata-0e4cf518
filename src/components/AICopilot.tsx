@@ -27,7 +27,7 @@ export function AICopilot() {
         animate={{ scale: 1, opacity: 1 }}
         transition={{ delay: 1, type: 'spring', stiffness: 260, damping: 20 }}
       >
-        <MessageSquareSpark className="h-6 w-6" />
+        <MessageCircle className="h-6 w-6" />
       </motion.button>
 
       {/* Panel */}
