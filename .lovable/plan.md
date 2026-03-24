@@ -1,80 +1,58 @@
 
 
-# Plan: Implementar funcionalidades pendientes de World of Data
+# Revisión Completa de World of Data — Bugs y Mejoras Detectados
 
-## Lo que ya está implementado
-- Auth (registro, login, roles, reset password)
-- Onboarding conversacional con 4 bloques + resumen
-- Dashboard con datos mock de Star Impresiones 3D
-- Sidebar con navegación condicional
-- Landing page interactiva
-- Todas las secciones con datos mock (Ventas, Finanzas, Stock, Clientes, Forecast, Alertas, Métricas, Marketing, Operaciones)
-- Carga de datos con drag & drop (solo UI mock)
-- Equipo (solo UI mock)
-- Configuración
+## Problemas encontrados
 
-## Lo que falta implementar
+### 1. Onboarding redirige a `/` en vez de `/dashboard`
+En `Onboarding.tsx` línea 99, `navigate('/')` lleva a la landing. Debería ser `navigate('/dashboard')`.
 
-### Fase 1 — Carga de datos real (Supabase Storage)
-Conectar el drag & drop de `/carga-datos` con Supabase Storage para que los archivos se suban de verdad al bucket `uploads` y se registren en la tabla `file_uploads`. Mostrar historial real desde la base de datos. Empleados solo ven sus propias cargas.
+### 2. Onboarding no pre-carga datos existentes
+Si el usuario ya completó el onboarding parcialmente o quiere editarlo desde Configuración, los campos arrancan vacíos. El componente debería leer los datos actuales de `companies` y `company_settings` al montarse.
 
-**Archivos a modificar:** `src/pages/CargaDatos.tsx`
-**Cambios DB:** Ninguno (tabla `file_uploads` y bucket `uploads` ya existen)
+### 3. Register: branch muerta de verificación de email
+En `Register.tsx` línea 35, todavía existe el branch `else` que muestra "Revisá tu email para verificar tu cuenta" y redirige a `/login`. Con auto-confirm activado esto no debería ejecutarse, pero es código confuso. Limpiarlo.
 
-### Fase 2 — Gestión de equipo real
-Implementar la creación real de empleados: el admin ingresa nombre + email, se crea la cuenta con `supabase.auth.admin` via edge function, se asigna rol `employee` y se asocia a la misma `company_id`. Listar empleados reales desde `profiles` + `user_roles`. Activar/desactivar cuentas.
+### 4. Edge function `create-employee`: usa `getClaims` que puede no existir
+La función usa `anonClient.auth.getClaims(token)` que no es un método estándar del SDK. Debería usar `anonClient.auth.getUser(token)` para validar el JWT.
 
-**Archivos a modificar:** `src/pages/Equipo.tsx`
-**Nuevos archivos:** Edge function `supabase/functions/create-employee/index.ts`
-**Cambios DB:** Agregar columna `active` a `profiles` (default true)
+### 5. Sidebar: badge de alertas hardcodeado
+En `AppSidebar.tsx` la sección Alertas tiene `badge: 5` fijo. Debería coincidir con el count real de alertas no leídas (por ahora del mock).
 
-### Fase 3 — Barra resumen inteligente (ticker rotativo)
-El dashboard tiene highlights estáticos. Implementar un ticker animado que rote entre los highlights con transición suave (fade o slide), estilo marquee corporativo.
+### 6. Dashboard: `mockDailySales` usa `Math.random()` — cambia en cada render
+Cada vez que el componente se re-renderiza, los datos del gráfico cambian. Debería usar una seed fija o memoizar los datos.
 
-**Archivos a modificar:** `src/pages/Dashboard.tsx`
+### 7. Configuración: link a `/onboarding` no pre-carga datos
+Cuando el admin va a editar la configuración del onboarding, se pierde lo que ya completó (problema #2).
 
-### Fase 4 — Mejoras al Dashboard
-- Agregar enlace "Ver sugerencia →" en las alertas del dashboard (ya están las alertas pero sin el botón ghost de acción)
-- Gráficos con gradient fill en áreas (actualmente son planos)
-- Línea de proyección con `stroke-dasharray` en el gráfico de ventas diarias
-
-**Archivos a modificar:** `src/pages/Dashboard.tsx`
-
-### Fase 5 — Secciones más completas
-
-**Clientes:** Agregar tabla de clientes con nivel de compra, frecuencia, última compra. Indicador de clientes en riesgo de churn.
-
-**Stock:** Agregar tabla de productos con estado (OK/Faltante/Sobrestock), días de cobertura, alerta de reposición.
-
-**Operaciones:** Agregar registro de compras y ventas grandes con tabla y filtros básicos.
-
-**Métricas:** Agregar gráficos de evolución temporal con flechas de tendencia (ventas, margen, flujo, stock).
-
-**Marketing:** Agregar gráficos de rendimiento por campaña además de la tabla actual.
-
-**Archivos a modificar:** Los respectivos archivos en `src/pages/`
-
-### Fase 6 — Asistente lateral en Carga de datos
-Panel lateral colapsable que guía al usuario sobre qué archivos cargar según su configuración de onboarding. Si vende productos → "Subí tu lista de stock". Si usa Meta Ads → "Subí tu reporte de Meta".
-
-**Archivos a modificar:** `src/pages/CargaDatos.tsx`
-
-### Fase 7 — UX y diseño refinado
-- Cards sin bordes sólidos, sombras por capas
-- Tooltips en métricas técnicas (ROAS, margen bruto, etc.) — parcialmente hecho, completar en todas las secciones
-- Alertas con borde izquierdo de color por tipo
-- Formato argentino consistente en todas las páginas (ya está el helper, verificar uso)
-
-**Archivos a modificar:** Varios en `src/pages/` y `src/index.css`
+### 8. `handleDrop` en CargaDatos tiene dependencias faltantes
+El `useCallback` para `handleDrop` lista `[user, profile?.company_id]` pero llama a `uploadFiles` que no está memoizada.
 
 ---
 
-## Orden de ejecución sugerido
-Dado el volumen, sugiero implementar en 3 rondas:
+## Plan de correcciones
 
-1. **Ronda 1** (Fases 1 + 2): Backend real — carga de archivos y gestión de equipo funcional
-2. **Ronda 2** (Fases 3 + 4 + 5): Dashboard mejorado y secciones más ricas
-3. **Ronda 3** (Fases 6 + 7): Asistente contextual y pulido de UX
+### Archivo: `src/pages/Onboarding.tsx`
+- Cambiar `navigate('/')` a `navigate('/dashboard')` (línea 99)
+- Agregar `useEffect` que cargue datos existentes de `companies` y `company_settings` desde Supabase cuando `profile?.company_id` existe, para pre-llenar el formulario
 
-Cada ronda es un mensaje de implementación. ¿Aprobás el plan para arrancar con la Ronda 1?
+### Archivo: `src/pages/Register.tsx`
+- Eliminar el branch `else` de la línea 35 y simplificar: siempre navegar a `/onboarding` post-signup
+
+### Archivo: `supabase/functions/create-employee/index.ts`
+- Reemplazar `anonClient.auth.getClaims(token)` por `anonClient.auth.getUser(token)` para validar el caller
+
+### Archivo: `src/lib/mock-data.ts`
+- Convertir `mockDailySales` a valores fijos (sin `Math.random()`) para evitar re-renders inconsistentes
+
+### Archivo: `src/components/AppSidebar.tsx`
+- Importar `mockAlerts` y calcular el badge dinámicamente basado en alertas no leídas
+
+### Archivo: `src/pages/CargaDatos.tsx`
+- Corregir dependencias del `useCallback` en `handleDrop`
+
+---
+
+## Resumen
+Son 6 correcciones concretas que aseguran que el flujo completo funcione de punta a punta: registro → onboarding (con pre-carga si edita) → dashboard → todas las secciones → carga de datos → equipo → configuración.
 
