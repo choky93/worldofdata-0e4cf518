@@ -60,6 +60,54 @@ export default function Onboarding() {
   const { profile, refreshProfile } = useAuth();
   const navigate = useNavigate();
 
+  // Pre-load existing data when editing from Configuración
+  useEffect(() => {
+    const loadExisting = async () => {
+      if (!profile?.company_id) return;
+      try {
+        const { data: company } = await supabase
+          .from('companies')
+          .select('name, industry, employee_count, years_operating')
+          .eq('id', profile.company_id)
+          .single();
+
+        const { data: settings } = await supabase
+          .from('company_settings')
+          .select('*')
+          .eq('company_id', profile.company_id)
+          .single();
+
+        if (company || settings) {
+          const isCustomIndustry = company?.industry && !INDUSTRIES.includes(company.industry);
+          setData(prev => ({
+            ...prev,
+            companyName: company?.name || prev.companyName,
+            industry: isCustomIndustry ? 'Otro' : (company?.industry || prev.industry),
+            customIndustry: isCustomIndustry ? (company?.industry || '') : prev.customIndustry,
+            employeeCount: company?.employee_count || prev.employeeCount,
+            yearsOperating: company?.years_operating || prev.yearsOperating,
+            sellsProducts: settings?.sells_products ?? prev.sellsProducts,
+            sellsServices: settings?.sells_services ?? prev.sellsServices,
+            hasStock: settings?.has_stock ?? prev.hasStock,
+            hasLogistics: settings?.has_logistics ?? prev.hasLogistics,
+            supplierLeadDays: settings?.supplier_lead_days?.toString() || prev.supplierLeadDays,
+            skuCount: settings?.sku_count || prev.skuCount,
+            hasRecurringClients: settings?.has_recurring_clients ?? prev.hasRecurringClients,
+            hasWholesalePrices: settings?.has_wholesale_prices ?? prev.hasWholesalePrices,
+            accountingMethod: settings?.accounting_method || prev.accountingMethod,
+            crmErp: settings?.crm_erp || prev.crmErp,
+            usesMetaAds: settings?.uses_meta_ads ?? prev.usesMetaAds,
+            usesGoogleAds: settings?.uses_google_ads ?? prev.usesGoogleAds,
+            goals: (settings?.goals as string[]) || prev.goals,
+          }));
+        }
+      } catch (err) {
+        console.error('Error loading existing data:', err);
+      }
+    };
+    loadExisting();
+  }, [profile?.company_id]);
+
   const totalSteps = 5; // 4 blocks + summary
   const progress = ((step + 1) / totalSteps) * 100;
 
