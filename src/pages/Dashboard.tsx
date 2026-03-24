@@ -1,16 +1,19 @@
+import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { useAuth } from '@/contexts/AuthContext';
 import { formatCurrency, formatPercent, getGreeting } from '@/lib/formatters';
 import {
   mockSalesCurrentMonth, mockProfit, mockCashFlow, mockAds, mockExpenses,
   mockProducts, mockClients, mockAlerts, mockDailySales, mockCompany,
 } from '@/lib/mock-data';
-import { TrendingUp, TrendingDown, AlertTriangle, DollarSign, Package, Users, Megaphone, FileText, ArrowUpRight } from 'lucide-react';
-import { AreaChart, Area, XAxis, YAxis, Tooltip as RTooltip, ResponsiveContainer, BarChart, Bar } from 'recharts';
+import { TrendingUp, TrendingDown, AlertTriangle, DollarSign, Package, Users, Megaphone, FileText, ArrowUpRight, ArrowRight } from 'lucide-react';
+import { AreaChart, Area, XAxis, YAxis, Tooltip as RTooltip, ResponsiveContainer, Line } from 'recharts';
 import { Link } from 'react-router-dom';
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip';
+import { motion, AnimatePresence } from 'framer-motion';
 
 function StatusBadge({ status }: { status: 'ok' | 'low' | 'overstock' }) {
   if (status === 'ok') return <Badge className="bg-success/15 text-success border-0">OK</Badge>;
@@ -24,6 +27,47 @@ function ExpenseStatus({ status }: { status: 'paid' | 'pending' | 'overdue' }) {
   return <Badge className="bg-destructive/15 text-destructive border-0">Vencido</Badge>;
 }
 
+function TickerBar({ highlights }: { highlights: string[] }) {
+  const [currentIndex, setCurrentIndex] = useState(0);
+
+  useEffect(() => {
+    if (highlights.length <= 1) return;
+    const interval = setInterval(() => {
+      setCurrentIndex(prev => (prev + 1) % highlights.length);
+    }, 5000);
+    return () => clearInterval(interval);
+  }, [highlights.length]);
+
+  return (
+    <div className="bg-primary/5 rounded-xl p-4 overflow-hidden relative min-h-[52px] flex items-center">
+      <ArrowUpRight className="h-4 w-4 text-primary shrink-0 mr-2" />
+      <AnimatePresence mode="wait">
+        <motion.p
+          key={currentIndex}
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -12 }}
+          transition={{ duration: 0.4, ease: 'easeInOut' }}
+          className="text-sm flex-1"
+        >
+          {highlights[currentIndex]}
+        </motion.p>
+      </AnimatePresence>
+      {highlights.length > 1 && (
+        <div className="flex gap-1 ml-3 shrink-0">
+          {highlights.map((_, i) => (
+            <button
+              key={i}
+              onClick={() => setCurrentIndex(i)}
+              className={`w-1.5 h-1.5 rounded-full transition-colors ${i === currentIndex ? 'bg-primary' : 'bg-primary/25'}`}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function Dashboard() {
   const { profile, companySettings, companyName } = useAuth();
   const name = profile?.full_name || 'Usuario';
@@ -35,7 +79,18 @@ export default function Dashboard() {
     `Llevás vendido ${formatCurrency(mockSalesCurrentMonth.accumulated)} en marzo. Estás un 12% arriba del mismo período del año pasado.`,
     `Tenés ${formatCurrency(mockCashFlow.pendingCollections)} pendientes de cobro de 3 clientes.`,
     showStock ? `Tu stock de Impresora Ender 3 V3 alcanza para 10 días. Tu proveedor tarda 15.` : null,
-  ].filter(Boolean);
+    `Tu ROAS promedio es ${mockAds.roas}x — un 15.6% mejor que el mes pasado.`,
+  ].filter(Boolean) as string[];
+
+  // Split daily sales into real vs projected
+  const realData = mockDailySales.filter(d => !d.projected);
+  const lastReal = realData[realData.length - 1];
+  const projectedData = mockDailySales.filter(d => d.projected);
+  const chartData = mockDailySales.map(d => ({
+    day: d.day,
+    value: d.projected ? undefined : d.value,
+    projected: d.projected ? d.value : (d === lastReal ? d.value : undefined),
+  }));
 
   return (
     <TooltipProvider>
@@ -46,19 +101,11 @@ export default function Dashboard() {
           <p className="text-muted-foreground mt-1">Acá va tu resumen de <span className="font-medium text-foreground">{company}</span>.</p>
         </div>
 
-        {/* Highlights */}
-        <div className="bg-primary/5 rounded-xl p-4 space-y-2">
-          {highlights.map((h, i) => (
-            <p key={i} className="text-sm flex items-start gap-2">
-              <ArrowUpRight className="h-4 w-4 text-primary mt-0.5 shrink-0" />
-              {h}
-            </p>
-          ))}
-        </div>
+        {/* Animated Ticker */}
+        <TickerBar highlights={highlights} />
 
         {/* Top KPI Cards */}
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-          {/* Ventas */}
           <Link to="/ventas">
             <Card className="hover:shadow-md transition-shadow cursor-pointer">
               <CardHeader className="pb-2">
@@ -82,7 +129,6 @@ export default function Dashboard() {
             </Card>
           </Link>
 
-          {/* Ganancia */}
           <Link to="/finanzas">
             <Card className="hover:shadow-md transition-shadow cursor-pointer">
               <CardHeader className="pb-2">
@@ -108,7 +154,6 @@ export default function Dashboard() {
             </Card>
           </Link>
 
-          {/* Flujo de Caja */}
           <Link to="/finanzas">
             <Card className="hover:shadow-md transition-shadow cursor-pointer">
               <CardHeader className="pb-2">
@@ -120,8 +165,7 @@ export default function Dashboard() {
                 <p className="text-3xl font-bold tabular-nums">{formatCurrency(mockCashFlow.availableToday)}</p>
                 <p className="text-xs text-muted-foreground mt-1">Disponible hoy</p>
                 <div className={`mt-3 rounded-lg p-3 text-sm ${
-                  mockCashFlow.status === 'warning' ? 'bg-warning/10 text-warning' :
-                  'bg-destructive/10 text-destructive'
+                  mockCashFlow.status === 'warning' ? 'bg-warning/10 text-warning' : 'bg-destructive/10 text-destructive'
                 }`}>
                   <AlertTriangle className="h-4 w-4 inline mr-1" />
                   A fin de mes estimamos {formatCurrency(mockCashFlow.estimatedEndOfMonth)} en caja
@@ -131,7 +175,7 @@ export default function Dashboard() {
           </Link>
         </div>
 
-        {/* Sales Chart */}
+        {/* Sales Chart with projection */}
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">Ventas diarias — Marzo 2026</CardTitle>
@@ -139,26 +183,34 @@ export default function Dashboard() {
           <CardContent>
             <div className="h-48">
               <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={mockDailySales}>
+                <AreaChart data={chartData}>
                   <defs>
                     <linearGradient id="salesGrad" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="hsl(217, 71%, 45%)" stopOpacity={0.3} />
-                      <stop offset="95%" stopColor="hsl(217, 71%, 45%)" stopOpacity={0} />
+                      <stop offset="5%" stopColor="hsl(var(--primary))" stopOpacity={0.3} />
+                      <stop offset="95%" stopColor="hsl(var(--primary))" stopOpacity={0} />
+                    </linearGradient>
+                    <linearGradient id="projGrad" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="hsl(var(--primary))" stopOpacity={0.1} />
+                      <stop offset="95%" stopColor="hsl(var(--primary))" stopOpacity={0} />
                     </linearGradient>
                   </defs>
                   <XAxis dataKey="day" tick={{ fontSize: 11 }} axisLine={false} tickLine={false} />
                   <YAxis tick={{ fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={(v) => `$${(v/1000).toFixed(0)}k`} />
                   <RTooltip formatter={(v: number) => formatCurrency(v)} />
-                  <Area type="monotone" dataKey="value" stroke="hsl(217, 71%, 45%)" fill="url(#salesGrad)" strokeWidth={2} />
+                  <Area type="monotone" dataKey="value" stroke="hsl(var(--primary))" fill="url(#salesGrad)" strokeWidth={2} connectNulls={false} />
+                  <Area type="monotone" dataKey="projected" stroke="hsl(var(--primary))" fill="url(#projGrad)" strokeWidth={2} strokeDasharray="6 4" connectNulls={false} />
                 </AreaChart>
               </ResponsiveContainer>
+            </div>
+            <div className="flex gap-4 mt-2 text-xs text-muted-foreground">
+              <span className="flex items-center gap-1"><span className="w-4 h-0.5 bg-primary inline-block" /> Real</span>
+              <span className="flex items-center gap-1"><span className="w-4 h-0.5 bg-primary inline-block border-dashed" style={{ borderTop: '2px dashed hsl(var(--primary))', height: 0, background: 'none' }} /> Proyección</span>
             </div>
           </CardContent>
         </Card>
 
         {/* Second Row */}
         <div className="grid gap-4 md:grid-cols-2">
-          {/* Ads (conditional) */}
           {showAds && (
             <Link to="/marketing">
               <Card className="hover:shadow-md transition-shadow cursor-pointer h-full">
@@ -182,7 +234,6 @@ export default function Dashboard() {
             </Link>
           )}
 
-          {/* Gastos previstos */}
           <Card>
             <CardHeader className="pb-2">
               <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
@@ -208,7 +259,6 @@ export default function Dashboard() {
 
         {/* Third Row */}
         <div className="grid gap-4 md:grid-cols-2">
-          {/* Stock */}
           {showStock && (
             <Link to="/stock">
               <Card className="hover:shadow-md transition-shadow cursor-pointer h-full">
@@ -235,7 +285,6 @@ export default function Dashboard() {
             </Link>
           )}
 
-          {/* Clientes */}
           <Link to="/clientes">
             <Card className="hover:shadow-md transition-shadow cursor-pointer h-full">
               <CardHeader className="pb-2">
@@ -266,7 +315,7 @@ export default function Dashboard() {
           </Link>
         </div>
 
-        {/* Alerts Preview */}
+        {/* Alerts Preview with suggestions */}
         <Card>
           <CardHeader className="pb-2 flex flex-row items-center justify-between">
             <CardTitle className="text-sm font-medium text-muted-foreground">Alertas recientes</CardTitle>
@@ -275,12 +324,24 @@ export default function Dashboard() {
           <CardContent>
             <div className="space-y-2">
               {mockAlerts.filter(a => !a.read).slice(0, 3).map((alert) => (
-                <div key={alert.id} className={`text-sm p-3 rounded-lg border-l-4 ${
+                <div key={alert.id} className={`text-sm p-3 rounded-lg border-l-4 flex items-start justify-between gap-3 ${
                   alert.priority === 'high' ? 'border-l-destructive bg-destructive/5' :
                   alert.priority === 'medium' ? 'border-l-warning bg-warning/5' :
                   'border-l-primary bg-primary/5'
                 }`}>
-                  {alert.message}
+                  <span className="flex-1">{alert.message}</span>
+                  {alert.suggestion && (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button variant="ghost" size="sm" className="shrink-0 text-xs gap-1 h-7">
+                          Ver sugerencia <ArrowRight className="h-3 w-3" />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent side="left" className="max-w-[300px]">
+                        <p className="text-xs">{alert.suggestion}</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  )}
                 </div>
               ))}
             </div>
