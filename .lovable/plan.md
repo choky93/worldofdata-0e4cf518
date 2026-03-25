@@ -1,70 +1,154 @@
 
-# Plan: corregir sidebar móvil que sigue mostrando solo íconos
 
-## Diagnóstico
-El problema no parece ser ya el breakpoint, sino la lógica de colapsado dentro del contenido del sidebar:
+# Plan de Integración: OpenAI + Perplexity + Cloudflare R2
 
-- `useIsMobile` ya está en `1024`, así que en móvil/tablet el sidebar debería abrirse como overlay.
-- Pero `AppSidebar` usa `const collapsed = state === 'collapsed'`.
-- En `AppLayout`, `SidebarProvider` arranca con `defaultOpen={false}`.
-- En móvil, aunque el sidebar se abra como `Sheet`, el `state` general sigue siendo `"collapsed"`, entonces el contenido renderiza solo íconos y oculta los textos.
+## Resumen
 
-Eso coincide exactamente con la captura: se abre como panel, pero internamente sigue “mini”.
+Integrar las 3 APIs del cliente en la plataforma World of Data, dividido en **3 fases** para evitar fallos y poder testear cada una antes de avanzar.
 
-## Cambios a implementar
+---
 
-### 1. Forzar sidebar expandido en móvil
-**Archivo:** `src/components/AppSidebar.tsx`
+## FASE 1 — Infraestructura base (secrets + edge functions + R2)
 
-- Leer también `isMobile` desde `useSidebar()`
-- Cambiar la lógica a algo como:
-  - `const collapsed = !isMobile && state === 'collapsed'`
-- Así, en móvil:
-  - siempre se muestran nombre/logo
-  - siempre se muestran labels de navegación
-  - siempre se muestran badges
-  - el botón “Cerrar sesión” muestra texto
+### 1.1 Configurar secrets
 
-## 2. Revisar ancho y espaciado del panel móvil
-**Archivo:** `src/components/ui/sidebar.tsx`
+Agregar 3 secrets al proyecto usando la herramienta `add_secret`:
+- `OPENAI_API_KEY` — API key de OpenAI del cliente
+- `PERPLEXITY_API_KEY` — API key de Perplexity del cliente
+- `CLOUDFLARE_R2_ACCESS_KEY_ID`, `CLOUDFLARE_R2_SECRET_ACCESS_KEY`, `CLOUDFLARE_R2_ENDPOINT`, `CLOUDFLARE_R2_BUCKET_NAME` — credenciales de R2
 
-Ajustar el `SheetContent` móvil para que:
-- no se vea sobredimensionado innecesariamente
-- tenga un ancho más razonable en celulares pequeños
-- conserve buena legibilidad del texto
+### 1.2 Edge function: `ai-chat` (OpenAI)
 
-Posibles ajustes:
-- bajar levemente `SIDEBAR_WIDTH_MOBILE`
-- o usar un ancho responsive tipo `w-[85vw] max-w-[18rem]`
+Crear `supabase/functions/ai-chat/index.ts`:
+- Recibe mensajes del frontend, los envía a la API de OpenAI (GPT-4o o modelo que el cliente prefiera)
+- Soporta streaming SSE para respuestas en tiempo real
+- System prompt configurable según el contexto (copiloto de negocios, análisis de datos, etc.)
+- Manejo de errores 429/402 con mensajes claros
 
-## 3. Mejorar UX del menú móvil
-**Archivo:** `src/components/AppSidebar.tsx`
+### 1.3 Edge function: `ai-search` (Perplexity)
 
-- Hacer que al tocar una opción del menú en móvil, el sidebar se cierre automáticamente
-- Evita que el usuario quede con el panel abierto encima del contenido
+Crear `supabase/functions/ai-search/index.ts`:
+- Usa Perplexity API (modelo `sonar-pro`) para búsquedas con fuentes
+- Recibe una query y contexto del negocio, devuelve respuesta + citations
+- Útil para investigación de mercado, benchmarks, tendencias del sector
 
-## 4. Revisión visual global en móvil
-Aprovechar esta corrección para validar que:
-- header + trigger sigan visibles
-- el logo no desborde
-- los nombres largos como “Carga de datos” y “Configuración” entren bien
-- el footer no quede cortado
-- el overlay no tape de forma extraña el contenido de fondo
+### 1.4 Edge function: `r2-upload` (Cloudflare R2)
 
-## Resultado esperado
-En celular/tablet, al abrir el sidebar:
-- se verá como menú completo, no mini
-- aparecerán íconos + nombres
-- ocupará un ancho razonable
-- se podrá navegar con claridad sin perder demasiado espacio
+Crear `supabase/functions/r2-upload/index.ts`:
+- Recibe archivos del frontend vía multipart o base64
+- Sube a Cloudflare R2 usando la API S3-compatible (aws4fetch en Deno)
+- Devuelve el path/key del archivo almacenado
+- Registra el archivo en la tabla `file_uploads` con el storage_path apuntando a R2
 
-## Archivos a tocar
-- `src/components/AppSidebar.tsx`
-- `src/components/ui/sidebar.tsx`
+### 1.5 Edge function: `r2-delete`
 
-## Nota técnica
-El bug central está en mezclar:
-- estado de sidebar desktop (`expanded/collapsed`)
-- con render del contenido móvil
+Crear `supabase/functions/r2-delete/index.ts`:
+- Elimina archivos de R2 por key
+- Se llama cuando el usuario borra un archivo desde la UI
 
-La solución correcta es desacoplar ambas cosas: en móvil el sidebar puede abrirse/cerrarse, pero cuando está abierto debe renderizarse siempre en modo expandido.
+### 1.6 Migrar CargaDatos.tsx
+
+- Cambiar `supabase.storage.from('uploads').upload(...)` por llamada a `supabase.functions.invoke('r2-upload', ...)`
+- Cambiar el delete para usar `supabase.functions.invoke('r2-delete', ...)`
+- La tabla `file_uploads` sigue igual, solo cambia el destino del archivo físico
+
+**Archivos a crear/modificar:**
+- `supabase/functions/ai-chat/index.ts` (nuevo)
+- `supabase/functions/ai-search/index.ts` (nuevo)
+- `supabase/functions/r2-upload/index.ts` (nuevo)
+- `supabase/functions/r2-delete/index.ts` (nuevo)
+- `src/pages/CargaDatos.tsx` (modificar upload/delete)
+
+---
+
+## FASE 2 — Copiloto IA funcional
+
+### 2.1 Activar el AICopilot
+
+Transformar `src/components/AICopilot.tsx` de placeholder a chat funcional:
+- Input habilitado, envía mensajes al edge function `ai-chat`
+- Streaming token-por-token con rendering markdown (`react-markdown`)
+- Historial de conversación en memoria (no persistido por ahora)
+- System prompt que incluye contexto del negocio: industria, configuración del onboarding, módulos activos
+- Las sugerencias placeholder se vuelven clickeables y envían el mensaje
+
+### 2.2 Botón "Investigar" con Perplexity
+
+Agregar al copiloto un modo "Investigar" que usa Perplexity en vez de OpenAI:
+- Cuando el usuario quiere datos de mercado, tendencias, o info externa
+- Muestra las fuentes/citations debajo de la respuesta
+- Toggle simple entre modo "Analizar" (OpenAI) y "Investigar" (Perplexity)
+
+**Archivos a crear/modificar:**
+- `src/components/AICopilot.tsx` (refactor completo)
+- `src/lib/ai-client.ts` (nuevo — helper para llamar a las edge functions de IA)
+
+---
+
+## FASE 3 — Funciones IA en módulos
+
+### 3.1 Análisis inteligente de archivos
+
+Crear `supabase/functions/ai-analyze-file/index.ts`:
+- Cuando se sube un CSV/XLS, el backend lo lee desde R2, extrae las primeras filas, y le pide a OpenAI que identifique qué tipo de datos son (ventas, stock, gastos, etc.)
+- Actualiza el status del archivo a "processed" con metadata del análisis
+- En `CargaDatos.tsx`, mostrar un badge con el tipo detectado y un resumen breve
+
+### 3.2 Alertas inteligentes
+
+En `src/pages/Alertas.tsx`:
+- Reemplazar mock data por un edge function `ai-alerts` que analiza datos reales y genera alertas con OpenAI
+- Ejemplo: "Tu cliente X no compra hace 45 días", "El producto Y tiene stock para solo 3 días"
+
+### 3.3 Forecast con IA
+
+En `src/pages/Forecast.tsx`:
+- Crear edge function `ai-forecast` que toma datos históricos de ventas y usa OpenAI para generar predicciones + explicación en lenguaje natural
+- Mantener los gráficos actuales pero alimentados con datos reales procesados por IA
+
+### 3.4 Resumen ejecutivo en Dashboard
+
+En `src/pages/Dashboard.tsx`:
+- Agregar un card "Resumen del día" generado por OpenAI
+- Toma los KPIs actuales y genera 3-4 bullets de lo más relevante
+- Se genera una vez al cargar y se cachea en sessionStorage
+
+**Archivos a crear/modificar:**
+- `supabase/functions/ai-analyze-file/index.ts` (nuevo)
+- `supabase/functions/ai-alerts/index.ts` (nuevo)
+- `supabase/functions/ai-forecast/index.ts` (nuevo)
+- `src/pages/CargaDatos.tsx` (agregar análisis post-upload)
+- `src/pages/Alertas.tsx` (conectar a IA)
+- `src/pages/Forecast.tsx` (conectar a IA)
+- `src/pages/Dashboard.tsx` (agregar resumen IA)
+
+---
+
+## Detalle técnico
+
+### OpenAI — se usa para:
+- Copiloto conversacional (chat streaming)
+- Análisis de archivos subidos (clasificación + resumen)
+- Generación de alertas inteligentes
+- Forecast con explicación
+- Resumen ejecutivo del dashboard
+
+### Perplexity — se usa para:
+- Búsquedas de mercado con fuentes verificables
+- Benchmarks del sector (ej: "¿cuál es el margen promedio en mi industria?")
+- Tendencias y noticias relevantes al rubro del cliente
+
+### Cloudflare R2 — se usa para:
+- Todo almacenamiento de archivos (reemplaza Supabase Storage)
+- Compatible con S3 API, se accede desde edge functions con `aws4fetch`
+- Los archivos se registran en la tabla `file_uploads` existente
+
+### Orden de implementación
+1. **Fase 1 primero** — sin esto nada funciona. Se testea subiendo un archivo a R2 y haciendo una pregunta al copiloto.
+2. **Fase 2 segundo** — el copiloto es la feature más visible y valiosa.
+3. **Fase 3 tercero** — funciones avanzadas que dependen de tener datos reales.
+
+### Dependencias npm a agregar
+- `react-markdown` (para renderizar respuestas del copiloto)
+- `remark-gfm` (soporte de tablas/listas en markdown)
+
