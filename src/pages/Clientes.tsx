@@ -33,7 +33,7 @@ export default function Clientes() {
     <TooltipProvider>
       <div className="space-y-6 max-w-7xl">
         <h1 className="text-2xl font-bold">Clientes</h1>
-        <div className="grid gap-4 md:grid-cols-4">
+        <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 md:grid-cols-4">
           <Card><CardContent className="pt-6">
             <p className="text-sm text-muted-foreground">Total clientes</p>
             <p className="text-3xl font-bold">{mockClients.length}</p>
@@ -99,7 +99,7 @@ export default function Clientes() {
 
         <Card>
           <CardHeader><CardTitle className="text-sm text-muted-foreground">Cartera de clientes</CardTitle></CardHeader>
-          <CardContent>
+          <CardContent className="overflow-x-auto">
             <Table>
               <TableHeader><TableRow>
                 <TableHead>Cliente</TableHead>

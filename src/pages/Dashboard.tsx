@@ -140,7 +140,7 @@ export default function Dashboard() {
 
         {/* Health Radar */}
         <Stagger index={2}>
-          <div className="grid gap-2 grid-cols-3 lg:grid-cols-6">
+          <div className="grid gap-2 grid-cols-2 sm:grid-cols-3 lg:grid-cols-6">
             {visibleHealth.map((dim) => (
               <button
                 key={dim.key}
@@ -159,7 +159,7 @@ export default function Dashboard() {
 
         {/* Compact KPIs */}
         <Stagger index={3}>
-          <div className="grid gap-3 grid-cols-2 lg:grid-cols-4">
+          <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
             <Link to="/ventas">
               <Card className="module-border-ventas hover:shadow-lg transition-all cursor-pointer h-full">
                 <CardContent className="p-4">
@@ -278,7 +278,7 @@ export default function Dashboard() {
         </Stagger>
 
         {/* Decisions of the day + Stock */}
-        <div className="grid gap-3 lg:grid-cols-2">
+        <div className="grid gap-3 md:grid-cols-2">
           <Stagger index={5}>
             <Card className="h-full">
               <CardHeader className="pb-2">
