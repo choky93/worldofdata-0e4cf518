@@ -19,7 +19,7 @@ export default function Operaciones() {
     <div className="space-y-6 max-w-7xl">
       <h1 className="text-2xl font-bold">Operaciones</h1>
 
-      <div className="grid gap-4 md:grid-cols-3">
+      <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 md:grid-cols-3">
         <Card><CardContent className="pt-6">
           <p className="text-sm text-muted-foreground">Total vendido</p>
           <p className="text-3xl font-bold text-success tabular-nums">{formatCurrency(totalSales)}</p>
