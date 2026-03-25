@@ -22,7 +22,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 
 interface OnboardingData {
   // Strategic
-  painPoint: string;
+  painPoints: string[];
   maturityScores: Record<string, number>;
   // Operational
   companyName: string;
