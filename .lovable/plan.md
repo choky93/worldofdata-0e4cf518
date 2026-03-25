@@ -1,58 +1,38 @@
 
 
-# Plan: Revisión y corrección de responsividad móvil/tablet
+# Plan: Correcciones del Onboarding
 
-## Diagnóstico
+## Problemas reportados por el cliente
 
-La captura del cliente muestra la plataforma vista desde un celular. El problema principal: el sidebar colapsado (solo íconos, ~48px) se muestra como elemento permanente en pantallas de ancho >= 768px (breakpoint `md`), robando espacio valioso. En un celular en orientación portrait esto no debería pasar (el sidebar usa Sheet/overlay), pero si el viewport es >= 768px (tablet, celular landscape, o Safari reportando diferente), el sidebar permanente aparece y el contenido se comprime.
+1. **"¿Dónde te duele?" solo permite seleccionar una opción** — El campo `painPoint` es un string único. El cliente quiere poder elegir varias.
+2. **El botón "Empezar a usar World of Data" no funciona en el paso final** — Probablemente `handleFinish` falla silenciosamente. El `upsert` en `diagnostic_results` usa `onConflict: 'company_id'` pero puede fallar si no hay un unique constraint, o el campo `painPoint` ahora sería un array y el insert falla. También, si `profile?.company_id` es null/undefined, la función retorna sin hacer nada y sin feedback.
 
-Además, los KPIs y el Health Radar usan grids que no se adaptan bien a viewports estrechos (768px-1024px).
+## Cambios a implementar
 
-## Correcciones a implementar
+### 1. Pain points: de selección única a múltiple
 
-### 1. Sidebar: ocultar permanente en pantallas < 1024px
+**Archivo:** `src/pages/Onboarding.tsx`
+- Cambiar `painPoint: string` a `painPoints: string[]` en `OnboardingData`
+- Inicializar como `painPoints: []`
+- En el Block 0, cambiar el onClick para toggle (agregar/quitar del array)
+- Actualizar el estilo para marcar múltiples seleccionados
 
-**Archivo:** `src/components/ui/sidebar.tsx`
+**Archivo:** `src/lib/constants.ts`
+- No requiere cambios
 
-Cambiar el breakpoint del sidebar permanente de `md` (768px) a `lg` (1024px). Esto asegura que en tablets y celulares el sidebar siempre sea un overlay (Sheet), liberando el 100% del ancho para contenido.
+### 2. Actualizar handleFinish para arrays
 
-- Línea 176: `md:block` → `lg:block`
-- Línea 195: `md:flex` → `lg:flex`
+**Archivo:** `src/pages/Onboarding.tsx`
+- En `handleFinish`: cambiar `data.painPoint` a `data.painPoints` (join o primer elemento para `pain_point` en DB, o guardar como array)
+- En el resultado (Block 4): usar `data.painPoints` para calcular prioridades
+- Agregar `console.error` y un toast de error más descriptivo si algo falla
+- Agregar validación: si `!profile?.company_id`, mostrar toast de error en vez de retornar silenciosamente
 
-**Archivo:** `src/hooks/use-mobile.tsx`
+### 3. Resultado: ajustar texto de prioridades
 
-Cambiar `MOBILE_BREAKPOINT` de 768 a 1024 para que coincida con el nuevo breakpoint del sidebar.
+**Archivo:** `src/pages/Onboarding.tsx`
+- Block 4: las dimensiones prioritarias ahora se calculan desde `data.painPoints` (las que eligió el cliente van primero)
 
-### 2. Dashboard: grids responsive mejorados
-
-**Archivo:** `src/pages/Dashboard.tsx`
-
-- Health Radar: `grid-cols-3 lg:grid-cols-6` → `grid-cols-2 sm:grid-cols-3 lg:grid-cols-6`
-- KPIs: `grid-cols-2 lg:grid-cols-4` → `grid-cols-1 sm:grid-cols-2 lg:grid-cols-4`
-- KPI values: reducir tamaño en mobile con `text-2xl sm:text-3xl`
-- Bottom grid: `lg:grid-cols-2` → `md:grid-cols-2`
-
-### 3. Páginas de secciones: tablas responsive
-
-**Archivos:** `src/pages/Clientes.tsx`, `src/pages/Stock.tsx`, `src/pages/Operaciones.tsx`, `src/pages/Marketing.tsx`
-
-- Envolver tablas en `overflow-x-auto` para scroll horizontal en mobile
-- KPI grids: ajustar a `grid-cols-1 sm:grid-cols-2 md:grid-cols-4`
-
-### 4. AppLayout: padding responsive
-
-**Archivo:** `src/components/AppLayout.tsx`
-
-- Main padding: `p-4 lg:p-6` → `p-3 sm:p-4 lg:p-6`
-
-### 5. AICopilot: posición en mobile
-
-**Archivo:** `src/components/AICopilot.tsx`
-
-- Asegurar que el panel de chat no se desborde en mobile (ancho `w-full sm:w-96`)
-- FAB: reducir tamaño en mobile
-
-## Detalle técnico
-
-El cambio más impactante es el #1 (sidebar breakpoint). El sidebar de shadcn/ui decide entre Sheet (overlay) y sidebar permanente basándose en `useIsMobile()` que usa `MOBILE_BREAKPOINT`. Al subirlo a 1024px, tablets y celulares siempre verán el sidebar como overlay que se abre/cierra, dando el 100% del ancho al contenido.
+## Archivos modificados
+- `src/pages/Onboarding.tsx`
 
