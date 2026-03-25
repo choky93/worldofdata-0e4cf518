@@ -1,38 +1,70 @@
 
+# Plan: corregir sidebar móvil que sigue mostrando solo íconos
 
-# Plan: Correcciones del Onboarding
+## Diagnóstico
+El problema no parece ser ya el breakpoint, sino la lógica de colapsado dentro del contenido del sidebar:
 
-## Problemas reportados por el cliente
+- `useIsMobile` ya está en `1024`, así que en móvil/tablet el sidebar debería abrirse como overlay.
+- Pero `AppSidebar` usa `const collapsed = state === 'collapsed'`.
+- En `AppLayout`, `SidebarProvider` arranca con `defaultOpen={false}`.
+- En móvil, aunque el sidebar se abra como `Sheet`, el `state` general sigue siendo `"collapsed"`, entonces el contenido renderiza solo íconos y oculta los textos.
 
-1. **"¿Dónde te duele?" solo permite seleccionar una opción** — El campo `painPoint` es un string único. El cliente quiere poder elegir varias.
-2. **El botón "Empezar a usar World of Data" no funciona en el paso final** — Probablemente `handleFinish` falla silenciosamente. El `upsert` en `diagnostic_results` usa `onConflict: 'company_id'` pero puede fallar si no hay un unique constraint, o el campo `painPoint` ahora sería un array y el insert falla. También, si `profile?.company_id` es null/undefined, la función retorna sin hacer nada y sin feedback.
+Eso coincide exactamente con la captura: se abre como panel, pero internamente sigue “mini”.
 
 ## Cambios a implementar
 
-### 1. Pain points: de selección única a múltiple
+### 1. Forzar sidebar expandido en móvil
+**Archivo:** `src/components/AppSidebar.tsx`
 
-**Archivo:** `src/pages/Onboarding.tsx`
-- Cambiar `painPoint: string` a `painPoints: string[]` en `OnboardingData`
-- Inicializar como `painPoints: []`
-- En el Block 0, cambiar el onClick para toggle (agregar/quitar del array)
-- Actualizar el estilo para marcar múltiples seleccionados
+- Leer también `isMobile` desde `useSidebar()`
+- Cambiar la lógica a algo como:
+  - `const collapsed = !isMobile && state === 'collapsed'`
+- Así, en móvil:
+  - siempre se muestran nombre/logo
+  - siempre se muestran labels de navegación
+  - siempre se muestran badges
+  - el botón “Cerrar sesión” muestra texto
 
-**Archivo:** `src/lib/constants.ts`
-- No requiere cambios
+## 2. Revisar ancho y espaciado del panel móvil
+**Archivo:** `src/components/ui/sidebar.tsx`
 
-### 2. Actualizar handleFinish para arrays
+Ajustar el `SheetContent` móvil para que:
+- no se vea sobredimensionado innecesariamente
+- tenga un ancho más razonable en celulares pequeños
+- conserve buena legibilidad del texto
 
-**Archivo:** `src/pages/Onboarding.tsx`
-- En `handleFinish`: cambiar `data.painPoint` a `data.painPoints` (join o primer elemento para `pain_point` en DB, o guardar como array)
-- En el resultado (Block 4): usar `data.painPoints` para calcular prioridades
-- Agregar `console.error` y un toast de error más descriptivo si algo falla
-- Agregar validación: si `!profile?.company_id`, mostrar toast de error en vez de retornar silenciosamente
+Posibles ajustes:
+- bajar levemente `SIDEBAR_WIDTH_MOBILE`
+- o usar un ancho responsive tipo `w-[85vw] max-w-[18rem]`
 
-### 3. Resultado: ajustar texto de prioridades
+## 3. Mejorar UX del menú móvil
+**Archivo:** `src/components/AppSidebar.tsx`
 
-**Archivo:** `src/pages/Onboarding.tsx`
-- Block 4: las dimensiones prioritarias ahora se calculan desde `data.painPoints` (las que eligió el cliente van primero)
+- Hacer que al tocar una opción del menú en móvil, el sidebar se cierre automáticamente
+- Evita que el usuario quede con el panel abierto encima del contenido
 
-## Archivos modificados
-- `src/pages/Onboarding.tsx`
+## 4. Revisión visual global en móvil
+Aprovechar esta corrección para validar que:
+- header + trigger sigan visibles
+- el logo no desborde
+- los nombres largos como “Carga de datos” y “Configuración” entren bien
+- el footer no quede cortado
+- el overlay no tape de forma extraña el contenido de fondo
 
+## Resultado esperado
+En celular/tablet, al abrir el sidebar:
+- se verá como menú completo, no mini
+- aparecerán íconos + nombres
+- ocupará un ancho razonable
+- se podrá navegar con claridad sin perder demasiado espacio
+
+## Archivos a tocar
+- `src/components/AppSidebar.tsx`
+- `src/components/ui/sidebar.tsx`
+
+## Nota técnica
+El bug central está en mezclar:
+- estado de sidebar desktop (`expanded/collapsed`)
+- con render del contenido móvil
+
+La solución correcta es desacoplar ambas cosas: en móvil el sidebar puede abrirse/cerrarse, pero cuando está abierto debe renderizarse siempre en modo expandido.
