@@ -22,7 +22,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 
 interface OnboardingData {
   // Strategic
-  painPoint: string;
+  painPoints: string[];
   maturityScores: Record<string, number>;
   // Operational
   companyName: string;
@@ -46,7 +46,7 @@ interface OnboardingData {
 }
 
 const initialData: OnboardingData = {
-  painPoint: '', maturityScores: {},
+  painPoints: [], maturityScores: {},
   companyName: '', industry: '', customIndustry: '', employeeCount: '', yearsOperating: '',
   sellsProducts: false, sellsServices: false, hasStock: false, hasLogistics: false,
   supplierLeadDays: '', skuCount: '', hasRecurringClients: false, hasWholesalePrices: false,
@@ -149,17 +149,25 @@ export default function Onboarding() {
   const improvement = getImprovementPotential(classification);
 
   const handleFinish = async () => {
-    if (!profile?.company_id) return;
+    if (!profile?.company_id) {
+      toast.error('No se encontró tu empresa. Cerrá sesión e intentá de nuevo.');
+      return;
+    }
     setSaving(true);
     try {
-      await supabase.from('companies').update({
+      const { error: companyError } = await supabase.from('companies').update({
         name: data.companyName,
         industry: data.industry === 'Otro' ? data.customIndustry : data.industry,
         employee_count: data.employeeCount,
         years_operating: data.yearsOperating,
       }).eq('id', profile.company_id);
 
-      await supabase.from('company_settings').update({
+      if (companyError) {
+        console.error('Error updating company:', companyError);
+        throw companyError;
+      }
+
+      const { error: settingsError } = await supabase.from('company_settings').update({
         sells_products: data.sellsProducts,
         sells_services: data.sellsServices,
         has_stock: data.hasStock,
@@ -177,26 +185,37 @@ export default function Onboarding() {
         onboarding_completion_pct: 100,
       }).eq('company_id', profile.company_id);
 
-      // Save diagnostic result
-      const painLabel = PAIN_POINTS.find(p => p.id === data.painPoint)?.dimension || null;
-      const priorityIndicators = [
-        painLabel,
-        ...PAIN_POINTS.filter(p => p.id !== data.painPoint).slice(0, 2).map(p => p.dimension),
-      ].filter(Boolean) as string[];
+      if (settingsError) {
+        console.error('Error updating settings:', settingsError);
+        throw settingsError;
+      }
 
-      await supabase.from('diagnostic_results').upsert({
+      // Save diagnostic result — painPoints is now an array
+      const selectedPains = PAIN_POINTS.filter(p => data.painPoints.includes(p.id));
+      const priorityDimensions = [
+        ...selectedPains.map(p => p.dimension),
+        ...PAIN_POINTS.filter(p => !data.painPoints.includes(p.id)).slice(0, 3 - selectedPains.length).map(p => p.dimension),
+      ].slice(0, 3);
+
+      const { error: diagError } = await supabase.from('diagnostic_results').upsert({
         company_id: profile.company_id,
-        pain_point: data.painPoint,
+        pain_point: data.painPoints.join(','),
         maturity_classification: classification,
         maturity_scores: data.maturityScores,
         potential_improvement_pct: improvement,
-        priority_indicators: priorityIndicators,
+        priority_indicators: priorityDimensions,
       }, { onConflict: 'company_id' });
+
+      if (diagError) {
+        console.error('Error saving diagnostic:', diagError);
+        throw diagError;
+      }
 
       await refreshProfile();
       toast.success('¡Diagnóstico completado!');
       navigate('/dashboard');
-    } catch {
+    } catch (err) {
+      console.error('Onboarding finish error:', err);
       toast.error('Error al guardar. Intentá de nuevo.');
     }
     setSaving(false);
@@ -221,9 +240,15 @@ export default function Onboarding() {
         {PAIN_POINTS.map((pain) => (
           <button
             key={pain.id}
-            onClick={() => update({ painPoint: pain.id })}
+            onClick={() => {
+              const current = data.painPoints;
+              const updated = current.includes(pain.id)
+                ? current.filter(id => id !== pain.id)
+                : [...current, pain.id];
+              update({ painPoints: updated });
+            }}
             className={`text-left p-4 rounded-xl border-2 transition-all duration-200 ${
-              data.painPoint === pain.id
+              data.painPoints.includes(pain.id)
                 ? 'border-primary bg-primary/[0.06] shadow-md'
                 : 'border-border/60 hover:border-primary/40 hover:bg-muted/30'
             }`}
@@ -231,6 +256,7 @@ export default function Onboarding() {
             <div className="flex items-center gap-3">
               <span className="text-2xl">{pain.icon}</span>
               <span className="text-sm font-medium">{pain.label}</span>
+              {data.painPoints.includes(pain.id) && <Check className="h-4 w-4 text-primary ml-auto" />}
             </div>
           </button>
         ))}
@@ -473,9 +499,10 @@ export default function Onboarding() {
         <p className="text-sm font-semibold">Tu tablero se va a configurar con foco en:</p>
         <div className="grid gap-2">
           {(() => {
-            const painDim = PAIN_POINTS.find(p => p.id === data.painPoint);
-            const priorities = painDim
-              ? [painDim.dimension, ...PAIN_POINTS.filter(p => p.id !== data.painPoint).slice(0, 2).map(p => p.dimension)]
+            const selectedPains = PAIN_POINTS.filter(p => data.painPoints.includes(p.id));
+            const otherPains = PAIN_POINTS.filter(p => !data.painPoints.includes(p.id));
+            const priorities = selectedPains.length > 0
+              ? [...selectedPains.map(p => p.dimension), ...otherPains.slice(0, 3 - selectedPains.length).map(p => p.dimension)].slice(0, 3)
               : ['Ventas', 'Finanzas', 'Operaciones'];
             return priorities.map((dim, i) => (
               <div key={dim} className="flex items-center gap-3 p-3 rounded-lg bg-muted/30">
