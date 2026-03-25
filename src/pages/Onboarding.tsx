@@ -46,7 +46,7 @@ interface OnboardingData {
 }
 
 const initialData: OnboardingData = {
-  painPoint: '', maturityScores: {},
+  painPoints: [], maturityScores: {},
   companyName: '', industry: '', customIndustry: '', employeeCount: '', yearsOperating: '',
   sellsProducts: false, sellsServices: false, hasStock: false, hasLogistics: false,
   supplierLeadDays: '', skuCount: '', hasRecurringClients: false, hasWholesalePrices: false,
