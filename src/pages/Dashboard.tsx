@@ -140,7 +140,7 @@ export default function Dashboard() {
 
         {/* Health Radar */}
         <Stagger index={2}>
-          <div className="grid gap-2 grid-cols-3 lg:grid-cols-6">
+          <div className="grid gap-2 grid-cols-2 sm:grid-cols-3 lg:grid-cols-6">
             {visibleHealth.map((dim) => (
               <button
                 key={dim.key}
