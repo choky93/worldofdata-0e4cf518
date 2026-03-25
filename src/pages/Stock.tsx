@@ -93,7 +93,7 @@ export default function Stock() {
 
         <Card>
           <CardHeader><CardTitle className="text-sm text-muted-foreground">Inventario completo</CardTitle></CardHeader>
-          <CardContent>
+          <CardContent className="overflow-x-auto">
             <Table>
               <TableHeader><TableRow>
                 <TableHead>Producto</TableHead>

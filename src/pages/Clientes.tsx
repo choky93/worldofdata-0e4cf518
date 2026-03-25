@@ -99,7 +99,7 @@ export default function Clientes() {
 
         <Card>
           <CardHeader><CardTitle className="text-sm text-muted-foreground">Cartera de clientes</CardTitle></CardHeader>
-          <CardContent>
+          <CardContent className="overflow-x-auto">
             <Table>
               <TableHeader><TableRow>
                 <TableHead>Cliente</TableHead>

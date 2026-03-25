@@ -278,7 +278,7 @@ export default function Dashboard() {
         </Stagger>
 
         {/* Decisions of the day + Stock */}
-        <div className="grid gap-3 lg:grid-cols-2">
+        <div className="grid gap-3 md:grid-cols-2">
           <Stagger index={5}>
             <Card className="h-full">
               <CardHeader className="pb-2">

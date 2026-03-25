@@ -79,7 +79,7 @@ export default function Marketing() {
 
         <Card>
           <CardHeader><CardTitle className="text-sm text-muted-foreground">Desglose por campaña</CardTitle></CardHeader>
-          <CardContent>
+          <CardContent className="overflow-x-auto">
             <Table>
               <TableHeader><TableRow>
                 <TableHead>Campaña</TableHead>

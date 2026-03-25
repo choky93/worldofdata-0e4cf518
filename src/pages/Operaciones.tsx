@@ -53,7 +53,7 @@ export default function Operaciones() {
             ))}
           </div>
         </CardHeader>
-        <CardContent>
+        <CardContent className="overflow-x-auto">
           <Table>
             <TableHeader><TableRow>
               <TableHead>Fecha</TableHead>
