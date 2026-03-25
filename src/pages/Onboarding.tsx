@@ -240,9 +240,15 @@ export default function Onboarding() {
         {PAIN_POINTS.map((pain) => (
           <button
             key={pain.id}
-            onClick={() => update({ painPoint: pain.id })}
+            onClick={() => {
+              const current = data.painPoints;
+              const updated = current.includes(pain.id)
+                ? current.filter(id => id !== pain.id)
+                : [...current, pain.id];
+              update({ painPoints: updated });
+            }}
             className={`text-left p-4 rounded-xl border-2 transition-all duration-200 ${
-              data.painPoint === pain.id
+              data.painPoints.includes(pain.id)
                 ? 'border-primary bg-primary/[0.06] shadow-md'
                 : 'border-border/60 hover:border-primary/40 hover:bg-muted/30'
             }`}
@@ -250,6 +256,7 @@ export default function Onboarding() {
             <div className="flex items-center gap-3">
               <span className="text-2xl">{pain.icon}</span>
               <span className="text-sm font-medium">{pain.label}</span>
+              {data.painPoints.includes(pain.id) && <Check className="h-4 w-4 text-primary ml-auto" />}
             </div>
           </button>
         ))}
