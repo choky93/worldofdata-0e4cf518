@@ -499,9 +499,10 @@ export default function Onboarding() {
         <p className="text-sm font-semibold">Tu tablero se va a configurar con foco en:</p>
         <div className="grid gap-2">
           {(() => {
-            const painDim = PAIN_POINTS.find(p => p.id === data.painPoint);
-            const priorities = painDim
-              ? [painDim.dimension, ...PAIN_POINTS.filter(p => p.id !== data.painPoint).slice(0, 2).map(p => p.dimension)]
+            const selectedPains = PAIN_POINTS.filter(p => data.painPoints.includes(p.id));
+            const otherPains = PAIN_POINTS.filter(p => !data.painPoints.includes(p.id));
+            const priorities = selectedPains.length > 0
+              ? [...selectedPains.map(p => p.dimension), ...otherPains.slice(0, 3 - selectedPains.length).map(p => p.dimension)].slice(0, 3)
               : ['Ventas', 'Finanzas', 'Operaciones'];
             return priorities.map((dim, i) => (
               <div key={dim} className="flex items-center gap-3 p-3 rounded-lg bg-muted/30">
