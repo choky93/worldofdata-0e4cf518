@@ -36,8 +36,8 @@ const employeeItems = [
 
 export function AppSidebar() {
   const { role, companySettings, signOut } = useAuth();
-  const { state } = useSidebar();
-  const collapsed = state === 'collapsed';
+  const { state, isMobile, setOpenMobile } = useSidebar();
+  const collapsed = !isMobile && state === 'collapsed';
 
   const items = role === 'employee' ? employeeItems : adminItems;
 
