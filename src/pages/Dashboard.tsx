@@ -159,7 +159,7 @@ export default function Dashboard() {
 
         {/* Compact KPIs */}
         <Stagger index={3}>
-          <div className="grid gap-3 grid-cols-2 lg:grid-cols-4">
+          <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
             <Link to="/ventas">
               <Card className="module-border-ventas hover:shadow-lg transition-all cursor-pointer h-full">
                 <CardContent className="p-4">
