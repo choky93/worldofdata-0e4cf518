@@ -82,6 +82,7 @@ export function AppSidebar() {
                         end={item.url === '/'}
                         className="hover:bg-sidebar-accent/60 rounded-lg transition-all duration-200"
                         activeClassName="bg-sidebar-accent text-sidebar-primary font-semibold shadow-sm"
+                        onClick={() => isMobile && setOpenMobile(false)}
                       >
                         <item.icon className="h-4 w-4" />
                         {!collapsed && <span>{item.title}</span>}
