@@ -185,14 +185,16 @@ export default function CargaDatos() {
 
     try {
       for (const file of filesToUpload) {
-        const storagePath = `${user.id}/${Date.now()}_${file.name}`;
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('userId', user.id);
 
-        const { error: storageError } = await supabase.storage
-          .from('uploads')
-          .upload(storagePath, file);
+        const { data: uploadData, error: uploadError } = await supabase.functions.invoke('r2-upload', {
+          body: formData,
+        });
 
-        if (storageError) {
-          toast.error(`Error subiendo ${file.name}: ${storageError.message}`);
+        if (uploadError || !uploadData?.success) {
+          toast.error(`Error subiendo ${file.name}: ${uploadError?.message || uploadData?.error || 'Error desconocido'}`);
           continue;
         }
 
@@ -201,7 +203,7 @@ export default function CargaDatos() {
           file_type: detectFileType(file.name),
           file_size: file.size,
           status: 'processing',
-          storage_path: storagePath,
+          storage_path: uploadData.storagePath,
           uploaded_by: user.id,
           company_id: profile.company_id,
         });
