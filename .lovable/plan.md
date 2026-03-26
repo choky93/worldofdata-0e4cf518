@@ -1,55 +1,187 @@
 
+Objetivo: aclarar la confusión y ajustar el plan para no obviar nada del pipeline.
 
-# Mejora del pipeline de archivos — OpenAI GPT-4o como modelo principal
+## Qué está pasando de verdad
 
-## Problemas actuales
+No: el problema no es “OpenAI no lee PDF” en general. El problema es que la implementación actual del proyecto usa el camino incorrecto.
 
-1. **PDFs no se leen** — línea 180 solo manda el nombre del archivo a la IA, no el contenido real
-2. **Modelo débil** — `gpt-4o-mini` para clasificación de datos. Para una plataforma de pago necesitás `gpt-4o` que tiene mejor visión y razonamiento
-3. **CSV parser frágil** — no maneja campos entrecomillados con delimitadores internos ni BOM UTF-8
-4. **Reprocess de Excel no manda datos** — el botón "Reprocesar" no envía `preParsedData`, así que los Excel reprocesados caen al fallback inútil
-5. **Sin polling** — el usuario ve "Procesando" sin actualización automática
+### 1. PDFs
+Hoy `process-file` hace esto:
+- descarga el PDF
+- lo convierte a base64
+- lo manda al endpoint de `chat/completions`
+- pero lo envía como `image_url` con MIME `application/pdf`
 
-## Plan de cambios
+Ese formato no coincide con cómo el flujo actual de visión espera imágenes. O sea: hoy no está leyendo el PDF como documento real; por eso falla o termina “adivinando” por nombre/tamaño.
 
-### 1. `supabase/functions/process-file/index.ts` — Modelo GPT-4o + PDFs con visión
+Conclusión:
+- Sí existen formas de procesar PDFs con OpenAI.
+- Lo que no funciona es esta implementación puntual.
+- Entonces el plan correcto no es “resignarse con PDF”, sino cambiar el método de envío del PDF.
 
-**Modelo**: Cambiar de `gpt-4o-mini` a `gpt-4o`. Es el mejor modelo de OpenAI para visión y razonamiento con datos numéricos. El costo extra es mínimo comparado con el valor del servicio.
+### 2. Excel
+OpenAI tampoco “lee Excel mágicamente” en el flujo actual del proyecto.
+Hoy el sistema depende de:
+- parsearlo en frontend con SheetJS y mandar `preParsedData`, o
+- caer en un fallback malo que solo describe el archivo por nombre
 
-**PDFs**: Convertir las primeras páginas del PDF a base64 y enviarlas como imágenes al endpoint de visión de GPT-4o. GPT-4o puede leer tablas, facturas, reportes directamente desde imágenes de páginas PDF. Si el PDF es mayor a 2MB, truncar.
+Además, en reproceso el frontend no vuelve a generar `preParsedData`, así que ahí queda roto.
 
-**Imágenes**: Subir el límite de 500KB a 2MB para imágenes, ya que GPT-4o maneja bien imágenes grandes.
+Conclusión:
+- El problema no es que el modelo no pueda trabajar con datos tabulares.
+- El problema es que el pipeline actual no le está entregando el contenido correcto del Excel.
 
-**CSV parser**: Implementar parsing RFC 4180 que maneje:
-- BOM UTF-8 (`\uFEFF`)
-- Campos entrecomillados con delimitadores internos (`"Producto A, grande",1500`)
-- Detección de delimitador (coma, punto y coma, tab)
+### 3. Límite de 5 MB / 2 MB
+Acá hay dos límites distintos y se mezclaron:
 
-**max_tokens**: Subir de 2048 a 4096 para que GPT-4o pueda devolver datasets más completos.
+1. **Límite de subida / almacenamiento**
+- La UI hoy dice 20MB.
+- R2 puede guardar archivos más grandes.
+- Ese no es el cuello de botella principal.
 
-### 2. `src/pages/CargaDatos.tsx` — Reprocess con Excel + Polling
+2. **Límite interno de procesamiento IA**
+- El código actual tiene `MAX_IMAGE_BYTES = 2 * 1024 * 1024`.
+- Ese límite no es de R2.
+- Es un límite artificial del pipeline para evitar mandar payloads inline enormes en base64 al modelo.
 
-**Reprocess Excel**: Cuando el usuario hace click en "Reprocesar" un archivo Excel, descargar el archivo desde R2 vía una función auxiliar, parsearlo con SheetJS en el cliente, y enviar `preParsedData` al edge function.
+O sea:
+- el usuario puede subir 20MB
+- pero después el procesamiento actual se autolimita a 2MB en ciertos tipos de archivo
+- ahí está la inconsistencia real
 
-**Polling automático**: Cuando hay archivos en estado "processing", hacer polling cada 5 segundos para actualizar el estado. Se detiene cuando no quedan archivos procesándose.
+## Qué falta corregir en el plan
 
-**Resumen post-proceso**: Mostrar debajo de cada archivo procesado la categoría detectada y el resumen de la IA.
+El plan anterior debe ajustarse en estos puntos:
 
-### 3. `supabase/functions/ai-chat/index.ts` — Ya usa GPT-4o, no requiere cambios
+### A. Separar claramente “subida” de “procesamiento”
+Vamos a mantener un límite de subida alto para el usuario, pero rediseñar el procesamiento:
+- archivos grandes se guardan completos en R2
+- el pipeline toma solo la parte necesaria para IA
+- no se intenta meter el archivo entero inline en base64 cuando no conviene
 
-El copiloto ya usa `gpt-4o` (línea 269). No se toca.
+### B. PDFs: cambiar el mecanismo, no solo el modelo
+No alcanza con “usar GPT-4o o GPT-5”.
+El arreglo debe ser:
+- dejar de mandar PDFs como `image_url` con `application/pdf`
+- implementar una ruta correcta para PDF:
+  - extracción de texto si el PDF ya trae texto
+  - y fallback visual / por páginas cuando haga falta
+- además, guardar trazas de qué método se usó para cada archivo
 
-## Archivos a modificar
+### C. Excel: el contenido tiene que llegar siempre
+Hay que cerrar el agujero del reproceso:
+- upload inicial: parseo cliente si es Excel
+- reproceso: descargar el archivo y volver a parsearlo, o persistir una versión preparseada reutilizable
+- nunca volver a depender del fallback por nombre de archivo
 
-1. **`supabase/functions/process-file/index.ts`** — GPT-4o, visión para PDFs, CSV parser robusto, límites ajustados
-2. **`src/pages/CargaDatos.tsx`** — reprocess con preParsedData, polling, resumen visual
+### D. Límite grande para usuario, límite inteligente para IA
+El ajuste correcto no es “subir todo a 5MB y listo”.
+Debe quedar así:
+- subida: permitir archivos más grandes
+- procesamiento:
+  - CSV/XML/TXT: por texto, sin castigar tanto el tamaño
+  - Excel: parseo estructurado, no visión
+  - PDF: extracción por texto/páginas, no archivo inline crudo
+  - imágenes: compresión o reducción antes de IA si exceden el umbral
 
-## Resultado esperado
+Eso permite soportar archivos grandes sin romper CPU, memoria o latencia.
 
-- PDFs se procesan con datos reales usando visión de GPT-4o
-- Imágenes de facturas/reportes se leen correctamente
-- CSVs con formatos complejos se parsean bien
-- Reprocesar Excel funciona igual que la primera subida
-- El usuario ve en tiempo real cuando termina el procesamiento
-- Todo usando la API de OpenAI del cliente, sin cambios de proveedor
+## Plan ajustado de implementación
 
+### 1. `supabase/functions/process-file/index.ts`
+Cambiar la lógica de procesamiento por tipo:
+
+- **CSV/TXT/XML**
+  - seguir por texto
+  - robustecer parseo y detección de delimitadores/encoding
+
+- **Excel**
+  - exigir `preParsedData` cuando exista
+  - mejorar fallback para que no sea “inferí por nombre”
+  - si no hay `preParsedData`, marcar error explícito y no falso positivo
+
+- **PDF**
+  - eliminar el envío incorrecto como `image_url` con `application/pdf`
+  - implementar estrategia por capas:
+    - primero extracción textual
+    - si no alcanza, fallback visual o segmentado
+  - registrar resumen técnico del método usado
+
+- **Imágenes**
+  - mantener visión
+  - comprimir/reducir antes de IA si excede umbral
+
+### 2. Nueva función de descarga para reproceso
+Crear una función backend para descargar desde R2 de forma segura.
+
+Uso:
+- reprocesar Excel
+- reprocesar PDF si hace falta volver a preparar contenido
+- evitar stubs vacíos en frontend
+
+### 3. `src/pages/CargaDatos.tsx`
+Completar el flujo real del frontend:
+
+- validación de tamaño coherente con lo que el backend realmente soporta
+- reproceso funcional de Excel
+- mejor feedback de estado
+- mensajes distintos para:
+  - “subido correctamente”
+  - “guardado pero no procesado”
+  - “procesado parcialmente”
+  - “duplicado detectado”
+
+### 4. Política de tamaño
+Ajustar el producto a una política clara:
+
+- **subida**: mantener o ampliar sobre 20MB según el flujo real deseado
+- **procesamiento**: por estrategia, no por un único número fijo
+- mostrar en UI una explicación correcta, por ejemplo:
+  - “Se pueden subir archivos grandes; para algunos formatos procesamos automáticamente las primeras hojas/páginas o una versión optimizada para análisis”
+
+## Respuesta concreta a tus dudas
+
+### “¿Ningún OpenAI lee PDF?”
+Sí, se puede trabajar con PDF usando OpenAI. El problema actual es de implementación, no una imposibilidad absoluta del proveedor.
+
+### “¿Ni GPT-5?”
+El problema no se resuelve solo cambiando de modelo. Si el archivo se manda mal, incluso un modelo mejor recibe el input equivocado. Primero hay que corregir el pipeline.
+
+### “¿Por qué no dejar archivos más grandes?”
+Se puede. El límite chico que aparece en la discusión no es por almacenamiento, sino por cómo hoy se empaqueta el archivo para IA. El plan correcto es dejar subir archivos grandes y procesarlos con una estrategia adecuada por formato.
+
+## Resultado esperado tras este ajuste
+
+- PDFs dejan de “fallar por diseño”
+- Excel deja de depender de un fallback inútil
+- el reproceso funciona de verdad
+- la plataforma puede aceptar archivos grandes sin prometer un procesamiento bruto e ineficiente
+- el usuario entiende qué se sube completo, qué se procesa completo y qué se procesa parcialmente
+
+## Archivos implicados
+
+- `supabase/functions/process-file/index.ts`
+- `src/pages/CargaDatos.tsx`
+- nueva función backend para descarga desde R2
+- posiblemente ajustes menores en textos de UI para reflejar el límite real y la estrategia de procesamiento
+
+## Detalle técnico
+```text
+Usuario sube archivo grande
+        |
+        v
+     R2 guarda completo
+        |
+        v
+process-file decide estrategia:
+- CSV/XML/TXT -> texto
+- XLS/XLSX -> parseo estructurado
+- PDF -> texto + fallback por páginas
+- Imagen -> visión optimizada
+        |
+        v
+IA recibe contenido útil, no archivo mal empaquetado
+        |
+        v
+file_extracted_data + estado confiable
+```
