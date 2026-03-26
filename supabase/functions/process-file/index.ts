@@ -2,7 +2,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { AwsClient } from "npm:aws4fetch@1.0.20";
 import { extractText, getDocumentProxy } from "npm:unpdf@0.12.1";
-import * as XLSX from "https://cdn.sheetjs.com/xlsx-0.20.3/package/xlsx.mjs";
+import * as XLSX from "https://esm.sh/xlsx@0.18.5/xlsx.mjs";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
