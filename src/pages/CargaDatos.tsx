@@ -20,6 +20,7 @@ interface FileRecord {
   created_at: string | null;
   company_id: string;
   file_hash?: string | null;
+  processing_error?: string | null;
 }
 
 const fileIcons: Record<string, typeof FileText> = { PDF: FileText, CSV: FileSpreadsheet, XLS: FileSpreadsheet, Imagen: Image };
