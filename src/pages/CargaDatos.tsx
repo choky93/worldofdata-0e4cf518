@@ -730,6 +730,50 @@ export default function CargaDatos() {
 
           {/* Upload Queue */}
           <UploadQueue items={uploadQueue} onDismiss={() => setUploadQueue([])} />
+          {/* URL Import */}
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setShowUrlImport(!showUrlImport)}
+              className="gap-1.5"
+            >
+              <Globe className="h-3.5 w-3.5" />
+              Importar por URL
+            </Button>
+          </div>
+
+          {showUrlImport && (
+            <Card className="border-primary/20">
+              <CardContent className="pt-4 space-y-3">
+                <p className="text-sm font-medium">Importar archivos desde URLs</p>
+                <p className="text-xs text-muted-foreground">
+                  Pegá una URL por línea. Para nombrar el archivo: <code className="bg-muted px-1 rounded">url, nombre</code>. Soporta Google Drive, Dropbox y enlaces directos.
+                </p>
+                <Textarea
+                  placeholder={"https://drive.google.com/file/d/abc123/view\nhttps://example.com/report.csv, reporte-ventas.csv"}
+                  value={urlImportText}
+                  onChange={e => setUrlImportText(e.target.value)}
+                  rows={4}
+                  className="text-sm font-mono"
+                />
+                <div className="flex gap-2 justify-end">
+                  <Button variant="ghost" size="sm" onClick={() => { setShowUrlImport(false); setUrlImportText(''); }}>
+                    Cancelar
+                  </Button>
+                  <Button
+                    size="sm"
+                    onClick={handleImportUrls}
+                    disabled={isImportingUrls || !urlImportText.trim()}
+                    className="gap-1.5"
+                  >
+                    {isImportingUrls ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Link2 className="h-3.5 w-3.5" />}
+                    {isImportingUrls ? 'Importando...' : 'Importar'}
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          )}
 
           {/* Filters */}
           <div className="flex flex-wrap gap-2 items-center">
