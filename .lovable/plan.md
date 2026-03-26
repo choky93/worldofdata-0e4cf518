@@ -1,55 +1,77 @@
-# Pipeline de archivos — Estado actual
 
-## Etapa 1 (implementada)
-- Batch upload con cola paralela (4 simultáneos)
-- Procesamiento async con pg_cron como backup
-- Paginación, filtros, búsqueda
-- MAX_ROWS 500, polling cada 5s
 
-## Etapa 2 (implementada)
+# Etapa 3 — Importación externa, procesamiento paralelo y prioridades
 
-### E. Chunked processing
-- CSV/Excel >500 filas: se divide en bloques de 500, cada bloque se procesa con GPT-4o
-- PDF con texto >15K chars: se divide en chunks de ~12K chars
-- Cada chunk genera un registro en `file_extracted_data` con `chunk_index`
-- Sin límite práctico de tamaño de archivo
+## Análisis de viabilidad
 
-### F. Presigned URLs
-- Archivos >20MB: subida directa a R2 via presigned URL (edge function `r2-presign`)
-- Archivos <=20MB: flujo normal via `r2-upload`
-- Límite de subida: 100MB por archivo
+La Etapa 3 original planteaba tres cosas:
+1. **Importación desde Google Drive / ERPs** — No hay conector de Google Drive disponible en el workspace, y los conectores de ERP (SAP, Odoo) no existen como conectores nativos. Implementar esto requeriría que el usuario configure OAuth con Google manualmente o traiga sus propias API keys de ERP. Es viable pero con setup manual.
+2. **Procesamiento paralelo masivo** — Hoy `process-queue` procesa archivos secuencialmente (uno tras otro). Se puede mejorar para procesar varios en paralelo dentro de la misma invocación.
+3. **Sistema de prioridades** — Agregar un campo `priority` a `file_uploads` para que ciertos archivos se procesen antes.
 
-### G. Dashboard de estado
-- Barra de resumen: procesados, en cola, procesando, errores
-- Botón "Cancelar" para archivos en cola
-- Indicador de chunks procesados por archivo
-- Soporte de estado "cancelled"
+## Lo que se puede implementar ahora
 
-## Arquitectura de procesamiento
+### A. Importación por URL (Google Drive, Dropbox, enlaces directos)
+
+En vez de depender de un conector OAuth complejo, implementar un flujo más simple:
+- El usuario pega una URL pública o compartida (Google Drive link, Dropbox link, URL directa a archivo)
+- Una edge function `import-url` descarga el archivo, lo sube a R2, y lo registra en `file_uploads`
+- Esto cubre el caso más común: "tengo un link de Drive compartido"
+
+### B. Procesamiento paralelo en `process-queue`
+
+- Cambiar `process-queue` para lanzar hasta 3 archivos en paralelo usando `Promise.allSettled`
+- Hoy procesa 5 secuencialmente → cambiarlo a 5 en paralelo
+- Reduce el tiempo total de cola significativamente
+
+### C. Sistema de prioridades
+
+- Agregar columna `priority` (integer, default 0) a `file_uploads` — valores más altos = más prioridad
+- `process-queue` ordena por `priority DESC, created_at ASC`
+- UI: botón "Priorizar" en archivos en cola que sube la prioridad
+- Archivos subidos manualmente tienen prioridad normal (0), importaciones masivas tienen prioridad baja (-1)
+
+### D. Importación masiva por CSV de URLs
+
+- El usuario sube un CSV con columnas `url, nombre` (o similar)
+- El sistema descarga cada URL y la procesa como archivo normal
+- Útil para empresas que tienen datos en múltiples fuentes
+
+## Archivos a crear/modificar
+
+1. **`supabase/functions/import-url/index.ts`** (nuevo) — descarga archivo desde URL, sube a R2, registra en DB
+2. **`supabase/functions/process-queue/index.ts`** — procesamiento paralelo con `Promise.allSettled`
+3. **`src/pages/CargaDatos.tsx`** — UI para importar por URL, botón de priorizar, indicador de prioridad
+4. **Migración SQL** — agregar columna `priority` a `file_uploads`
+
+## Detalle técnico
 
 ```text
-Usuario sube N archivos en paralelo (4 simultáneos)
+IMPORTACIÓN POR URL:
+  Usuario pega URL → import-url descarga archivo
        ↓
-  >20MB → r2-presign → PUT directo a R2
-  <=20MB → r2-upload → R2
+  Sube a R2 → registra en file_uploads (status: "queued")
        ↓
-file_uploads (status: "queued")
+  process-queue lo toma normalmente
+
+PROCESAMIENTO PARALELO:
+  process-queue toma 5 archivos
        ↓
-process-file se invoca inmediatamente
+  Promise.allSettled([process(1), process(2), process(3), ...])
        ↓
-Si archivo grande:
-  CSV 10K filas → chunk 1 (0-500) → GPT-4o → file_extracted_data (chunk_index=0)
-               → chunk 2 (501-1000) → GPT-4o → file_extracted_data (chunk_index=1)
-               → ...
-  PDF texto largo → chunks de 12K chars → GPT-4o → file_extracted_data por chunk
+  Todos se procesan al mismo tiempo → 3-5x más rápido
+
+PRIORIDADES:
+  file_uploads.priority: 1 (alta), 0 (normal), -1 (baja)
        ↓
-Si archivo chico:
-  Procesamiento normal → 1 registro en file_extracted_data (chunk_index=0)
+  process-queue: ORDER BY priority DESC, created_at ASC
        ↓
-status: "processed" → UI se actualiza por polling
+  Archivos prioritarios se procesan primero
 ```
 
-## Etapa 3 (no implementada)
-- Importación desde Google Drive / ERPs
-- Procesamiento paralelo masivo
-- Sistema de prioridades
+## Qué queda fuera (requiere setup del usuario)
+
+- **Google Drive OAuth directo**: necesitaría que el usuario configure un proyecto en Google Cloud Console. Se puede agregar después si hay demanda.
+- **APIs de ERPs**: cada ERP tiene su propia API. Se implementaría caso por caso según qué ERP use cada cliente.
+- Ambos son extensiones naturales del sistema de importación por URL.
+
