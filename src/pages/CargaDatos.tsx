@@ -234,13 +234,20 @@ export default function CargaDatos() {
     };
   }, [files, fetchFiles]);
 
-  /** Download file from R2 via r2-upload function (GET-like) for reprocessing */
-  const downloadFileFromR2 = async (storagePath: string): Promise<ArrayBuffer | null> => {
+  /** Download file from R2 via r2-download edge function */
+  const downloadFileFromR2 = async (fileUploadId: string): Promise<ArrayBuffer | null> => {
     try {
-      // Use the r2-upload function to get a signed URL or direct download
-      // For now, we'll call process-file directly and let the server handle it
+      const { data, error } = await supabase.functions.invoke('r2-download', {
+        body: { fileUploadId },
+      });
+      if (error) throw error;
+      // The response is a Blob when Content-Type is not JSON
+      if (data instanceof Blob) {
+        return await data.arrayBuffer();
+      }
       return null;
-    } catch {
+    } catch (err) {
+      console.error('Download from R2 failed:', err);
       return null;
     }
   };
