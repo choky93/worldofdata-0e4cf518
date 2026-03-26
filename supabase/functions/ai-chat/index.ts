@@ -8,7 +8,9 @@ const corsHeaders = {
 };
 
 const OPENAI_URL = "https://api.openai.com/v1/chat/completions";
+const MAX_CONTEXT_CHARS = 30000; // truncate extracted data if too large
 
+// ── Fetch full company context including raw extracted data ──────
 async function fetchCompanyContext(companyId: string): Promise<string> {
   const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
   const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -45,22 +47,124 @@ async function fetchCompanyContext(companyId: string): Promise<string> {
     parts.push(`Diagnóstico: madurez ${diag.maturity_classification || "?"}, dolor principal: ${diag.pain_point || "?"}, mejora potencial: ${diag.potential_improvement_pct || 0}%, indicadores prioritarios: ${diag.priority_indicators?.join(", ") || "ninguno"}.`);
   }
 
-  // Recent uploads
-  const { data: uploads } = await sb.from("file_uploads").select("file_name, file_type, created_at, status").eq("company_id", companyId).order("created_at", { ascending: false }).limit(10);
-  if (uploads?.length) {
-    parts.push(`Archivos recientes: ${uploads.map(u => `${u.file_name} (${u.file_type || "?"}, ${u.status || "?"})`).join(", ")}.`);
-  }
+  // Extracted data — fetch FULL json, not just summaries
+  const { data: extracted } = await sb
+    .from("file_extracted_data")
+    .select("data_category, summary, row_count, extracted_json, created_at")
+    .eq("company_id", companyId)
+    .order("created_at", { ascending: false })
+    .limit(8);
 
-  // Extracted data from files
-  const { data: extracted } = await sb.from("file_extracted_data").select("data_category, summary, row_count, created_at").eq("company_id", companyId).order("created_at", { ascending: false }).limit(10);
   if (extracted?.length) {
-    parts.push(`\nDatos extraídos de archivos:`);
+    parts.push(`\n=== DATOS REALES EXTRAÍDOS DE LOS ARCHIVOS DEL NEGOCIO ===`);
+    let totalChars = 0;
     for (const e of extracted) {
-      parts.push(`- ${e.data_category}: ${e.summary} (${e.row_count} registros)`);
+      const header = `\n## ${e.data_category.toUpperCase()} (${e.row_count || 0} registros)`;
+      const summary = e.summary ? `Resumen: ${e.summary}` : "";
+      let dataStr = "";
+      try {
+        dataStr = JSON.stringify(e.extracted_json, null, 0);
+        // Truncate individual dataset if too large
+        if (dataStr.length > 8000) {
+          dataStr = dataStr.slice(0, 8000) + "... [datos truncados]";
+        }
+      } catch { dataStr = "[error parseando datos]"; }
+
+      const block = `${header}\n${summary}\nDatos:\n${dataStr}`;
+      if (totalChars + block.length > MAX_CONTEXT_CHARS) {
+        parts.push("\n[... más datos disponibles pero truncados por límite de contexto]");
+        break;
+      }
+      parts.push(block);
+      totalChars += block.length;
     }
   }
 
   return parts.join("\n");
+}
+
+// ── Detect if the question needs external market context ────────
+function needsMarketContext(userMessage: string): boolean {
+  const keywords = [
+    "mercado", "competencia", "tendencia", "industria", "sector",
+    "argentina", "macro", "economía", "inflación", "importación",
+    "exportación", "tipo de cambio", "dólar", "contexto",
+    "proyección", "pronóstico", "benchmark", "promedio del sector",
+    "otras empresas", "la competencia", "crecimiento del mercado"
+  ];
+  const lower = userMessage.toLowerCase();
+  return keywords.some(k => lower.includes(k));
+}
+
+// ── Fetch Perplexity market context ─────────────────────────────
+async function fetchMarketContext(query: string, industry: string): Promise<string> {
+  const PERPLEXITY_API_KEY = Deno.env.get("PERPLEXITY_API_KEY");
+  if (!PERPLEXITY_API_KEY) return "";
+
+  try {
+    const resp = await fetch("https://api.perplexity.ai/chat/completions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${PERPLEXITY_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "sonar",
+        messages: [
+          {
+            role: "system",
+            content: `Sos un analista de mercado. Respondé en español, de forma breve y con datos concretos. Industria del usuario: ${industry || "no especificada"}. País: Argentina. Dá cifras, porcentajes y tendencias actuales. Máximo 200 palabras.`,
+          },
+          { role: "user", content: query },
+        ],
+        search_recency_filter: "month",
+      }),
+    });
+
+    if (!resp.ok) return "";
+    const data = await resp.json();
+    const content = data.choices?.[0]?.message?.content || "";
+    const citations = data.citations || [];
+    let result = content;
+    if (citations.length) {
+      result += `\nFuentes: ${citations.slice(0, 3).join(", ")}`;
+    }
+    return result;
+  } catch (e) {
+    console.error("Perplexity market context error:", e);
+    return "";
+  }
+}
+
+// ── System prompt ───────────────────────────────────────────────
+function buildSystemPrompt(businessContext: string, marketContext: string, companyName?: string): string {
+  return [
+    `Sos un analista de datos senior que trabaja DENTRO de la empresa${companyName ? ` "${companyName}"` : ""}. Sos parte del equipo. Conocés el negocio de adentro.`,
+    "",
+    "## TU ROL",
+    "- Sos un colega experto que analiza datos y da respuestas directas, NO un asistente genérico.",
+    "- Tenés acceso completo a los datos del negocio (ventas, stock, gastos, clientes, etc.).",
+    "- Tu trabajo es ANALIZAR y DAR RESPUESTAS, no decirle al usuario qué debería analizar.",
+    "",
+    "## REGLAS ESTRICTAS",
+    "1. **NUNCA** hagas listas de pasos o cosas para revisar. Vos ya las revisaste. Dá la conclusión.",
+    "2. **SIEMPRE** usá números concretos de los datos que tenés: cifras, porcentajes, nombres de productos, montos.",
+    "3. **EMPEZÁ** con la respuesta/conclusión directa. Después explicá brevemente por qué.",
+    "4. **SUGERÍ** acciones concretas y específicas, no genéricas.",
+    "5. Si no tenés datos suficientes, decilo honestamente pero dá tu mejor hipótesis con lo que sí tenés.",
+    "6. **MÁXIMO** 3-4 párrafos por respuesta. Sé conciso.",
+    "7. Usá tono conversacional argentino (vos/tuteo). Hablá como un compañero de trabajo, no como un manual.",
+    "8. Cuando des sugerencias, sé específico: no digas 'revisá el marketing', decí 'probá aumentar un 15% el presupuesto de Meta Ads en la categoría X que tiene mejor ROAS'.",
+    "",
+    "## FORMATO",
+    "- Respuestas cortas y directas",
+    "- Podés usar **negrita** para destacar datos clave",
+    "- Evitá listas numeradas largas (máximo 3 items si es necesario)",
+    "- No uses encabezados formales (##) ni estructuras de informe",
+    "",
+    businessContext ? `\n## DATOS DEL NEGOCIO (usá estos datos para responder)\n${businessContext}` : "",
+    marketContext ? `\n## CONTEXTO DE MERCADO ACTUAL\n${marketContext}` : "",
+  ].filter(Boolean).join("\n");
 }
 
 serve(async (req) => {
@@ -79,7 +183,7 @@ serve(async (req) => {
   try {
     const { messages, context, mode } = await req.json();
 
-    // Mode: search → delegate to Perplexity via ai-search
+    // Mode: search → delegate to Perplexity
     if (mode === "search") {
       const PERPLEXITY_API_KEY = Deno.env.get("PERPLEXITY_API_KEY");
       if (!PERPLEXITY_API_KEY) {
@@ -129,21 +233,31 @@ serve(async (req) => {
       });
     }
 
-    // Mode: chat (default) — use Lovable AI Gateway with streaming
+    // Mode: chat (default)
     let businessContext = "";
+    let industry = "";
     if (context?.companyId) {
       try {
         businessContext = await fetchCompanyContext(context.companyId);
       } catch (e) {
         console.error("Error fetching company context:", e);
       }
+      industry = context?.industry || "";
     }
 
-    const systemContent = [
-      "Sos un asistente de negocios experto en datos, finanzas y operaciones para PyMEs latinoamericanas. Respondé en español, de forma clara y accionable.",
-      businessContext ? `\n\nDatos del negocio del usuario:\n${businessContext}` : "",
-      context?.companyName ? `\nNombre de la empresa: ${context.companyName}` : "",
-    ].join("");
+    // Check if we need market context from Perplexity
+    const lastUserMsg = [...messages].reverse().find((m: any) => m.role === "user");
+    const userQuery = lastUserMsg?.content || "";
+    let marketContext = "";
+    if (needsMarketContext(userQuery)) {
+      try {
+        marketContext = await fetchMarketContext(userQuery, industry);
+      } catch (e) {
+        console.error("Error fetching market context:", e);
+      }
+    }
+
+    const systemContent = buildSystemPrompt(businessContext, marketContext, context?.companyName);
 
     const response = await fetch(OPENAI_URL, {
       method: "POST",

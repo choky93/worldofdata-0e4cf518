@@ -13,11 +13,11 @@ type Mode = 'chat' | 'search';
 const CHAT_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/ai-chat`;
 
 const suggestions = [
-  '¿Por qué bajaron las ventas este mes?',
-  '¿Qué producto debería empujar?',
-  '¿Qué cliente estoy perdiendo?',
-  '¿Cuánto voy a tener en caja a fin de mes?',
-  '¿Mi ROAS mejoró?',
+  '¿Cuál es mi producto más rentable?',
+  '¿Qué cliente me conviene recuperar?',
+  'Dame un resumen de mis ventas del último mes',
+  '¿Cómo está mi stock? ¿Hay algo crítico?',
+  '¿Qué acción concreta me recomendás hoy?',
 ];
 
 // ─── Streaming chat ───────────────────────────────────────────────
