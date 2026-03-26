@@ -1,12 +1,14 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { MessageCircle, X, Send, Sparkles, Loader2, AlertCircle } from 'lucide-react';
+import { MessageCircle, X, Send, Sparkles, Loader2, AlertCircle, Globe, MessageSquare, ExternalLink } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { APP_NAME } from '@/lib/constants';
+import { useAuth } from '@/contexts/AuthContext';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
-type Message = { role: 'user' | 'assistant'; content: string };
+type Message = { role: 'user' | 'assistant'; content: string; citations?: string[] };
+type Mode = 'chat' | 'search';
 
 const CHAT_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/ai-chat`;
 
@@ -18,14 +20,17 @@ const suggestions = [
   '¿Mi ROAS mejoró?',
 ];
 
+// ─── Streaming chat ───────────────────────────────────────────────
 async function streamChat({
   messages,
+  context,
   onDelta,
   onDone,
   onError,
   signal,
 }: {
   messages: Message[];
+  context?: Record<string, unknown>;
   onDelta: (text: string) => void;
   onDone: () => void;
   onError: (err: string) => void;
@@ -38,29 +43,21 @@ async function streamChat({
         'Content-Type': 'application/json',
         Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
       },
-      body: JSON.stringify({ messages }),
+      body: JSON.stringify({ messages: messages.map(({ role, content }) => ({ role, content })), context }),
       signal,
     });
 
     if (!resp.ok) {
       const body = await resp.text();
       let errorMsg = 'Error del servidor';
-      try {
-        const parsed = JSON.parse(body);
-        errorMsg = parsed.error || errorMsg;
-      } catch { /* use default */ }
-
+      try { const parsed = JSON.parse(body); errorMsg = parsed.error || errorMsg; } catch { /* use default */ }
       if (resp.status === 429) errorMsg = 'Demasiadas consultas. Esperá un momento e intentá de nuevo.';
       if (resp.status === 402) errorMsg = 'Créditos agotados. Contactá al administrador.';
-
       onError(errorMsg);
       return;
     }
 
-    if (!resp.body) {
-      onError('No se recibió respuesta');
-      return;
-    }
+    if (!resp.body) { onError('No se recibió respuesta'); return; }
 
     const reader = resp.body.getReader();
     const decoder = new TextDecoder();
@@ -76,14 +73,11 @@ async function streamChat({
       while ((newlineIdx = buffer.indexOf('\n')) !== -1) {
         let line = buffer.slice(0, newlineIdx);
         buffer = buffer.slice(newlineIdx + 1);
-
         if (line.endsWith('\r')) line = line.slice(0, -1);
         if (line.startsWith(':') || line.trim() === '') continue;
         if (!line.startsWith('data: ')) continue;
-
         const jsonStr = line.slice(6).trim();
         if (jsonStr === '[DONE]') { done = true; break; }
-
         try {
           const parsed = JSON.parse(jsonStr);
           const content = parsed.choices?.[0]?.delta?.content;
@@ -111,7 +105,6 @@ async function streamChat({
         } catch { /* ignore */ }
       }
     }
-
     onDone();
   } catch (err: any) {
     if (err.name === 'AbortError') return;
@@ -119,9 +112,63 @@ async function streamChat({
   }
 }
 
+// ─── Search (non-streaming) ──────────────────────────────────────
+async function searchChat({
+  messages,
+  context,
+  signal,
+}: {
+  messages: Message[];
+  context?: Record<string, unknown>;
+  signal?: AbortSignal;
+}): Promise<{ content: string; citations: string[] }> {
+  const resp = await fetch(CHAT_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
+    },
+    body: JSON.stringify({
+      messages: messages.map(({ role, content }) => ({ role, content })),
+      context: context ? `${(context as any).companyName || ''} - ${(context as any).industry || ''}` : undefined,
+      mode: 'search',
+    }),
+    signal,
+  });
+
+  if (!resp.ok) {
+    const body = await resp.text();
+    let errorMsg = 'Error de búsqueda';
+    try { const parsed = JSON.parse(body); errorMsg = parsed.error || errorMsg; } catch { /* */ }
+    throw new Error(errorMsg);
+  }
+
+  return resp.json();
+}
+
+// ─── Components ──────────────────────────────────────────────────
+function Citations({ urls }: { urls: string[] }) {
+  if (!urls.length) return null;
+  return (
+    <div className="mt-2 space-y-1">
+      <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Fuentes</p>
+      {urls.map((url, i) => {
+        let domain = url;
+        try { domain = new URL(url).hostname.replace('www.', ''); } catch { /* */ }
+        return (
+          <a key={i} href={url} target="_blank" rel="noopener noreferrer"
+            className="flex items-center gap-1.5 text-[11px] text-primary hover:underline truncate">
+            <ExternalLink className="h-3 w-3 shrink-0" />
+            <span className="truncate">{domain}</span>
+          </a>
+        );
+      })}
+    </div>
+  );
+}
+
 function ChatMessage({ message }: { message: Message }) {
   const isUser = message.role === 'user';
-
   return (
     <div className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
       <div className={`max-w-[85%] rounded-2xl px-4 py-3 text-sm ${
@@ -132,24 +179,67 @@ function ChatMessage({ message }: { message: Message }) {
         {isUser ? (
           <p>{message.content}</p>
         ) : (
-          <div className="prose prose-sm dark:prose-invert max-w-none [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>{message.content}</ReactMarkdown>
-          </div>
+          <>
+            <div className="prose prose-sm dark:prose-invert max-w-none [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>{message.content}</ReactMarkdown>
+            </div>
+            {message.citations && <Citations urls={message.citations} />}
+          </>
         )}
       </div>
     </div>
   );
 }
 
+function ModeToggle({ mode, onChange }: { mode: Mode; onChange: (m: Mode) => void }) {
+  return (
+    <div className="flex items-center gap-1 bg-muted/40 rounded-lg p-0.5">
+      <button
+        onClick={() => onChange('chat')}
+        className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-colors ${
+          mode === 'chat' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
+        }`}
+      >
+        <MessageSquare className="h-3.5 w-3.5" />
+        Chat
+      </button>
+      <button
+        onClick={() => onChange('search')}
+        className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-colors ${
+          mode === 'search' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
+        }`}
+      >
+        <Globe className="h-3.5 w-3.5" />
+        Investigar
+      </button>
+    </div>
+  );
+}
+
+// ─── Main Component ──────────────────────────────────────────────
 export function AICopilot() {
+  const { profile, companyName, companySettings } = useAuth();
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [mode, setMode] = useState<Mode>('chat');
   const scrollRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  const businessContext = {
+    companyId: profile?.company_id,
+    companyName,
+    industry: (companySettings as any)?.industry,
+    sellsProducts: companySettings?.sells_products,
+    sellsServices: companySettings?.sells_services,
+    hasStock: companySettings?.has_stock,
+    hasLogistics: companySettings?.has_logistics,
+    usesMetaAds: companySettings?.uses_meta_ads,
+    usesGoogleAds: companySettings?.uses_google_ads,
+  };
 
   const scrollToBottom = useCallback(() => {
     requestAnimationFrame(() => {
@@ -157,14 +247,9 @@ export function AICopilot() {
     });
   }, []);
 
+  useEffect(() => { scrollToBottom(); }, [messages, scrollToBottom]);
   useEffect(() => {
-    scrollToBottom();
-  }, [messages, scrollToBottom]);
-
-  useEffect(() => {
-    if (open && !isLoading) {
-      setTimeout(() => inputRef.current?.focus(), 300);
-    }
+    if (open && !isLoading) setTimeout(() => inputRef.current?.focus(), 300);
   }, [open, isLoading]);
 
   const sendMessage = async (text: string) => {
@@ -177,12 +262,24 @@ export function AICopilot() {
     setInput('');
     setIsLoading(true);
 
-    let assistantSoFar = '';
     const controller = new AbortController();
     abortRef.current = controller;
-
     const allMessages = [...messages, userMsg];
 
+    if (mode === 'search') {
+      try {
+        const result = await searchChat({ messages: allMessages, context: businessContext, signal: controller.signal });
+        setMessages(prev => [...prev, { role: 'assistant', content: result.content, citations: result.citations }]);
+      } catch (err: any) {
+        if (err.name !== 'AbortError') setError(err.message || 'Error de búsqueda');
+      } finally {
+        setIsLoading(false);
+      }
+      return;
+    }
+
+    // Streaming chat
+    let assistantSoFar = '';
     const upsertAssistant = (chunk: string) => {
       assistantSoFar += chunk;
       const current = assistantSoFar;
@@ -197,24 +294,15 @@ export function AICopilot() {
 
     await streamChat({
       messages: allMessages,
+      context: businessContext,
       onDelta: upsertAssistant,
       onDone: () => setIsLoading(false),
-      onError: (msg) => {
-        setError(msg);
-        setIsLoading(false);
-      },
+      onError: (msg) => { setError(msg); setIsLoading(false); },
       signal: controller.signal,
     });
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    sendMessage(input);
-  };
-
-  const handleSuggestionClick = (s: string) => {
-    sendMessage(s);
-  };
+  const handleSubmit = (e: React.FormEvent) => { e.preventDefault(); sendMessage(input); };
 
   const hasMessages = messages.length > 0;
 
@@ -238,13 +326,10 @@ export function AICopilot() {
         {open && (
           <>
             <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
+              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
               className="fixed inset-0 bg-black/20 backdrop-blur-sm z-50"
               onClick={() => setOpen(false)}
             />
-
             <motion.div
               initial={{ x: '100%', opacity: 0 }}
               animate={{ x: 0, opacity: 1 }}
@@ -268,43 +353,40 @@ export function AICopilot() {
                 </Button>
               </div>
 
+              {/* Mode toggle */}
+              <div className="px-5 py-2.5 border-b border-border/20">
+                <ModeToggle mode={mode} onChange={setMode} />
+              </div>
+
               {/* Messages */}
               <div ref={scrollRef} className="flex-1 overflow-auto p-5 space-y-4">
                 {!hasMessages && (
-                  <motion.div
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: 0.2 }}
-                    className="text-center pt-8"
-                  >
+                  <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }} className="text-center pt-8">
                     <div className="h-14 w-14 rounded-2xl bg-primary/10 flex items-center justify-center mx-auto mb-4">
-                      <Sparkles className="h-7 w-7 text-primary" />
+                      {mode === 'search' ? <Globe className="h-7 w-7 text-primary" /> : <Sparkles className="h-7 w-7 text-primary" />}
                     </div>
-                    <h3 className="text-base font-bold tracking-tight mb-1">¿En qué te puedo ayudar?</h3>
+                    <h3 className="text-base font-bold tracking-tight mb-1">
+                      {mode === 'search' ? '¿Qué querés investigar?' : '¿En qué te puedo ayudar?'}
+                    </h3>
                     <p className="text-xs text-muted-foreground mb-6">
-                      Preguntame sobre ventas, finanzas, clientes o cualquier aspecto de tu negocio.
+                      {mode === 'search'
+                        ? 'Buscá información de mercado, competencia o tendencias de tu industria.'
+                        : 'Preguntame sobre ventas, finanzas, clientes o cualquier aspecto de tu negocio.'}
                     </p>
-
-                    <div className="space-y-2 text-left">
-                      {suggestions.map((s, i) => (
-                        <motion.button
-                          key={i}
-                          initial={{ opacity: 0, x: 20 }}
-                          animate={{ opacity: 1, x: 0 }}
-                          transition={{ delay: 0.3 + i * 0.06 }}
-                          onClick={() => handleSuggestionClick(s)}
-                          className="w-full bg-muted/40 border border-border/40 rounded-lg px-4 py-2.5 text-sm text-muted-foreground hover:bg-muted/70 hover:text-foreground transition-colors text-left"
-                        >
-                          {s}
-                        </motion.button>
-                      ))}
-                    </div>
+                    {mode === 'chat' && (
+                      <div className="space-y-2 text-left">
+                        {suggestions.map((s, i) => (
+                          <motion.button key={i} initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.3 + i * 0.06 }}
+                            onClick={() => sendMessage(s)}
+                            className="w-full bg-muted/40 border border-border/40 rounded-lg px-4 py-2.5 text-sm text-muted-foreground hover:bg-muted/70 hover:text-foreground transition-colors text-left"
+                          >{s}</motion.button>
+                        ))}
+                      </div>
+                    )}
                   </motion.div>
                 )}
 
-                {messages.map((msg, i) => (
-                  <ChatMessage key={i} message={msg} />
-                ))}
+                {messages.map((msg, i) => <ChatMessage key={i} message={msg} />)}
 
                 {isLoading && messages[messages.length - 1]?.role !== 'assistant' && (
                   <div className="flex justify-start">
@@ -329,17 +411,11 @@ export function AICopilot() {
                     ref={inputRef}
                     value={input}
                     onChange={(e) => setInput(e.target.value)}
-                    placeholder="Preguntale algo a tu negocio..."
+                    placeholder={mode === 'search' ? 'Buscá tendencias, competencia, mercado...' : 'Preguntale algo a tu negocio...'}
                     className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground/50"
                     disabled={isLoading}
                   />
-                  <Button
-                    type="submit"
-                    size="icon"
-                    variant="ghost"
-                    className="h-8 w-8 shrink-0"
-                    disabled={isLoading || !input.trim()}
-                  >
+                  <Button type="submit" size="icon" variant="ghost" className="h-8 w-8 shrink-0" disabled={isLoading || !input.trim()}>
                     {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
                   </Button>
                 </div>
