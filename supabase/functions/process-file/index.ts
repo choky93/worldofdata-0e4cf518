@@ -14,6 +14,7 @@ const CHUNK_ROWS = 500;
 const CHUNK_CHARS = 12000;
 const MAX_CONTENT_CHARS = 15000;
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+const MAX_EXCEL_ROWS = 5000; // Cap to avoid memory limit in edge functions
 const MAX_CHUNKS_PER_INVOCATION = 2;
 
 // ─── R2 Download ───────────────────────────────────────────────
