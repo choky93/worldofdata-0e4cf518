@@ -9,33 +9,29 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
+const MAX_ROWS = 30;
+const MAX_CONTENT_CHARS = 8000;
+const MAX_IMAGE_BYTES = 500 * 1024;
+
 async function downloadFromR2(storagePath: string): Promise<ArrayBuffer> {
-  const accessKeyId = Deno.env.get("CLOUDFLARE_R2_ACCESS_KEY_ID")!;
-  const secretAccessKey = Deno.env.get("CLOUDFLARE_R2_SECRET_ACCESS_KEY")!;
-  const endpoint = Deno.env.get("CLOUDFLARE_R2_ENDPOINT")!;
-  const bucket = Deno.env.get("CLOUDFLARE_R2_BUCKET_NAME")!;
-
-  const aws = new AwsClient({ accessKeyId, secretAccessKey, service: "s3" });
-  const url = `${endpoint}/${bucket}/${storagePath}`;
+  const aws = new AwsClient({
+    accessKeyId: Deno.env.get("CLOUDFLARE_R2_ACCESS_KEY_ID")!,
+    secretAccessKey: Deno.env.get("CLOUDFLARE_R2_SECRET_ACCESS_KEY")!,
+    service: "s3",
+  });
+  const url = `${Deno.env.get("CLOUDFLARE_R2_ENDPOINT")!}/${Deno.env.get("CLOUDFLARE_R2_BUCKET_NAME")!}/${storagePath}`;
   const resp = await aws.fetch(url, { method: "GET" });
-
-  if (!resp.ok) {
-    throw new Error(`R2 download failed [${resp.status}]: ${await resp.text()}`);
-  }
+  if (!resp.ok) throw new Error(`R2 download failed [${resp.status}]`);
   return resp.arrayBuffer();
 }
 
 function parseCSV(text: string): Record<string, unknown>[] {
   const lines = text.split(/\r?\n/).filter(l => l.trim());
   if (lines.length < 2) return [];
-
-  // Detect delimiter
   const firstLine = lines[0];
   const delimiter = firstLine.includes('\t') ? '\t' : firstLine.includes(';') ? ';' : ',';
-
   const headers = firstLine.split(delimiter).map(h => h.trim().replace(/^"|"$/g, ''));
   const rows: Record<string, unknown>[] = [];
-
   for (let i = 1; i < lines.length; i++) {
     const vals = lines[i].split(delimiter).map(v => v.trim().replace(/^"|"$/g, ''));
     const row: Record<string, unknown> = {};
@@ -48,52 +44,40 @@ function parseCSV(text: string): Record<string, unknown>[] {
 function parseExcel(buffer: ArrayBuffer): { sheetName: string; rows: Record<string, unknown>[] }[] {
   const wb = XLSX.read(new Uint8Array(buffer), { type: "array" });
   const results: { sheetName: string; rows: Record<string, unknown>[] }[] = [];
-
   for (const name of wb.SheetNames) {
-    const sheet = wb.Sheets[name];
-    const rows = XLSX.utils.sheet_to_json(sheet, { defval: "" }) as Record<string, unknown>[];
-    if (rows.length > 0) {
-      results.push({ sheetName: name, rows });
-    }
+    const rows = XLSX.utils.sheet_to_json(wb.Sheets[name], { defval: "" }) as Record<string, unknown>[];
+    if (rows.length > 0) results.push({ sheetName: name, rows });
   }
   return results;
 }
 
-function parseXML(text: string): string {
-  // Return raw XML text for AI to interpret
-  return text.substring(0, 50000);
+function safeJsonParse(raw: string): Record<string, unknown> {
+  // Try direct parse first
+  try { return JSON.parse(raw); } catch { /* continue */ }
+  // Try cleaning common issues
+  try {
+    let cleaned = raw.replace(/,\s*([}\]])/g, '$1'); // trailing commas
+    const lastBrace = cleaned.lastIndexOf('}');
+    if (lastBrace > 0) cleaned = cleaned.substring(0, lastBrace + 1);
+    return JSON.parse(cleaned);
+  } catch { /* continue */ }
+  // Fallback
+  return { category: "otro", summary: "No se pudo interpretar la respuesta de IA", columns: [], data: [], row_count: 0 };
 }
 
-async function extractWithOpenAI(
+async function extractWithAI(
   content: string,
   fileType: string,
   fileName: string,
   isImage: boolean,
   imageBase64?: string
 ): Promise<{ category: string; data: unknown; summary: string; rowCount: number }> {
-  const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY")!;
+  const systemPrompt = `Sos un experto en análisis de datos de negocios PyME latinoamericanas.
+Analizá el contenido y respondé SIEMPRE en JSON con esta estructura:
+{"category":"ventas"|"gastos"|"stock"|"facturas"|"marketing"|"clientes"|"rrhh"|"otro","summary":"Resumen breve 1-2 oraciones","row_count":<número>,"columns":["col1"],"data":[{"col1":"val1"}]}
+Reglas: Detectá tipo de datos. Extraé hasta 200 filas. Normalizá columnas a español minúsculas. Si es factura/documento individual, poné campos como columnas con un registro. Si no podés determinar categoría, usá "otro".`;
 
-  const systemPrompt = `Sos un experto en análisis de datos de negocios PyME latinoamericanas. 
-Tu tarea es analizar el contenido de un archivo subido y extraer datos estructurados.
-
-Respondé SIEMPRE en JSON con esta estructura exacta:
-{
-  "category": "ventas" | "gastos" | "stock" | "facturas" | "marketing" | "clientes" | "rrhh" | "otro",
-  "summary": "Resumen breve de lo que contiene el archivo (1-2 oraciones)",
-  "row_count": <número de registros/filas encontradas>,
-  "columns": ["col1", "col2", ...],
-  "data": [ {"col1": "val1", "col2": "val2"}, ... ]
-}
-
-Reglas:
-- Detectá automáticamente qué tipo de datos son (ventas, gastos, inventario, etc.)
-- Extraé TODAS las filas de datos, hasta un máximo de 500 filas
-- Normalizá nombres de columnas a español, minúsculas, sin caracteres especiales
-- Si es una factura o documento individual, poné los campos como columnas y un solo registro
-- Si no podés determinar la categoría, usá "otro"
-- Si hay montos, intentá detectar la moneda`;
-
-  const messages: any[] = [{ role: "system", content: systemPrompt }];
+  const messages: unknown[] = [{ role: "system", content: systemPrompt }];
 
   if (isImage && imageBase64) {
     const mimeType = fileName.toLowerCase().endsWith('.png') ? 'image/png' :
@@ -101,29 +85,29 @@ Reglas:
     messages.push({
       role: "user",
       content: [
-        { type: "text", text: `Analizá esta imagen del archivo "${fileName}". Extraé todos los datos que puedas identificar (tablas, números, texto relevante).` },
+        { type: "text", text: `Analizá esta imagen "${fileName}". Extraé todos los datos.` },
         { type: "image_url", image_url: { url: `data:${mimeType};base64,${imageBase64}` } },
       ],
     });
   } else {
     messages.push({
       role: "user",
-      content: `Archivo: "${fileName}" (tipo: ${fileType})\n\nContenido:\n${content.substring(0, 30000)}`,
+      content: `Archivo: "${fileName}" (${fileType})\n\nContenido:\n${content.substring(0, MAX_CONTENT_CHARS)}`,
     });
   }
 
   const resp = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${OPENAI_API_KEY}`,
+      Authorization: `Bearer ${Deno.env.get("OPENAI_API_KEY")!}`,
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      model: "gpt-4o",
+      model: "gpt-4o-mini",
       messages,
       response_format: { type: "json_object" },
       temperature: 0.1,
-      max_tokens: 4096,
+      max_tokens: 2048,
     }),
   });
 
@@ -133,14 +117,23 @@ Reglas:
   }
 
   const data = await resp.json();
-  const parsed = JSON.parse(data.choices[0].message.content);
+  const parsed = safeJsonParse(data.choices[0].message.content);
 
   return {
-    category: parsed.category || "otro",
+    category: (parsed.category as string) || "otro",
     data: { columns: parsed.columns || [], data: parsed.data || [] },
-    summary: parsed.summary || "Sin resumen",
-    rowCount: parsed.row_count || 0,
+    summary: (parsed.summary as string) || "Sin resumen",
+    rowCount: (parsed.row_count as number) || 0,
   };
+}
+
+function uint8ToBase64(bytes: Uint8Array): string {
+  const chunks: string[] = [];
+  const chunkSize = 8192;
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    chunks.push(String.fromCharCode(...bytes.subarray(i, i + chunkSize)));
+  }
+  return btoa(chunks.join(''));
 }
 
 serve(async (req) => {
@@ -149,34 +142,28 @@ serve(async (req) => {
   }
 
   const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-  const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-  const sb = createClient(supabaseUrl, serviceKey);
+  const sb = createClient(supabaseUrl, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+
+  let fileUploadId: string | undefined;
 
   try {
-    const { fileUploadId, companyId } = await req.json();
+    const body = await req.json();
+    fileUploadId = body.fileUploadId;
+    const companyId = body.companyId;
 
     if (!fileUploadId || !companyId) {
       return new Response(JSON.stringify({ error: "Missing fileUploadId or companyId" }), {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    // Get the file record
     const { data: fileRecord, error: fetchErr } = await sb
-      .from("file_uploads")
-      .select("*")
-      .eq("id", fileUploadId)
-      .single();
-
-    if (fetchErr || !fileRecord) {
-      throw new Error(`File not found: ${fetchErr?.message}`);
-    }
+      .from("file_uploads").select("*").eq("id", fileUploadId).single();
+    if (fetchErr || !fileRecord) throw new Error(`File not found: ${fetchErr?.message}`);
 
     const { file_name, file_type, storage_path } = fileRecord;
     if (!storage_path) throw new Error("No storage_path");
 
-    // Download from R2
     const buffer = await downloadFromR2(storage_path);
     const ext = file_name.split('.').pop()?.toLowerCase() || '';
 
@@ -185,53 +172,38 @@ serve(async (req) => {
     let imageBase64 = "";
 
     if (['csv', 'txt'].includes(ext)) {
-      const text = new TextDecoder().decode(buffer);
-      const rows = parseCSV(text);
-      content = JSON.stringify(rows.slice(0, 100), null, 2);
-      if (rows.length > 100) content += `\n... (${rows.length} filas totales)`;
+      const rows = parseCSV(new TextDecoder().decode(buffer));
+      content = JSON.stringify(rows.slice(0, MAX_ROWS));
+      if (rows.length > MAX_ROWS) content += `\n(${rows.length} filas totales)`;
     } else if (['xls', 'xlsx'].includes(ext)) {
       const sheets = parseExcel(buffer);
-      content = sheets.map(s => `Hoja "${s.sheetName}" (${s.rows.length} filas):\n${JSON.stringify(s.rows.slice(0, 100), null, 2)}`).join('\n\n');
+      content = sheets.map(s =>
+        `Hoja "${s.sheetName}" (${s.rows.length} filas):\n${JSON.stringify(s.rows.slice(0, MAX_ROWS))}`
+      ).join('\n\n');
     } else if (ext === 'xml') {
-      content = parseXML(new TextDecoder().decode(buffer));
+      content = new TextDecoder().decode(buffer).substring(0, MAX_CONTENT_CHARS);
     } else if (['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp'].includes(ext)) {
-      isImage = true;
-      const bytes = new Uint8Array(buffer);
-      let binary = '';
-      for (let i = 0; i < bytes.length; i++) {
-        binary += String.fromCharCode(bytes[i]);
+      if (buffer.byteLength > MAX_IMAGE_BYTES) {
+        content = `[Imagen "${file_name}" demasiado grande (${(buffer.byteLength / 1024).toFixed(0)} KB). Nombre sugiere: ${file_name}]`;
+      } else {
+        isImage = true;
+        imageBase64 = uint8ToBase64(new Uint8Array(buffer));
       }
-      imageBase64 = btoa(binary);
     } else if (ext === 'pdf') {
-      // For PDF, send first bytes as base64 image to Vision API for OCR
-      isImage = true;
-      const bytes = new Uint8Array(buffer);
-      let binary = '';
-      for (let i = 0; i < bytes.length; i++) {
-        binary += String.fromCharCode(bytes[i]);
-      }
-      imageBase64 = btoa(binary);
-      // Override: send as document to text extraction prompt
-      isImage = false;
-      content = `[Archivo PDF - ${(buffer.byteLength / 1024).toFixed(0)} KB. No se pudo extraer texto directamente. Nombre: ${file_name}. Intentá inferir el tipo de datos por el nombre del archivo y respondé con category y summary básicos.]`;
+      content = `[Archivo PDF - ${(buffer.byteLength / 1024).toFixed(0)} KB. Nombre: ${file_name}. Inferí el tipo de datos por el nombre y respondé con category y summary.]`;
     } else if (['doc', 'docx'].includes(ext)) {
-      // Basic text extraction from docx (ZIP containing XML)
       try {
         const text = new TextDecoder('utf-8', { fatal: false }).decode(buffer);
-        // Extract readable text fragments
-        const textContent = text.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
-        content = textContent.substring(0, 30000);
+        content = text.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().substring(0, MAX_CONTENT_CHARS);
       } catch {
         content = `[Archivo Word - ${(buffer.byteLength / 1024).toFixed(0)} KB. Nombre: ${file_name}]`;
       }
     } else {
-      content = `[Archivo de tipo desconocido: ${ext}. Nombre: ${file_name}. Tamaño: ${(buffer.byteLength / 1024).toFixed(0)} KB]`;
+      content = `[Archivo desconocido: ${ext}. Nombre: ${file_name}. ${(buffer.byteLength / 1024).toFixed(0)} KB]`;
     }
 
-    // Send to OpenAI for classification and extraction
-    const result = await extractWithOpenAI(content, file_type || ext, file_name, isImage, imageBase64);
+    const result = await extractWithAI(content, file_type || ext, file_name, isImage, imageBase64);
 
-    // Save extracted data
     const { error: insertErr } = await sb.from("file_extracted_data").insert({
       file_upload_id: fileUploadId,
       company_id: companyId,
@@ -240,38 +212,21 @@ serve(async (req) => {
       summary: result.summary,
       row_count: result.rowCount,
     });
+    if (insertErr) throw new Error(`Failed to save: ${insertErr.message}`);
 
-    if (insertErr) {
-      console.error("Insert error:", insertErr);
-      throw new Error(`Failed to save extracted data: ${insertErr.message}`);
-    }
-
-    // Update file status to processed
     await sb.from("file_uploads").update({ status: "processed", processing_error: null }).eq("id", fileUploadId);
 
     return new Response(JSON.stringify({
-      success: true,
-      category: result.category,
-      summary: result.summary,
-      rowCount: result.rowCount,
-    }), {
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+      success: true, category: result.category, summary: result.summary, rowCount: result.rowCount,
+    }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
   } catch (error) {
     console.error("process-file error:", error);
     const msg = error instanceof Error ? error.message : "Unknown error";
-
-    // Try to update file status to error
-    try {
-      const { fileUploadId } = await req.clone().json();
-      if (fileUploadId) {
-        await sb.from("file_uploads").update({ status: "error", processing_error: msg }).eq("id", fileUploadId);
-      }
-    } catch { /* ignore */ }
-
+    if (fileUploadId) {
+      try { await sb.from("file_uploads").update({ status: "error", processing_error: msg }).eq("id", fileUploadId); } catch { /* ignore */ }
+    }
     return new Response(JSON.stringify({ error: msg }), {
-      status: 500,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
+      status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
 });
