@@ -374,16 +374,24 @@ export default function CargaDatos() {
       await supabase.from('file_extracted_data').delete().eq('file_upload_id', file.id);
       await supabase.from('file_uploads').update({ status: 'processing', processing_error: null }).eq('id', file.id);
 
-      // For Excel files, try to download and pre-parse on client
+      // For Excel files, download from R2 and re-parse on client
       let preParsedData: string | null = null;
       const ext = file.file_name.split('.').pop()?.toLowerCase() || '';
-      if (['xls', 'xlsx'].includes(ext) && file.storage_path) {
+      if (['xls', 'xlsx'].includes(ext)) {
         try {
-          // Download file via a fetch to r2-upload with GET-like semantics
-          // Since we can't easily download from R2 on the client, we let the server handle it
-          // The server will use the filename-based fallback for Excel, which GPT-4o handles well
+          const buffer = await downloadFileFromR2(file.id);
+          if (buffer) {
+            preParsedData = parseExcelToJson(buffer);
+          } else {
+            toast.error(`No se pudo descargar "${file.file_name}" para reprocesar`);
+            setReprocessingId(null);
+            return;
+          }
         } catch (e) {
           console.warn('Could not pre-parse Excel for reprocess:', e);
+          toast.error(`Error parseando "${file.file_name}". Intentá subirlo de nuevo.`);
+          setReprocessingId(null);
+          return;
         }
       }
 
