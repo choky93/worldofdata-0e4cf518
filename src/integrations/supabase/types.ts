@@ -224,6 +224,7 @@ export type Database = {
           id: string
           priority: number
           processing_error: string | null
+          processing_started_at: string | null
           status: string | null
           storage_path: string | null
           uploaded_by: string | null
@@ -238,6 +239,7 @@ export type Database = {
           id?: string
           priority?: number
           processing_error?: string | null
+          processing_started_at?: string | null
           status?: string | null
           storage_path?: string | null
           uploaded_by?: string | null
@@ -252,6 +254,7 @@ export type Database = {
           id?: string
           priority?: number
           processing_error?: string | null
+          processing_started_at?: string | null
           status?: string | null
           storage_path?: string | null
           uploaded_by?: string | null
