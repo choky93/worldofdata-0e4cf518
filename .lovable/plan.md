@@ -1,61 +1,55 @@
 
 
-# Fix: Archivos no se procesan + Detección de duplicados
+# Mejora del pipeline de archivos — OpenAI GPT-4o como modelo principal
 
-## Problema raíz
+## Problemas actuales
 
-Revisé todo el pipeline y encontré lo siguiente:
+1. **PDFs no se leen** — línea 180 solo manda el nombre del archivo a la IA, no el contenido real
+2. **Modelo débil** — `gpt-4o-mini` para clasificación de datos. Para una plataforma de pago necesitás `gpt-4o` que tiene mejor visión y razonamiento
+3. **CSV parser frágil** — no maneja campos entrecomillados con delimitadores internos ni BOM UTF-8
+4. **Reprocess de Excel no manda datos** — el botón "Reprocesar" no envía `preParsedData`, así que los Excel reprocesados caen al fallback inútil
+5. **Sin polling** — el usuario ve "Procesando" sin actualización automática
 
-1. **`file_extracted_data` está vacía** — los 7 archivos dicen `processed` pero no tienen datos extraídos. Esto viene de una versión anterior del código que marcaba `processed` sin hacer nada.
+## Plan de cambios
 
-2. **`process-file` se cuelga al invocarlo** — lo probé directamente y devolvió timeout ("context canceled"). El problema más probable es que **`npm:xlsx@0.18.5` es demasiado pesado** para importar en un Edge Function de Deno. Son ~2MB de librería que se importa en cada cold start, y combinado con `npm:aws4fetch`, el boot time excede el límite.
+### 1. `supabase/functions/process-file/index.ts` — Modelo GPT-4o + PDFs con visión
 
-3. **No hay detección de duplicados** — si el usuario sube el mismo archivo dos veces, se procesan ambos y se suman las métricas dos veces.
+**Modelo**: Cambiar de `gpt-4o-mini` a `gpt-4o`. Es el mejor modelo de OpenAI para visión y razonamiento con datos numéricos. El costo extra es mínimo comparado con el valor del servicio.
 
-## Plan de corrección
+**PDFs**: Convertir las primeras páginas del PDF a base64 y enviarlas como imágenes al endpoint de visión de GPT-4o. GPT-4o puede leer tablas, facturas, reportes directamente desde imágenes de páginas PDF. Si el PDF es mayor a 2MB, truncar.
 
-### 1. Reescribir `process-file` sin dependencia pesada de XLSX
+**Imágenes**: Subir el límite de 500KB a 2MB para imágenes, ya que GPT-4o maneja bien imágenes grandes.
 
-**Archivo:** `supabase/functions/process-file/index.ts`
+**CSV parser**: Implementar parsing RFC 4180 que maneje:
+- BOM UTF-8 (`\uFEFF`)
+- Campos entrecomillados con delimitadores internos (`"Producto A, grande",1500`)
+- Detección de delimitador (coma, punto y coma, tab)
 
-El cambio principal es **no parsear Excel en el Edge Function**. En vez de importar `npm:xlsx` (que revienta los límites de boot), usar una estrategia en dos partes:
+**max_tokens**: Subir de 2048 a 4096 para que GPT-4o pueda devolver datasets más completos.
 
-- **CSV/TXT/XML**: parsear directamente con código nativo (ya funciona bien, es liviano)
-- **Excel (XLS/XLSX)**: en vez de usar SheetJS en el Edge Function, convertir el archivo a base64 y enviarlo a OpenAI con instrucciones de que extraiga los datos. OpenAI `gpt-4o-mini` puede leer archivos Excel enviados como attachment. Alternativamente, hacer el parseo de Excel **en el frontend** antes de subir (usando SheetJS del lado del cliente, donde no hay límites de CPU) y enviar el JSON ya parseado junto con el archivo.
+### 2. `src/pages/CargaDatos.tsx` — Reprocess con Excel + Polling
 
-**Enfoque recomendado: parsear Excel en el frontend**
-- En `CargaDatos.tsx`, antes de llamar a `process-file`, si el archivo es XLS/XLSX, usar SheetJS (ya está en el bundle del cliente) para extraer las primeras 50 filas como JSON
-- Enviar ese JSON pre-parseado como parte del body de `process-file`
-- `process-file` solo necesita llamar a OpenAI para clasificar/estructurar, sin necesidad de importar XLSX
+**Reprocess Excel**: Cuando el usuario hace click en "Reprocesar" un archivo Excel, descargar el archivo desde R2 vía una función auxiliar, parsearlo con SheetJS en el cliente, y enviar `preParsedData` al edge function.
 
-Esto elimina la dependencia pesada del Edge Function y resuelve el timeout.
+**Polling automático**: Cuando hay archivos en estado "processing", hacer polling cada 5 segundos para actualizar el estado. Se detiene cuando no quedan archivos procesándose.
 
-### 2. Detección de duplicados por hash
+**Resumen post-proceso**: Mostrar debajo de cada archivo procesado la categoría detectada y el resumen de la IA.
 
-**Archivos:** `CargaDatos.tsx` + migración de DB
+### 3. `supabase/functions/ai-chat/index.ts` — Ya usa GPT-4o, no requiere cambios
 
-- Agregar columna `file_hash` (TEXT) a la tabla `file_uploads`
-- En el frontend, calcular un hash SHA-256 del archivo antes de subirlo (usando `crypto.subtle.digest`)
-- Antes de insertar en `file_uploads`, consultar si ya existe un archivo con el mismo hash para la misma empresa
-- Si existe, mostrar un toast: "Este archivo ya fue cargado anteriormente" y no procesarlo de nuevo
-- Si es un archivo nuevo, guardar el hash junto con el registro
+El copiloto ya usa `gpt-4o` (línea 269). No se toca.
 
-### 3. Limpieza de archivos viejos con status incorrecto
+## Archivos a modificar
 
-Los 7 archivos actuales dicen `processed` pero no tienen datos. Dos opciones:
-- **Opción A**: Agregar un botón "Reprocesar" que detecte archivos sin datos en `file_extracted_data` y los reenvíe al pipeline
-- **Opción B** (más simple): Actualizar el status de esos archivos a `pending` para que el usuario sepa que necesitan reprocesarse, y agregar lógica para reprocesar
+1. **`supabase/functions/process-file/index.ts`** — GPT-4o, visión para PDFs, CSV parser robusto, límites ajustados
+2. **`src/pages/CargaDatos.tsx`** — reprocess con preParsedData, polling, resumen visual
 
-### Archivos a modificar
+## Resultado esperado
 
-1. **`supabase/functions/process-file/index.ts`** — quitar `npm:xlsx`, recibir datos pre-parseados del frontend
-2. **`src/pages/CargaDatos.tsx`** — parsear Excel en el cliente, calcular hash, detectar duplicados, botón reprocesar
-3. **Migración SQL** — agregar columna `file_hash` a `file_uploads`
-
-### Resultado esperado
-
-- Archivos Excel se procesan en segundos (parseo en cliente, solo clasificación en servidor)
-- CSV/PDF/imágenes siguen procesándose como antes pero sin el peso de XLSX
-- Archivos duplicados se detectan antes de subir y se avisa al usuario
-- Los archivos viejos se pueden reprocesar con un click
+- PDFs se procesan con datos reales usando visión de GPT-4o
+- Imágenes de facturas/reportes se leen correctamente
+- CSVs con formatos complejos se parsean bien
+- Reprocesar Excel funciona igual que la primera subida
+- El usuario ve en tiempo real cuando termina el procesamiento
+- Todo usando la API de OpenAI del cliente, sin cambios de proveedor
 
