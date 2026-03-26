@@ -164,6 +164,7 @@ export type Database = {
       }
       file_extracted_data: {
         Row: {
+          chunk_index: number
           company_id: string
           created_at: string | null
           data_category: string
@@ -174,6 +175,7 @@ export type Database = {
           summary: string | null
         }
         Insert: {
+          chunk_index?: number
           company_id: string
           created_at?: string | null
           data_category?: string
@@ -184,6 +186,7 @@ export type Database = {
           summary?: string | null
         }
         Update: {
+          chunk_index?: number
           company_id?: string
           created_at?: string | null
           data_category?: string
