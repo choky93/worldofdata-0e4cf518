@@ -508,23 +508,9 @@ export default function CargaDatos() {
           return;
         }
 
-        updateItem({ progress: 85, status: 'processing' });
-
-        supabase.functions.invoke('process-file', {
-          body: {
-            fileUploadId: dbData.id,
-            companyId: profile.company_id,
-            ...(preParsedData ? { preParsedData } : {}),
-          },
-        }).then(() => {
-          updateItem({ status: 'done', progress: 100 });
-          fetchFiles();
-        }).catch(() => {
-          updateItem({ status: 'done', progress: 100 });
-          fetchFiles();
-        });
-
+        // File is queued — the worker (process-queue) will handle processing
         updateItem({ status: 'done', progress: 100 });
+        toast.success(`"${item.file.name}" en cola para procesar`);
       } catch (err: any) {
         updateItem({ status: 'error', error: err.message });
       }
