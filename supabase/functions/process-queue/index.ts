@@ -8,6 +8,7 @@ const corsHeaders = {
 };
 
 const BATCH_SIZE = 5;
+const STUCK_THRESHOLD_MINUTES = 10;
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -19,7 +20,42 @@ serve(async (req) => {
   const sb = createClient(supabaseUrl, serviceKey);
 
   try {
-    // Fetch queued files ordered by priority DESC, then oldest first
+    // ─── Step 1: Recover stuck files ───────────────────────────
+    const stuckCutoff = new Date(Date.now() - STUCK_THRESHOLD_MINUTES * 60 * 1000).toISOString();
+    const { data: stuckFiles, error: stuckErr } = await sb
+      .from("file_uploads")
+      .select("id, file_name")
+      .eq("status", "processing")
+      .lt("processing_started_at", stuckCutoff);
+
+    if (!stuckErr && stuckFiles && stuckFiles.length > 0) {
+      console.log(`[process-queue] Recovering ${stuckFiles.length} stuck file(s): ${stuckFiles.map(f => f.file_name).join(', ')}`);
+      for (const f of stuckFiles) {
+        await sb.from("file_uploads").update({
+          status: "queued",
+          processing_error: null,
+        }).eq("id", f.id).eq("status", "processing");
+      }
+    }
+
+    // Also recover files stuck without processing_started_at (legacy)
+    const { data: legacyStuck } = await sb
+      .from("file_uploads")
+      .select("id, file_name, created_at")
+      .eq("status", "processing")
+      .is("processing_started_at", null);
+
+    if (legacyStuck && legacyStuck.length > 0) {
+      const cutoff = Date.now() - STUCK_THRESHOLD_MINUTES * 60 * 1000;
+      for (const f of legacyStuck) {
+        if (f.created_at && new Date(f.created_at).getTime() < cutoff) {
+          console.log(`[process-queue] Recovering legacy stuck file: ${f.file_name}`);
+          await sb.from("file_uploads").update({ status: "queued", processing_error: null }).eq("id", f.id);
+        }
+      }
+    }
+
+    // ─── Step 2: Fetch queued files ────────────────────────────
     const { data: queuedFiles, error: fetchErr } = await sb
       .from("file_uploads")
       .select("id, company_id, file_name")
@@ -30,19 +66,23 @@ serve(async (req) => {
 
     if (fetchErr) throw new Error(`Fetch queued files: ${fetchErr.message}`);
     if (!queuedFiles || queuedFiles.length === 0) {
+      console.log("[process-queue] No queued files");
       return new Response(JSON.stringify({ processed: 0, message: "No queued files" }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    // Atomic lock: only take files that are still 'queued'
+    console.log(`[process-queue] Found ${queuedFiles.length} queued file(s): ${queuedFiles.map(f => f.file_name).join(', ')}`);
+
+    // ─── Step 3: Atomic lock ──────────────────────────────────
     const lockedIds: string[] = [];
+    const now = new Date().toISOString();
     for (const f of queuedFiles) {
       const { data: updated, error: lockErr } = await sb
         .from("file_uploads")
-        .update({ status: "processing" })
+        .update({ status: "processing", processing_started_at: now })
         .eq("id", f.id)
-        .eq("status", "queued") // atomic: only if still queued
+        .eq("status", "queued")
         .select("id")
         .single();
 
@@ -52,16 +92,19 @@ serve(async (req) => {
     }
 
     if (lockedIds.length === 0) {
+      console.log("[process-queue] No files locked (already taken)");
       return new Response(JSON.stringify({ processed: 0, message: "No files locked (already taken)" }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
     const filesToProcess = queuedFiles.filter(f => lockedIds.includes(f.id));
+    console.log(`[process-queue] Locked ${filesToProcess.length} file(s) for processing`);
 
-    // Process all files in parallel
+    // ─── Step 4: Process all files in parallel ────────────────
     const settled = await Promise.allSettled(
       filesToProcess.map(async (file) => {
+        console.log(`[process-queue] Invoking process-file for "${file.file_name}" (${file.id})`);
         const processResp = await fetch(`${supabaseUrl}/functions/v1/process-file`, {
           method: "POST",
           headers: {
@@ -79,28 +122,33 @@ serve(async (req) => {
           throw new Error(`process-file returned ${processResp.status}: ${errText}`);
         }
 
+        const result = await processResp.json();
+        console.log(`[process-queue] process-file result for "${file.file_name}":`, JSON.stringify(result));
         return file.id;
       })
     );
 
-    const results: { id: string; success: boolean; error?: string }[] = [];
+    const results: { id: string; name: string; success: boolean; error?: string }[] = [];
 
     for (let i = 0; i < settled.length; i++) {
       const result = settled[i];
       const file = filesToProcess[i];
 
       if (result.status === "fulfilled") {
-        results.push({ id: file.id, success: true });
+        results.push({ id: file.id, name: file.file_name, success: true });
       } else {
         const msg = result.reason instanceof Error ? result.reason.message : "Unknown error";
-        console.error(`process-queue error for ${file.id}:`, msg);
+        console.error(`[process-queue] ❌ Error for "${file.file_name}" (${file.id}):`, msg);
         await sb.from("file_uploads").update({
           status: "error",
-          processing_error: msg,
+          processing_error: msg.substring(0, 500),
         }).eq("id", file.id);
-        results.push({ id: file.id, success: false, error: msg });
+        results.push({ id: file.id, name: file.file_name, success: false, error: msg });
       }
     }
+
+    const successCount = results.filter(r => r.success).length;
+    console.log(`[process-queue] ✅ Done: ${successCount}/${results.length} succeeded`);
 
     return new Response(JSON.stringify({
       processed: results.length,
@@ -110,7 +158,7 @@ serve(async (req) => {
     });
   } catch (error) {
     const msg = error instanceof Error ? error.message : "Unknown error";
-    console.error("process-queue error:", msg);
+    console.error("[process-queue] ❌ Fatal error:", msg);
     return new Response(JSON.stringify({ error: msg }), {
       status: 500,
       headers: { ...corsHeaders, "Content-Type": "application/json" },

@@ -2,7 +2,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { AwsClient } from "npm:aws4fetch@1.0.20";
 import { extractText, getDocumentProxy } from "npm:unpdf@0.12.1";
-import * as XLSX from "npm:xlsx@0.18.5";
+import * as XLSX from "https://cdn.sheetjs.com/xlsx-0.20.3/package/xlsx.mjs";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -14,9 +14,11 @@ const CHUNK_ROWS = 500;
 const CHUNK_CHARS = 12000;
 const MAX_CONTENT_CHARS = 15000;
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+const MAX_CHUNKS_PER_INVOCATION = 2;
 
 // ─── R2 Download ───────────────────────────────────────────────
 async function downloadFromR2(storagePath: string): Promise<ArrayBuffer> {
+  console.log(`[process-file] Downloading from R2: ${storagePath}`);
   const aws = new AwsClient({
     accessKeyId: Deno.env.get("CLOUDFLARE_R2_ACCESS_KEY_ID")!,
     secretAccessKey: Deno.env.get("CLOUDFLARE_R2_SECRET_ACCESS_KEY")!,
@@ -25,6 +27,7 @@ async function downloadFromR2(storagePath: string): Promise<ArrayBuffer> {
   const url = `${Deno.env.get("CLOUDFLARE_R2_ENDPOINT")!}/${Deno.env.get("CLOUDFLARE_R2_BUCKET_NAME")!}/${storagePath}`;
   const resp = await aws.fetch(url, { method: "GET" });
   if (!resp.ok) throw new Error(`R2 download failed [${resp.status}]`);
+  console.log(`[process-file] R2 download complete`);
   return resp.arrayBuffer();
 }
 
@@ -103,7 +106,7 @@ async function extractPdfText(buffer: ArrayBuffer): Promise<{ text: string; page
     }
     return { text: cleanText, pages: totalPages, method: 'scanned_minimal_text' };
   } catch (err) {
-    console.error('PDF text extraction error:', err);
+    console.error('[process-file] PDF text extraction error:', err);
     return { text: '', pages: 0, method: 'extraction_failed' };
   }
 }
@@ -116,6 +119,8 @@ async function extractWithAI(
   imageMime?: string,
   metadata?: Record<string, unknown>
 ): Promise<{ category: string; data: unknown; summary: string; rowCount: number }> {
+  console.log(`[process-file] Calling AI extraction for "${fileName}"${metadata ? ` method=${(metadata as any).method}` : ''}`);
+
   const systemPrompt = `Sos un experto en análisis de datos de negocios PyME latinoamericanas.
 Analizá el contenido y respondé SIEMPRE en JSON con esta estructura:
 {"category":"ventas"|"gastos"|"stock"|"facturas"|"marketing"|"clientes"|"rrhh"|"otro","summary":"Resumen breve 1-2 oraciones","row_count":<número>,"columns":["col1"],"data":[{"col1":"val1"}]}
@@ -164,6 +169,7 @@ Reglas:
   }
 
   const data = await resp.json();
+  console.log(`[process-file] AI response received, tokens used: ${data.usage?.total_tokens || 'unknown'}`);
   const raw = data.choices?.[0]?.message?.content || '{}';
   let parsed: Record<string, unknown>;
   try {
@@ -204,20 +210,25 @@ function chunkText(text: string, chunkSize: number): string[] {
   return chunks;
 }
 
-// ─── Process multiple chunks and save ─────────────────────────
-async function processChunks(
+// ─── Process chunks with limit per invocation ─────────────────
+async function processChunksLimited(
   sb: ReturnType<typeof createClient>,
   chunks: { content: string; index: number }[],
   fileName: string,
   fileUploadId: string,
   companyId: string,
   metadata: Record<string, unknown>,
-): Promise<{ category: string; summary: string; totalRows: number }> {
+  startChunk: number,
+): Promise<{ category: string; summary: string; totalRows: number; processedUpTo: number; allDone: boolean }> {
   let mainCategory = "otro";
   const summaries: string[] = [];
   let totalRows = 0;
+  const endChunk = Math.min(startChunk + MAX_CHUNKS_PER_INVOCATION, chunks.length);
 
-  for (const chunk of chunks) {
+  console.log(`[process-file] Processing chunks ${startChunk}-${endChunk - 1} of ${chunks.length} for "${fileName}"`);
+
+  for (let i = startChunk; i < endChunk; i++) {
+    const chunk = chunks[i];
     const chunkMeta = { ...metadata, chunk_index: chunk.index, total_chunks: chunks.length };
     const result = await extractWithAI(chunk.content, fileName, undefined, undefined, chunkMeta);
 
@@ -231,20 +242,23 @@ async function processChunks(
       chunk_index: chunk.index,
     });
 
-    if (chunk.index === 0) mainCategory = result.category;
+    if (i === startChunk) mainCategory = result.category;
     summaries.push(result.summary);
     totalRows += result.rowCount;
   }
 
-  const combinedSummary = chunks.length === 1
-    ? summaries[0]
-    : `${summaries[0]} (${chunks.length} bloques procesados, ${totalRows} filas totales)`;
+  const allDone = endChunk >= chunks.length;
+  const combinedSummary = allDone && chunks.length > 1
+    ? `${summaries[0]} (${chunks.length} bloques procesados, ${totalRows} filas totales)`
+    : summaries[0] || "Procesando...";
 
-  return { category: mainCategory, summary: combinedSummary, totalRows };
+  return { category: mainCategory, summary: combinedSummary, totalRows, processedUpTo: endChunk, allDone };
 }
 
 // ─── Main Handler ─────────────────────────────────────────────
 serve(async (req) => {
+  console.log("[process-file] Function invoked");
+
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
@@ -258,6 +272,9 @@ serve(async (req) => {
     fileUploadId = body.fileUploadId;
     const companyId = body.companyId;
     const preParsedData = body.preParsedData;
+    const startChunk = body.startChunk || 0;
+
+    console.log(`[process-file] fileUploadId=${fileUploadId}, companyId=${companyId}, startChunk=${startChunk}`);
 
     if (!fileUploadId || !companyId) {
       return new Response(JSON.stringify({ error: "Missing fileUploadId or companyId" }), {
@@ -271,12 +288,12 @@ serve(async (req) => {
 
     const { file_name, storage_path } = fileRecord;
     const ext = file_name.split('.').pop()?.toLowerCase() || '';
+    console.log(`[process-file] Processing "${file_name}" (ext=${ext})`);
 
     let processingMetadata: Record<string, unknown> = {};
     let resultInfo: { category: string; summary: string; totalRows: number };
 
     if (preParsedData) {
-      // ─── Excel pre-parsed: check if needs chunking ───
       const content = typeof preParsedData === 'string' ? preParsedData : JSON.stringify(preParsedData);
       processingMetadata = { method: 'client_preparsed', format: 'excel' };
 
@@ -285,7 +302,15 @@ serve(async (req) => {
         const chunks = textChunks.map((c, i) => ({ content: c, index: i }));
         processingMetadata.chunked = true;
         processingMetadata.total_chunks = chunks.length;
-        resultInfo = await processChunks(sb, chunks, file_name, fileUploadId, companyId, processingMetadata);
+        const r = await processChunksLimited(sb, chunks, file_name, fileUploadId, companyId, processingMetadata, startChunk);
+        if (!r.allDone) {
+          // Re-queue for next invocation
+          await sb.from("file_uploads").update({ status: "queued", processing_error: null }).eq("id", fileUploadId);
+          return new Response(JSON.stringify({ success: true, partial: true, processedUpTo: r.processedUpTo }), {
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+        resultInfo = { category: r.category, summary: r.summary, totalRows: r.totalRows };
       } else {
         const result = await extractWithAI(content.substring(0, MAX_CONTENT_CHARS), file_name, undefined, undefined, processingMetadata);
         await sb.from("file_extracted_data").insert({
@@ -299,22 +324,27 @@ serve(async (req) => {
       if (!storage_path) throw new Error("No storage_path");
       const buffer = await downloadFromR2(storage_path);
       const bytes = new Uint8Array(buffer);
+      console.log(`[process-file] File downloaded, ${bytes.length} bytes`);
 
       if (['csv', 'txt'].includes(ext)) {
-        // ─── CSV/TXT: chunk by rows ───
         const text = new TextDecoder().decode(buffer);
         const allRows = parseCSV(text);
         processingMetadata = { method: 'text_csv_parse', rows_total: allRows.length };
+        console.log(`[process-file] CSV parsed: ${allRows.length} rows`);
 
         if (allRows.length > CHUNK_ROWS) {
           const rowChunks = chunkRows(allRows, CHUNK_ROWS);
           processingMetadata.chunked = true;
           processingMetadata.total_chunks = rowChunks.length;
-          const chunks = rowChunks.map((rows, i) => ({
-            content: JSON.stringify(rows),
-            index: i,
-          }));
-          resultInfo = await processChunks(sb, chunks, file_name, fileUploadId, companyId, processingMetadata);
+          const chunks = rowChunks.map((rows, i) => ({ content: JSON.stringify(rows), index: i }));
+          const r = await processChunksLimited(sb, chunks, file_name, fileUploadId, companyId, processingMetadata, startChunk);
+          if (!r.allDone) {
+            await sb.from("file_uploads").update({ status: "queued", processing_error: null }).eq("id", fileUploadId);
+            return new Response(JSON.stringify({ success: true, partial: true, processedUpTo: r.processedUpTo }), {
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            });
+          }
+          resultInfo = { category: r.category, summary: r.summary, totalRows: r.totalRows };
         } else {
           const content = JSON.stringify(allRows);
           const result = await extractWithAI(content, file_name, undefined, undefined, processingMetadata);
@@ -360,9 +390,9 @@ serve(async (req) => {
         resultInfo = { category: result.category, summary: result.summary, totalRows: result.rowCount };
 
       } else if (ext === 'pdf') {
-        // ─── PDF: chunk by text length ───
         const pdfResult = await extractPdfText(buffer);
         processingMetadata = { method: pdfResult.method, pages: pdfResult.pages, size_kb: Math.round(buffer.byteLength / 1024) };
+        console.log(`[process-file] PDF: ${pdfResult.pages} pages, method=${pdfResult.method}, text_len=${pdfResult.text.length}`);
 
         if (pdfResult.method === 'text_extraction' && pdfResult.text.length > 50) {
           const fullText = pdfResult.text;
@@ -375,7 +405,14 @@ serve(async (req) => {
               content: `[PDF "${file_name}" - chunk ${i + 1}/${textChunks.length}, ${pdfResult.pages} páginas total]\n\n${t}`,
               index: i,
             }));
-            resultInfo = await processChunks(sb, chunks, file_name, fileUploadId, companyId, processingMetadata);
+            const r = await processChunksLimited(sb, chunks, file_name, fileUploadId, companyId, processingMetadata, startChunk);
+            if (!r.allDone) {
+              await sb.from("file_uploads").update({ status: "queued", processing_error: null }).eq("id", fileUploadId);
+              return new Response(JSON.stringify({ success: true, partial: true, processedUpTo: r.processedUpTo }), {
+                headers: { ...corsHeaders, "Content-Type": "application/json" },
+              });
+            }
+            resultInfo = { category: r.category, summary: r.summary, totalRows: r.totalRows };
           } else {
             const content = `[PDF con ${pdfResult.pages} páginas, texto extraído]\n\n${fullText}`;
             const result = await extractWithAI(content, file_name, undefined, undefined, processingMetadata);
@@ -387,7 +424,6 @@ serve(async (req) => {
             resultInfo = { category: result.category, summary: result.summary, totalRows: result.rowCount };
           }
         } else {
-          // Scanned PDF fallback
           let content: string;
           if (buffer.byteLength <= MAX_IMAGE_BYTES) {
             content = `[PDF escaneado/imagen - ${pdfResult.pages} páginas, ${(buffer.byteLength / 1024).toFixed(0)} KB. Texto parcial: "${pdfResult.text.substring(0, 2000)}". Nombre: "${file_name}".]`;
@@ -423,9 +459,15 @@ serve(async (req) => {
         });
         resultInfo = { category: result.category, summary: result.summary, totalRows: result.rowCount };
 
-    } else if (['xls', 'xlsx'].includes(ext)) {
-        // ─── Excel: parse server-side with SheetJS ───
-        const wb = XLSX.read(bytes, { type: 'array' });
+      } else if (['xls', 'xlsx'].includes(ext)) {
+        console.log(`[process-file] Parsing Excel server-side...`);
+        let wb: XLSX.WorkBook;
+        try {
+          wb = XLSX.read(bytes, { type: 'array' });
+        } catch (xlsErr) {
+          console.error(`[process-file] SheetJS parse error:`, xlsErr);
+          throw new Error(`Error parsing Excel: ${xlsErr instanceof Error ? xlsErr.message : 'Unknown parse error'}`);
+        }
         const allRows: Record<string, unknown>[] = [];
         const sheetInfo: string[] = [];
         for (const name of wb.SheetNames) {
@@ -435,17 +477,22 @@ serve(async (req) => {
             allRows.push(...rows);
           }
         }
+        console.log(`[process-file] Excel parsed: ${allRows.length} rows from sheets: ${sheetInfo.join(', ')}`);
         processingMetadata = { method: 'server_excel_parse', format: ext, sheets: sheetInfo.join(', '), rows_total: allRows.length };
 
         if (allRows.length > CHUNK_ROWS) {
           const rowChunks = chunkRows(allRows, CHUNK_ROWS);
           processingMetadata.chunked = true;
           processingMetadata.total_chunks = rowChunks.length;
-          const chunks = rowChunks.map((rows, i) => ({
-            content: JSON.stringify(rows),
-            index: i,
-          }));
-          resultInfo = await processChunks(sb, chunks, file_name, fileUploadId, companyId, processingMetadata);
+          const chunks = rowChunks.map((rows, i) => ({ content: JSON.stringify(rows), index: i }));
+          const r = await processChunksLimited(sb, chunks, file_name, fileUploadId, companyId, processingMetadata, startChunk);
+          if (!r.allDone) {
+            await sb.from("file_uploads").update({ status: "queued", processing_error: null }).eq("id", fileUploadId);
+            return new Response(JSON.stringify({ success: true, partial: true, processedUpTo: r.processedUpTo }), {
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            });
+          }
+          resultInfo = { category: r.category, summary: r.summary, totalRows: r.totalRows };
         } else {
           const content = JSON.stringify(allRows);
           const result = await extractWithAI(content.substring(0, MAX_CONTENT_CHARS), file_name, undefined, undefined, processingMetadata);
@@ -471,6 +518,7 @@ serve(async (req) => {
     }
 
     await sb.from("file_uploads").update({ status: "processed", processing_error: null }).eq("id", fileUploadId);
+    console.log(`[process-file] ✅ Completed "${file_name}" - category=${resultInfo.category}, rows=${resultInfo.totalRows}`);
 
     return new Response(JSON.stringify({
       success: true,
@@ -480,7 +528,7 @@ serve(async (req) => {
       processingMetadata,
     }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
   } catch (error) {
-    console.error("process-file error:", error);
+    console.error("[process-file] ❌ Error:", error);
     const msg = error instanceof Error ? error.message : "Unknown error";
     if (fileUploadId) {
       try { await sb.from("file_uploads").update({ status: "error", processing_error: msg }).eq("id", fileUploadId); } catch { /* ignore */ }
