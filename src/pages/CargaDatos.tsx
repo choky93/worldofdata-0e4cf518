@@ -517,14 +517,10 @@ export default function CargaDatos() {
 
   const handleReprocess = async (file: FileRecord) => {
     if (!profile?.company_id) return;
-    if (file.status === 'processing') {
-      toast.error('Este archivo ya se está procesando');
-      return;
-    }
     setReprocessingId(file.id);
     try {
       await supabase.from('file_extracted_data').delete().eq('file_upload_id', file.id);
-      await supabase.from('file_uploads').update({ status: 'queued', processing_error: null }).eq('id', file.id);
+      await supabase.from('file_uploads').update({ status: 'queued', processing_error: null, processing_started_at: null }).eq('id', file.id);
       toast.success(`"${file.file_name}" re-encolado para procesar`);
       await fetchFiles();
     } catch (err: any) {
