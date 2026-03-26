@@ -5,7 +5,8 @@ import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Progress } from '@/components/ui/progress';
-import { Upload, FileText, Image, FileSpreadsheet, Trash2, Lightbulb, Loader2, RefreshCw, CheckCircle2, Search, ChevronLeft, ChevronRight, Filter, XCircle, BarChart3, Clock, AlertTriangle, Layers } from 'lucide-react';
+import { Upload, FileText, Image, FileSpreadsheet, Trash2, Lightbulb, Loader2, RefreshCw, CheckCircle2, Search, ChevronLeft, ChevronRight, Filter, XCircle, BarChart3, Clock, AlertTriangle, Layers, Link2, ArrowUp, Globe } from 'lucide-react';
+import { Textarea } from '@/components/ui/textarea';
 import { formatDate } from '@/lib/formatters';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
@@ -286,6 +287,9 @@ export default function CargaDatos() {
   const [reprocessingId, setReprocessingId] = useState<string | null>(null);
   const [uploadQueue, setUploadQueue] = useState<UploadQueueItem[]>([]);
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [urlImportText, setUrlImportText] = useState('');
+  const [isImportingUrls, setIsImportingUrls] = useState(false);
+  const [showUrlImport, setShowUrlImport] = useState(false);
 
   // Pagination & filters
   const [currentPage, setCurrentPage] = useState(0);
@@ -619,6 +623,48 @@ export default function CargaDatos() {
     }
   };
 
+  // ─── URL Import Handler ───────────────────────────────────
+  const handleImportUrls = async () => {
+    if (!user || !profile?.company_id || !urlImportText.trim()) return;
+    setIsImportingUrls(true);
+    try {
+      const lines = urlImportText.trim().split('\n').filter(l => l.trim());
+      const urls = lines.map(line => {
+        const parts = line.split(',').map(p => p.trim());
+        if (parts.length >= 2) return { url: parts[0], name: parts[1] };
+        return parts[0];
+      });
+
+      const { data, error } = await supabase.functions.invoke('import-url', {
+        body: { urls, userId: user.id, companyId: profile.company_id },
+      });
+
+      if (error) throw error;
+      toast.success(`${data.imported} archivo(s) importado(s)${data.failed > 0 ? `, ${data.failed} fallaron` : ''}`);
+      setUrlImportText('');
+      setShowUrlImport(false);
+      fetchFiles();
+    } catch (err: any) {
+      toast.error('Error importando: ' + err.message);
+    } finally {
+      setIsImportingUrls(false);
+    }
+  };
+
+  // ─── Priority Handler ─────────────────────────────────────
+  const handlePrioritize = async (file: FileRecord) => {
+    try {
+      const { error } = await supabase.from('file_uploads')
+        .update({ priority: 1 })
+        .eq('id', file.id);
+      if (error) throw error;
+      toast.success(`"${file.file_name}" priorizado`);
+      fetchFiles();
+    } catch (err: any) {
+      toast.error('Error: ' + err.message);
+    }
+  };
+
   const totalPages = Math.ceil(totalCount / PAGE_SIZE);
   const isUploading = uploadQueue.some(i => i.status === 'pending' || i.status === 'uploading' || i.status === 'processing');
 
@@ -684,6 +730,50 @@ export default function CargaDatos() {
 
           {/* Upload Queue */}
           <UploadQueue items={uploadQueue} onDismiss={() => setUploadQueue([])} />
+          {/* URL Import */}
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setShowUrlImport(!showUrlImport)}
+              className="gap-1.5"
+            >
+              <Globe className="h-3.5 w-3.5" />
+              Importar por URL
+            </Button>
+          </div>
+
+          {showUrlImport && (
+            <Card className="border-primary/20">
+              <CardContent className="pt-4 space-y-3">
+                <p className="text-sm font-medium">Importar archivos desde URLs</p>
+                <p className="text-xs text-muted-foreground">
+                  Pegá una URL por línea. Para nombrar el archivo: <code className="bg-muted px-1 rounded">url, nombre</code>. Soporta Google Drive, Dropbox y enlaces directos.
+                </p>
+                <Textarea
+                  placeholder={"https://drive.google.com/file/d/abc123/view\nhttps://example.com/report.csv, reporte-ventas.csv"}
+                  value={urlImportText}
+                  onChange={e => setUrlImportText(e.target.value)}
+                  rows={4}
+                  className="text-sm font-mono"
+                />
+                <div className="flex gap-2 justify-end">
+                  <Button variant="ghost" size="sm" onClick={() => { setShowUrlImport(false); setUrlImportText(''); }}>
+                    Cancelar
+                  </Button>
+                  <Button
+                    size="sm"
+                    onClick={handleImportUrls}
+                    disabled={isImportingUrls || !urlImportText.trim()}
+                    className="gap-1.5"
+                  >
+                    {isImportingUrls ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Link2 className="h-3.5 w-3.5" />}
+                    {isImportingUrls ? 'Importando...' : 'Importar'}
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          )}
 
           {/* Filters */}
           <div className="flex flex-wrap gap-2 items-center">
@@ -768,15 +858,26 @@ export default function CargaDatos() {
                             {statusLabel(f.status)}
                           </Badge>
                           {(f.status === 'queued') && (
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="shrink-0 h-8 w-8 text-muted-foreground hover:text-destructive"
-                              onClick={() => handleCancel(f)}
-                              title="Cancelar"
-                            >
-                              <XCircle className="h-4 w-4" />
-                            </Button>
+                            <>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="shrink-0 h-8 w-8 text-muted-foreground hover:text-primary"
+                                onClick={() => handlePrioritize(f)}
+                                title="Priorizar"
+                              >
+                                <ArrowUp className="h-4 w-4" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="shrink-0 h-8 w-8 text-muted-foreground hover:text-destructive"
+                                onClick={() => handleCancel(f)}
+                                title="Cancelar"
+                              >
+                                <XCircle className="h-4 w-4" />
+                              </Button>
+                            </>
                           )}
                           {(f.status === 'error' || f.status === 'processed' || f.status === 'cancelled') && (
                             <Button
