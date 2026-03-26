@@ -1,52 +1,46 @@
 
 
-# Fix: Recursión infinita en RLS de `profiles`
+# Fase 3 — Copiloto AI con contexto de datos del negocio
 
-## Problema
-
-Las políticas "Admins can view company profiles" y "Admins can update company profiles" en la tabla `profiles` hacen un subquery a la misma tabla `profiles`:
-
-```sql
-company_id IN (SELECT p.company_id FROM profiles p WHERE p.id = auth.uid())
-```
-
-Esto genera recursión infinita. El mismo patrón afecta a **otras tablas** que también hacen subquery a `profiles`: `companies`, `company_settings`, `diagnostic_results`, `file_uploads`.
+## Problema actual
+El copiloto AI (`ai-chat`) usa OpenAI directamente con una API key propia, sin contexto del negocio. El usuario pregunta "¿cómo van mis ventas?" y la IA no tiene datos reales para responder. Además, la función `ai-search` (Perplexity) existe pero no está integrada en la UI.
 
 ## Solución
 
-### Paso 1: Crear función `get_user_company_id()` SECURITY DEFINER
+### Paso 1: Migrar `ai-chat` a Lovable AI Gateway
+Reemplazar la llamada directa a OpenAI por el gateway de Lovable AI (`https://ai.gateway.lovable.dev/v1/chat/completions`) usando `LOVABLE_API_KEY`. Esto elimina la dependencia de `OPENAI_API_KEY` para el chat.
 
-```sql
-CREATE OR REPLACE FUNCTION public.get_user_company_id()
-RETURNS UUID
-LANGUAGE sql STABLE SECURITY DEFINER
-SET search_path = public
-AS $$
-  SELECT company_id FROM profiles WHERE id = auth.uid() LIMIT 1;
-$$;
+**Archivo:** `supabase/functions/ai-chat/index.ts`
 
-REVOKE EXECUTE ON FUNCTION public.get_user_company_id FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.get_user_company_id TO authenticated;
-```
+### Paso 2: Inyectar contexto del negocio en el copiloto
+Modificar `ai-chat` para que reciba un parámetro `context` opcional desde el frontend. El edge function construirá un system prompt enriquecido con datos del negocio (nombre de empresa, industria, settings, archivos subidos, etc.).
 
-### Paso 2: Reemplazar políticas en `profiles`
+En el frontend (`AICopilot.tsx`), enviar el contexto del negocio (de `useAuth`) junto con los mensajes: nombre de empresa, si vende productos/servicios, si tiene stock, si usa ads, etc.
 
-Drop y recrear las 2 políticas problemáticas usando `get_user_company_id()`:
+### Paso 3: Agregar botón de investigación de mercado (Perplexity)
+Agregar un modo "Investigar" al copiloto que usa la función `ai-search` existente para consultas de mercado/industria. Se muestra como un toggle o botón en el input del chat.
 
-- **Admins can view company profiles** → `USING (company_id = get_user_company_id() AND has_role(auth.uid(), 'admin'))`
-- **Admins can update company profiles** → mismo cambio
+### Paso 4: Pasar datos reales al system prompt
+Crear un endpoint o lógica en el edge function que consulte la DB (usando `SUPABASE_SERVICE_ROLE_KEY`) para obtener un resumen de los datos del negocio: últimos archivos subidos, configuración, diagnóstico. Esto se inyecta en el system prompt para que la IA responda con contexto real.
 
-### Paso 3: Corregir políticas en otras tablas (mismo patrón)
+---
 
-Reemplazar `company_id IN (SELECT profiles.company_id FROM profiles WHERE profiles.id = auth.uid())` por `company_id = public.get_user_company_id()` en:
+## Detalle técnico
 
-- **companies** (2 políticas: SELECT, UPDATE)
-- **company_settings** (2 políticas: SELECT, UPDATE)
-- **diagnostic_results** (3 políticas: ALL admin, SELECT users)
-- **file_uploads** (1 política: SELECT "Users can view own uploads")
+### `ai-chat/index.ts` (reescribir)
+- Usar `LOVABLE_API_KEY` + gateway URL
+- Aceptar `{ messages, context?, mode? }` 
+- Si `mode === 'search'`: redirigir a Perplexity vía `ai-search` internamente
+- Consultar DB con service role para obtener resumen de empresa
+- Modelo: `google/gemini-2.5-flash` (buen balance costo/calidad)
+- Manejar errores 429/402
 
-Total: **1 migración** con la función + drop/recreate de ~9 políticas.
+### `AICopilot.tsx` (modificar)
+- Enviar `context` con datos del `useAuth()` (companyName, companySettings, etc.)
+- Agregar toggle "Investigar mercado" que cambia `mode` a `search`
+- Mostrar citaciones cuando la respuesta viene de Perplexity
 
 ## Archivos tocados
-- Solo migración SQL (sin cambios en código frontend)
+- `supabase/functions/ai-chat/index.ts` (reescribir)
+- `src/components/AICopilot.tsx` (agregar contexto + modo investigación)
 
