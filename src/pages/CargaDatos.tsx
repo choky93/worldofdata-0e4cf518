@@ -858,15 +858,26 @@ export default function CargaDatos() {
                             {statusLabel(f.status)}
                           </Badge>
                           {(f.status === 'queued') && (
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="shrink-0 h-8 w-8 text-muted-foreground hover:text-destructive"
-                              onClick={() => handleCancel(f)}
-                              title="Cancelar"
-                            >
-                              <XCircle className="h-4 w-4" />
-                            </Button>
+                            <>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="shrink-0 h-8 w-8 text-muted-foreground hover:text-primary"
+                                onClick={() => handlePrioritize(f)}
+                                title="Priorizar"
+                              >
+                                <ArrowUp className="h-4 w-4" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="shrink-0 h-8 w-8 text-muted-foreground hover:text-destructive"
+                                onClick={() => handleCancel(f)}
+                                title="Cancelar"
+                              >
+                                <XCircle className="h-4 w-4" />
+                              </Button>
+                            </>
                           )}
                           {(f.status === 'error' || f.status === 'processed' || f.status === 'cancelled') && (
                             <Button
