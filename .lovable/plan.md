@@ -5,32 +5,69 @@
 ### 1. `supabase/functions/process-file/index.ts` — Reescrito completo
 
 - **Modelo**: GPT-4o con max_tokens 4096
-- **PDF**: Extracción de texto real con `unpdf` (pdfjs-serverless). Si el PDF tiene texto embebido, se extrae y se envía como texto a GPT-4o. Si es escaneado y tiene poco texto, se usa el texto parcial + nombre como contexto
+- **MAX_ROWS**: Aumentado de 50 a 500
+- **PDF**: Extracción de texto real con `unpdf` (pdfjs-serverless). Fallback a texto parcial + contexto para PDFs escaneados
 - **CSV**: Parser RFC 4180 con BOM UTF-8, campos entrecomillados, detección automática de delimitador
 - **Imágenes**: Visión GPT-4o hasta 5MB
-- **Excel sin preParsedData**: Error explícito pidiendo reproceso desde el cliente (no más fallback inútil por nombre)
-- **Metadata de procesamiento**: Cada archivo registra qué método se usó (text_extraction, vision, client_preparsed, etc.)
+- **Excel sin preParsedData**: Error explícito pidiendo reproceso desde el cliente
+- **Metadata de procesamiento**: Cada archivo registra qué método se usó
 
-### 2. `supabase/functions/r2-download/index.ts` — Nueva función
+### 2. `supabase/functions/process-queue/index.ts` — Worker async (NUEVO)
 
-- Descarga archivos de R2 de forma segura
-- Valida autenticación y pertenencia a la empresa
-- Retorna el archivo como blob con el MIME correcto
+- Procesa hasta 5 archivos pendientes (status: "queued") por invocación
+- Llama a `process-file` internamente para cada archivo
+- Activado por pg_cron cada minuto como red de seguridad
+- Si un archivo falla, marca como error y sigue con el siguiente
 
-### 3. `src/pages/CargaDatos.tsx` — Reprocess funcional
+### 3. `supabase/functions/r2-download/index.ts` — Descarga segura
 
-- **Reprocess Excel**: Descarga el archivo via `r2-download`, lo parsea con SheetJS, y envía `preParsedData`
-- **Polling**: Auto-refresh cada 5s mientras hay archivos procesándose
-- **Resumen visual**: Muestra categoría, filas y resumen de IA bajo cada archivo procesado
+- Descarga archivos de R2 con validación de auth y pertenencia a empresa
+- Usado para reproceso de Excel
 
-## Estrategia de procesamiento por formato
+### 4. `src/pages/CargaDatos.tsx` — Reescrito para escalabilidad
+
+- **Batch upload**: Subida masiva con cola visual y progreso individual
+- **Paralelo**: Hasta 4 archivos subiendo simultáneamente
+- **Status "queued"**: Los archivos se marcan como "En cola" → process-file se invoca inmediatamente + cron como backup
+- **Paginación**: 25 archivos por página con navegación
+- **Filtros**: Por estado (procesado, en cola, error, procesando) y por tipo (PDF, CSV, Excel, etc.)
+- **Búsqueda**: Por nombre de archivo
+- **Polling**: Auto-refresh cada 5s mientras hay archivos en cola o procesando
+
+## Arquitectura de procesamiento
+
+```text
+Usuario sube N archivos en paralelo (4 simultáneos)
+       ↓
+R2 Storage + file_uploads (status: "queued")
+       ↓
+process-file se invoca inmediatamente para cada archivo
+       ↓
+Si falla → pg_cron (cada 1 min) → process-queue → reintenta
+       ↓
+GPT-4o analiza contenido (texto/visión según formato)
+       ↓
+file_extracted_data + status: "processed"
+       ↓
+UI se actualiza por polling automático
+```
+
+## Estrategia por formato
 
 | Formato | Método | Límite |
 |---------|--------|--------|
-| CSV/TXT | Texto parseado | 15K chars |
+| CSV/TXT | Texto parseado | 15K chars, 500 filas |
 | XML | Texto raw | 15K chars |
-| Excel | preParsedData del cliente (SheetJS) | 8K chars |
+| Excel | preParsedData del cliente (SheetJS) | 15K chars, 500 filas |
 | PDF (con texto) | unpdf text extraction → texto | 15K chars |
 | PDF (escaneado) | Texto parcial + contexto | 15K chars |
 | Imágenes | GPT-4o visión base64 | 5MB |
 | Word | Texto raw | 15K chars |
+
+## Etapas futuras (no implementadas)
+
+- Chunked processing para archivos >500 filas
+- Presigned URLs para archivos >50MB
+- Dashboard de estado de cola
+- Importación desde Google Drive / ERPs
+- Procesamiento paralelo masivo
