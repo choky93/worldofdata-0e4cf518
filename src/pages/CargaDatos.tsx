@@ -2,7 +2,10 @@ import { useState, useCallback, useEffect, useRef } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Upload, FileText, Image, FileSpreadsheet, Trash2, Lightbulb, Loader2, RefreshCw, CheckCircle2 } from 'lucide-react';
+import { Input } from '@/components/ui/input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Progress } from '@/components/ui/progress';
+import { Upload, FileText, Image, FileSpreadsheet, Trash2, Lightbulb, Loader2, RefreshCw, CheckCircle2, Search, ChevronLeft, ChevronRight, Filter } from 'lucide-react';
 import { formatDate } from '@/lib/formatters';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
@@ -30,7 +33,18 @@ interface ExtractedData {
   row_count: number | null;
 }
 
+interface UploadQueueItem {
+  file: File;
+  id: string;
+  progress: number;
+  status: 'pending' | 'uploading' | 'processing' | 'done' | 'error';
+  error?: string;
+}
+
 const fileIcons: Record<string, typeof FileText> = { PDF: FileText, CSV: FileSpreadsheet, XLS: FileSpreadsheet, Imagen: Image };
+
+const PAGE_SIZE = 25;
+const MAX_CONCURRENT_UPLOADS = 4;
 
 function detectFileType(name: string): string {
   const ext = name.split('.').pop()?.toLowerCase() || '';
@@ -75,12 +89,12 @@ function doParseExcel(data: Uint8Array): string {
   const result: { sheetName: string; rows: Record<string, unknown>[] }[] = [];
   for (const name of wb.SheetNames) {
     const rows = XLSX.utils.sheet_to_json(wb.Sheets[name], { defval: '' }) as Record<string, unknown>[];
-    if (rows.length > 0) result.push({ sheetName: name, rows: rows.slice(0, 50) });
+    if (rows.length > 0) result.push({ sheetName: name, rows: rows.slice(0, 500) });
   }
   const content = result.map(s =>
     `Hoja "${s.sheetName}" (${s.rows.length} filas):\n${JSON.stringify(s.rows)}`
   ).join('\n\n');
-  return content.substring(0, 8000);
+  return content.substring(0, 15000);
 }
 
 const categoryLabels: Record<string, string> = {
@@ -158,8 +172,58 @@ function ContextualAssistant({ companySettings }: { companySettings: any }) {
           </>
         )}
         <p className="text-[10px] text-muted-foreground border-t pt-3 mt-3">
-          Formatos: PDF, CSV, XLS/XLSX, imágenes (capturas de reportes). Máx. 20MB por archivo.
+          Formatos: PDF, CSV, XLS/XLSX, imágenes (capturas de reportes). Máx. 20MB por archivo. Podés subir muchos archivos a la vez.
         </p>
+      </CardContent>
+    </Card>
+  );
+}
+
+// ─── Upload Queue Component ───────────────────────────────────
+function UploadQueue({ items, onDismiss }: { items: UploadQueueItem[]; onDismiss: () => void }) {
+  if (items.length === 0) return null;
+
+  const completed = items.filter(i => i.status === 'done').length;
+  const errors = items.filter(i => i.status === 'error').length;
+  const total = items.length;
+  const allDone = items.every(i => i.status === 'done' || i.status === 'error');
+  const overallProgress = total > 0 ? Math.round(((completed + errors) / total) * 100) : 0;
+
+  return (
+    <Card className="border-primary/20">
+      <CardHeader className="pb-2">
+        <div className="flex items-center justify-between">
+          <CardTitle className="text-sm">
+            {allDone
+              ? `✅ ${completed} archivo(s) subido(s)${errors > 0 ? `, ${errors} con error` : ''}`
+              : `Subiendo ${total} archivo(s)... (${completed}/${total})`}
+          </CardTitle>
+          {allDone && (
+            <Button variant="ghost" size="sm" onClick={onDismiss} className="h-7 text-xs">
+              Cerrar
+            </Button>
+          )}
+        </div>
+        <Progress value={overallProgress} className="h-1.5" />
+      </CardHeader>
+      <CardContent className="pt-0">
+        <div className="max-h-40 overflow-y-auto space-y-1">
+          {items.map(item => (
+            <div key={item.id} className="flex items-center gap-2 text-xs py-1">
+              {item.status === 'done' ? (
+                <CheckCircle2 className="h-3.5 w-3.5 text-success shrink-0" />
+              ) : item.status === 'error' ? (
+                <span className="text-destructive shrink-0">✗</span>
+              ) : (
+                <Loader2 className="h-3.5 w-3.5 animate-spin text-primary shrink-0" />
+              )}
+              <span className="truncate flex-1">{item.file.name}</span>
+              {item.status === 'error' && item.error && (
+                <span className="text-destructive truncate max-w-[200px]">{item.error}</span>
+              )}
+            </div>
+          ))}
+        </div>
       </CardContent>
     </Card>
   );
@@ -168,12 +232,19 @@ function ContextualAssistant({ companySettings }: { companySettings: any }) {
 export default function CargaDatos() {
   const { user, profile, role, companySettings } = useAuth();
   const [files, setFiles] = useState<FileRecord[]>([]);
+  const [totalCount, setTotalCount] = useState(0);
   const [extractedDataMap, setExtractedDataMap] = useState<Record<string, ExtractedData>>({});
   const [dragging, setDragging] = useState(false);
-  const [uploading, setUploading] = useState(false);
   const [loadingFiles, setLoadingFiles] = useState(true);
   const [reprocessingId, setReprocessingId] = useState<string | null>(null);
+  const [uploadQueue, setUploadQueue] = useState<UploadQueueItem[]>([]);
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Pagination & filters
+  const [currentPage, setCurrentPage] = useState(0);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [typeFilter, setTypeFilter] = useState<string>('all');
 
   const fetchExtractedData = useCallback(async (fileIds: string[]) => {
     if (fileIds.length === 0) return;
@@ -193,20 +264,33 @@ export default function CargaDatos() {
     try {
       let query = supabase
         .from('file_uploads')
-        .select('*')
+        .select('*', { count: 'exact' })
         .eq('company_id', profile.company_id)
         .order('created_at', { ascending: false });
 
       if (role === 'employee') {
         query = query.eq('uploaded_by', user?.id);
       }
+      if (searchTerm.trim()) {
+        query = query.ilike('file_name', `%${searchTerm.trim()}%`);
+      }
+      if (statusFilter !== 'all') {
+        query = query.eq('status', statusFilter);
+      }
+      if (typeFilter !== 'all') {
+        query = query.eq('file_type', typeFilter);
+      }
 
-      const { data, error } = await query;
+      // Pagination
+      const from = currentPage * PAGE_SIZE;
+      query = query.range(from, from + PAGE_SIZE - 1);
+
+      const { data, error, count } = await query;
       if (error) throw error;
       const records = (data as FileRecord[]) || [];
       setFiles(records);
+      setTotalCount(count || 0);
 
-      // Fetch extracted data for processed files
       const processedIds = records.filter(f => f.status === 'processed').map(f => f.id);
       if (processedIds.length > 0) fetchExtractedData(processedIds);
     } catch (err) {
@@ -214,15 +298,15 @@ export default function CargaDatos() {
     } finally {
       setLoadingFiles(false);
     }
-  }, [profile?.company_id, role, user?.id, fetchExtractedData]);
+  }, [profile?.company_id, role, user?.id, fetchExtractedData, currentPage, searchTerm, statusFilter, typeFilter]);
 
   useEffect(() => {
     fetchFiles();
   }, [fetchFiles]);
 
-  // Polling: auto-refresh when files are processing
+  // Polling: auto-refresh when files are processing/queued
   useEffect(() => {
-    const hasProcessing = files.some(f => f.status === 'processing');
+    const hasProcessing = files.some(f => f.status === 'processing' || f.status === 'queued');
     if (hasProcessing && !pollingRef.current) {
       pollingRef.current = setInterval(() => { fetchFiles(); }, 5000);
     } else if (!hasProcessing && pollingRef.current) {
@@ -234,17 +318,13 @@ export default function CargaDatos() {
     };
   }, [files, fetchFiles]);
 
-  /** Download file from R2 via r2-download edge function */
   const downloadFileFromR2 = async (fileUploadId: string): Promise<ArrayBuffer | null> => {
     try {
       const { data, error } = await supabase.functions.invoke('r2-download', {
         body: { fileUploadId },
       });
       if (error) throw error;
-      // The response is a Blob when Content-Type is not JSON
-      if (data instanceof Blob) {
-        return await data.arrayBuffer();
-      }
+      if (data instanceof Blob) return await data.arrayBuffer();
       return null;
     } catch (err) {
       console.error('Download from R2 failed:', err);
@@ -252,39 +332,67 @@ export default function CargaDatos() {
     }
   };
 
+  // ─── Batch Upload with Parallel Queue ──────────────────────
   const uploadFiles = async (fileList: FileList | File[]) => {
     if (!user || !profile?.company_id) return;
-    setUploading(true);
     const filesToUpload = Array.from(fileList);
+    if (filesToUpload.length === 0) return;
 
-    try {
-      for (const file of filesToUpload) {
-        const fileHash = await computeFileHash(file);
+    // Create queue items
+    const queueItems: UploadQueueItem[] = filesToUpload.map((file, i) => ({
+      file,
+      id: `upload-${Date.now()}-${i}`,
+      progress: 0,
+      status: 'pending',
+    }));
+    setUploadQueue(queueItems);
+
+    // Process in parallel with concurrency limit
+    const activePromises: Promise<void>[] = [];
+    let nextIdx = 0;
+
+    const processNext = async (): Promise<void> => {
+      const idx = nextIdx++;
+      if (idx >= queueItems.length) return;
+      const item = queueItems[idx];
+
+      const updateItem = (updates: Partial<UploadQueueItem>) => {
+        Object.assign(item, updates);
+        setUploadQueue([...queueItems]);
+      };
+
+      updateItem({ status: 'uploading', progress: 10 });
+
+      try {
+        // Hash check
+        const fileHash = await computeFileHash(item.file);
+        updateItem({ progress: 30 });
 
         const { data: existing } = await supabase
           .from('file_uploads')
           .select('id, file_name')
-          .eq('company_id', profile.company_id)
+          .eq('company_id', profile.company_id!)
           .eq('file_hash', fileHash)
           .limit(1);
 
         if (existing && existing.length > 0) {
-          toast.warning(`"${file.name}" ya fue cargado anteriormente (coincide con "${existing[0].file_name}"). Se omitió.`);
-          continue;
+          updateItem({ status: 'error', error: `Duplicado de "${existing[0].file_name}"` });
+          await processNext();
+          return;
         }
 
+        // Pre-parse Excel on client
         let preParsedData: string | null = null;
-        const ext = file.name.split('.').pop()?.toLowerCase() || '';
+        const ext = item.file.name.split('.').pop()?.toLowerCase() || '';
         if (['xls', 'xlsx'].includes(ext)) {
-          try {
-            preParsedData = await parseExcelToJson(file);
-          } catch (parseErr) {
-            console.warn('Client-side Excel parse failed:', parseErr);
-          }
+          try { preParsedData = await parseExcelToJson(item.file); } catch { /* ignore */ }
         }
 
+        updateItem({ progress: 50 });
+
+        // Upload to R2
         const formData = new FormData();
-        formData.append('file', file);
+        formData.append('file', item.file);
         formData.append('userId', user.id);
 
         const { data: uploadData, error: uploadError } = await supabase.functions.invoke('r2-upload', {
@@ -292,53 +400,70 @@ export default function CargaDatos() {
         });
 
         if (uploadError || !uploadData?.success) {
-          toast.error(`Error subiendo ${file.name}: ${uploadError?.message || uploadData?.error || 'Error desconocido'}`);
-          continue;
+          updateItem({ status: 'error', error: uploadError?.message || uploadData?.error || 'Error de subida' });
+          await processNext();
+          return;
         }
 
+        updateItem({ progress: 70 });
+
+        // Insert DB record — status "queued" for async processing
         const { data: dbData, error: dbError } = await supabase.from('file_uploads').insert({
-          file_name: file.name,
-          file_type: detectFileType(file.name),
-          file_size: file.size,
-          status: 'processing',
+          file_name: item.file.name,
+          file_type: detectFileType(item.file.name),
+          file_size: item.file.size,
+          status: 'queued',
           storage_path: uploadData.storagePath,
           uploaded_by: user.id,
-          company_id: profile.company_id,
+          company_id: profile.company_id!,
           file_hash: fileHash,
         }).select('id').single();
 
         if (dbError) {
-          toast.error(`Error registrando ${file.name}: ${dbError.message}`);
-          continue;
+          updateItem({ status: 'error', error: dbError.message });
+          await processNext();
+          return;
         }
 
+        updateItem({ progress: 85, status: 'processing' });
+
+        // Fire process-file immediately (don't wait for cron)
         supabase.functions.invoke('process-file', {
           body: {
             fileUploadId: dbData.id,
             companyId: profile.company_id,
             ...(preParsedData ? { preParsedData } : {}),
           },
-        }).then(({ error: procError }) => {
-          if (procError) console.error(`Processing error for ${file.name}:`, procError);
+        }).then(() => {
+          updateItem({ status: 'done', progress: 100 });
+          fetchFiles();
+        }).catch(() => {
+          // Will be retried by process-queue cron
+          updateItem({ status: 'done', progress: 100 });
           fetchFiles();
         });
+
+        updateItem({ status: 'done', progress: 100 });
+      } catch (err: any) {
+        updateItem({ status: 'error', error: err.message });
       }
 
-      toast.success(`${filesToUpload.length} archivo(s) subido(s) correctamente`);
-      await fetchFiles();
-    } catch (err: any) {
-      toast.error('Error en la carga: ' + err.message);
-    } finally {
-      setUploading(false);
+      await processNext();
+    };
+
+    // Start N concurrent workers
+    for (let i = 0; i < Math.min(MAX_CONCURRENT_UPLOADS, filesToUpload.length); i++) {
+      activePromises.push(processNext());
     }
+
+    await Promise.all(activePromises);
+    fetchFiles();
   };
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     setDragging(false);
-    if (e.dataTransfer.files.length > 0) {
-      uploadFiles(e.dataTransfer.files);
-    }
+    if (e.dataTransfer.files.length > 0) uploadFiles(e.dataTransfer.files);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id, profile?.company_id]);
 
@@ -348,20 +473,14 @@ export default function CargaDatos() {
         const { data, error: r2Error } = await supabase.functions.invoke('r2-delete', {
           body: { storagePath: file.storage_path },
         });
-        if (r2Error || !data?.success) {
-          console.warn('R2 delete warning:', r2Error?.message || data?.error);
-        }
+        if (r2Error || !data?.success) console.warn('R2 delete warning:', r2Error?.message || data?.error);
       }
       await supabase.from('file_extracted_data').delete().eq('file_upload_id', file.id);
       const { error } = await supabase.from('file_uploads').delete().eq('id', file.id);
       if (error) throw error;
       toast.success('Archivo eliminado');
       setFiles(prev => prev.filter(f => f.id !== file.id));
-      setExtractedDataMap(prev => {
-        const next = { ...prev };
-        delete next[file.id];
-        return next;
-      });
+      setExtractedDataMap(prev => { const next = { ...prev }; delete next[file.id]; return next; });
     } catch (err: any) {
       toast.error('Error eliminando: ' + err.message);
     }
@@ -374,7 +493,6 @@ export default function CargaDatos() {
       await supabase.from('file_extracted_data').delete().eq('file_upload_id', file.id);
       await supabase.from('file_uploads').update({ status: 'processing', processing_error: null }).eq('id', file.id);
 
-      // For Excel files, download from R2 and re-parse on client
       let preParsedData: string | null = null;
       const ext = file.file_name.split('.').pop()?.toLowerCase() || '';
       if (['xls', 'xlsx'].includes(ext)) {
@@ -383,13 +501,12 @@ export default function CargaDatos() {
           if (buffer) {
             preParsedData = parseExcelToJson(buffer);
           } else {
-            toast.error(`No se pudo descargar "${file.file_name}" para reprocesar`);
+            toast.error(`No se pudo descargar "${file.file_name}"`);
             setReprocessingId(null);
             return;
           }
-        } catch (e) {
-          console.warn('Could not pre-parse Excel for reprocess:', e);
-          toast.error(`Error parseando "${file.file_name}". Intentá subirlo de nuevo.`);
+        } catch {
+          toast.error(`Error parseando "${file.file_name}"`);
           setReprocessingId(null);
           return;
         }
@@ -403,16 +520,35 @@ export default function CargaDatos() {
         },
       });
 
-      if (error) {
-        toast.error(`Error reprocesando: ${error.message}`);
-      } else {
-        toast.success(`"${file.file_name}" enviado a reprocesar`);
-      }
+      if (error) toast.error(`Error reprocesando: ${error.message}`);
+      else toast.success(`"${file.file_name}" enviado a reprocesar`);
       await fetchFiles();
     } catch (err: any) {
       toast.error('Error: ' + err.message);
     } finally {
       setReprocessingId(null);
+    }
+  };
+
+  const totalPages = Math.ceil(totalCount / PAGE_SIZE);
+  const isUploading = uploadQueue.some(i => i.status === 'pending' || i.status === 'uploading' || i.status === 'processing');
+
+  const statusLabel = (status: string | null) => {
+    switch (status) {
+      case 'processed': return 'Procesado';
+      case 'error': return 'Error';
+      case 'queued': return 'En cola';
+      case 'processing': return 'Procesando';
+      default: return status || 'Desconocido';
+    }
+  };
+
+  const statusColor = (status: string | null) => {
+    switch (status) {
+      case 'processed': return 'bg-success/15 text-success';
+      case 'error': return 'bg-destructive/15 text-destructive';
+      case 'queued': return 'bg-muted text-muted-foreground';
+      default: return 'bg-warning/15 text-warning';
     }
   };
 
@@ -422,20 +558,21 @@ export default function CargaDatos() {
 
       <div className="grid gap-6 lg:grid-cols-3">
         <div className="lg:col-span-2 space-y-4">
+          {/* Drop zone */}
           <div
-            className={`border-2 border-dashed rounded-xl p-12 text-center transition-all cursor-pointer ${dragging ? 'border-primary bg-primary/5 scale-[1.01]' : 'border-border hover:border-primary/50'} ${uploading ? 'pointer-events-none opacity-60' : ''}`}
+            className={`border-2 border-dashed rounded-xl p-12 text-center transition-all cursor-pointer ${dragging ? 'border-primary bg-primary/5 scale-[1.01]' : 'border-border hover:border-primary/50'} ${isUploading ? 'pointer-events-none opacity-60' : ''}`}
             onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
             onDragLeave={() => setDragging(false)}
             onDrop={handleDrop}
-            onClick={() => !uploading && document.getElementById('file-input')?.click()}
+            onClick={() => !isUploading && document.getElementById('file-input')?.click()}
           >
-            {uploading ? (
+            {isUploading ? (
               <Loader2 className="h-10 w-10 mx-auto text-primary mb-3 animate-spin" />
             ) : (
               <Upload className="h-10 w-10 mx-auto text-muted-foreground mb-3" />
             )}
-            <p className="font-medium">{uploading ? 'Subiendo archivos...' : 'Arrastrá archivos acá o hacé click para seleccionar'}</p>
-            <p className="text-sm text-muted-foreground mt-1">PDF, CSV, Excel, Word, imágenes, XML (máx. 20MB)</p>
+            <p className="font-medium">{isUploading ? 'Subiendo archivos...' : 'Arrastrá archivos acá o hacé click para seleccionar'}</p>
+            <p className="text-sm text-muted-foreground mt-1">PDF, CSV, Excel, Word, imágenes, XML (máx. 20MB). Podés seleccionar muchos a la vez.</p>
             <input
               id="file-input"
               type="file"
@@ -451,8 +588,58 @@ export default function CargaDatos() {
             />
           </div>
 
+          {/* Upload Queue */}
+          <UploadQueue items={uploadQueue} onDismiss={() => setUploadQueue([])} />
+
+          {/* Filters */}
+          <div className="flex flex-wrap gap-2 items-center">
+            <div className="relative flex-1 min-w-[180px]">
+              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Buscar por nombre..."
+                value={searchTerm}
+                onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(0); }}
+                className="pl-8 h-9"
+              />
+            </div>
+            <Select value={statusFilter} onValueChange={(v) => { setStatusFilter(v); setCurrentPage(0); }}>
+              <SelectTrigger className="w-[140px] h-9">
+                <Filter className="h-3.5 w-3.5 mr-1.5" />
+                <SelectValue placeholder="Estado" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todos</SelectItem>
+                <SelectItem value="processed">Procesados</SelectItem>
+                <SelectItem value="processing">Procesando</SelectItem>
+                <SelectItem value="queued">En cola</SelectItem>
+                <SelectItem value="error">Error</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select value={typeFilter} onValueChange={(v) => { setTypeFilter(v); setCurrentPage(0); }}>
+              <SelectTrigger className="w-[130px] h-9">
+                <SelectValue placeholder="Tipo" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todos</SelectItem>
+                <SelectItem value="PDF">PDF</SelectItem>
+                <SelectItem value="CSV">CSV</SelectItem>
+                <SelectItem value="XLS">Excel</SelectItem>
+                <SelectItem value="Imagen">Imagen</SelectItem>
+                <SelectItem value="Word">Word</SelectItem>
+                <SelectItem value="XML">XML</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* File List */}
           <Card>
-            <CardHeader><CardTitle className="text-sm text-muted-foreground">Historial de cargas</CardTitle></CardHeader>
+            <CardHeader className="pb-2">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-sm text-muted-foreground">
+                  Historial de cargas {totalCount > 0 && `(${totalCount})`}
+                </CardTitle>
+              </div>
+            </CardHeader>
             <CardContent>
               {loadingFiles ? (
                 <div className="flex items-center justify-center py-8">
@@ -478,8 +665,8 @@ export default function CargaDatos() {
                               <p className="text-xs text-destructive mt-0.5 truncate">{f.processing_error}</p>
                             )}
                           </div>
-                          <Badge className={`border-0 shrink-0 ${f.status === 'processed' ? 'bg-success/15 text-success' : f.status === 'error' ? 'bg-destructive/15 text-destructive' : 'bg-warning/15 text-warning'}`}>
-                            {f.status === 'processed' ? 'Procesado' : f.status === 'error' ? 'Error' : 'Procesando'}
+                          <Badge className={`border-0 shrink-0 ${statusColor(f.status)}`}>
+                            {statusLabel(f.status)}
                           </Badge>
                           {(f.status === 'error' || f.status === 'processed') && (
                             <Button
@@ -497,7 +684,6 @@ export default function CargaDatos() {
                             <Trash2 className="h-4 w-4" />
                           </Button>
                         </div>
-                        {/* Extracted data summary */}
                         {extracted && f.status === 'processed' && (
                           <div className="mt-2 ml-8 flex items-start gap-2 text-xs text-muted-foreground bg-muted/30 rounded-md p-2">
                             <CheckCircle2 className="h-3.5 w-3.5 text-success shrink-0 mt-0.5" />
@@ -515,7 +701,42 @@ export default function CargaDatos() {
                       </div>
                     );
                   })}
-                  {files.length === 0 && <p className="text-sm text-muted-foreground text-center py-4">No hay archivos cargados todavía</p>}
+                  {files.length === 0 && (
+                    <p className="text-sm text-muted-foreground text-center py-4">
+                      {searchTerm || statusFilter !== 'all' || typeFilter !== 'all'
+                        ? 'No hay archivos que coincidan con los filtros'
+                        : 'No hay archivos cargados todavía'}
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {/* Pagination */}
+              {totalPages > 1 && (
+                <div className="flex items-center justify-between pt-4 border-t mt-4">
+                  <p className="text-xs text-muted-foreground">
+                    Página {currentPage + 1} de {totalPages}
+                  </p>
+                  <div className="flex gap-1">
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      className="h-8 w-8"
+                      disabled={currentPage === 0}
+                      onClick={() => setCurrentPage(p => p - 1)}
+                    >
+                      <ChevronLeft className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      className="h-8 w-8"
+                      disabled={currentPage >= totalPages - 1}
+                      onClick={() => setCurrentPage(p => p + 1)}
+                    >
+                      <ChevronRight className="h-4 w-4" />
+                    </Button>
+                  </div>
                 </div>
               )}
             </CardContent>
