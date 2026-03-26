@@ -27,7 +27,9 @@ function detectFileType(name: string): string {
   if (ext === 'pdf') return 'PDF';
   if (ext === 'csv') return 'CSV';
   if (['xls', 'xlsx'].includes(ext)) return 'XLS';
-  if (['png', 'jpg', 'jpeg', 'webp'].includes(ext)) return 'Imagen';
+  if (['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp'].includes(ext)) return 'Imagen';
+  if (['doc', 'docx'].includes(ext)) return 'Word';
+  if (ext === 'xml') return 'XML';
   return 'Otro';
 }
 
