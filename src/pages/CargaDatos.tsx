@@ -198,20 +198,31 @@ export default function CargaDatos() {
           continue;
         }
 
-        const { error: dbError } = await supabase.from('file_uploads').insert({
+        const { data: dbData, error: dbError } = await supabase.from('file_uploads').insert({
           file_name: file.name,
           file_type: detectFileType(file.name),
           file_size: file.size,
-          status: 'processed',
+          status: 'processing',
           storage_path: uploadData.storagePath,
           uploaded_by: user.id,
           company_id: profile.company_id,
-        });
+        }).select('id').single();
 
         if (dbError) {
           toast.error(`Error registrando ${file.name}: ${dbError.message}`);
           continue;
         }
+
+        // Trigger background processing - don't await
+        supabase.functions.invoke('process-file', {
+          body: { fileUploadId: dbData.id, companyId: profile.company_id },
+        }).then(({ error: procError }) => {
+          if (procError) {
+            console.error(`Processing error for ${file.name}:`, procError);
+          }
+          // Refresh file list to show updated status
+          fetchFiles();
+        });
       }
 
       toast.success(`${filesToUpload.length} archivo(s) subido(s) correctamente`);
