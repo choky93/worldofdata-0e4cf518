@@ -5,7 +5,7 @@ import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Progress } from '@/components/ui/progress';
-import { Upload, FileText, Image, FileSpreadsheet, Trash2, Lightbulb, Loader2, RefreshCw, CheckCircle2, Search, ChevronLeft, ChevronRight, Filter } from 'lucide-react';
+import { Upload, FileText, Image, FileSpreadsheet, Trash2, Lightbulb, Loader2, RefreshCw, CheckCircle2, Search, ChevronLeft, ChevronRight, Filter, XCircle, BarChart3, Clock, AlertTriangle, Layers } from 'lucide-react';
 import { formatDate } from '@/lib/formatters';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
@@ -31,6 +31,7 @@ interface ExtractedData {
   data_category: string;
   summary: string | null;
   row_count: number | null;
+  chunk_index: number;
 }
 
 interface UploadQueueItem {
@@ -45,6 +46,8 @@ const fileIcons: Record<string, typeof FileText> = { PDF: FileText, CSV: FileSpr
 
 const PAGE_SIZE = 25;
 const MAX_CONCURRENT_UPLOADS = 4;
+const PRESIGN_THRESHOLD = 20 * 1024 * 1024; // 20MB
+const MAX_FILE_SIZE = 100 * 1024 * 1024; // 100MB
 
 function detectFileType(name: string): string {
   const ext = name.split('.').pop()?.toLowerCase() || '';
@@ -89,12 +92,12 @@ function doParseExcel(data: Uint8Array): string {
   const result: { sheetName: string; rows: Record<string, unknown>[] }[] = [];
   for (const name of wb.SheetNames) {
     const rows = XLSX.utils.sheet_to_json(wb.Sheets[name], { defval: '' }) as Record<string, unknown>[];
-    if (rows.length > 0) result.push({ sheetName: name, rows: rows.slice(0, 500) });
+    if (rows.length > 0) result.push({ sheetName: name, rows: rows.slice(0, 2000) });
   }
   const content = result.map(s =>
     `Hoja "${s.sheetName}" (${s.rows.length} filas):\n${JSON.stringify(s.rows)}`
   ).join('\n\n');
-  return content.substring(0, 15000);
+  return content;
 }
 
 const categoryLabels: Record<string, string> = {
@@ -172,7 +175,7 @@ function ContextualAssistant({ companySettings }: { companySettings: any }) {
           </>
         )}
         <p className="text-[10px] text-muted-foreground border-t pt-3 mt-3">
-          Formatos: PDF, CSV, XLS/XLSX, imágenes (capturas de reportes). Máx. 20MB por archivo. Podés subir muchos archivos a la vez.
+          Formatos: PDF, CSV, XLS/XLSX, imágenes (capturas de reportes). Máx. 100MB por archivo. Podés subir muchos archivos a la vez.
         </p>
       </CardContent>
     </Card>
@@ -229,11 +232,55 @@ function UploadQueue({ items, onDismiss }: { items: UploadQueueItem[]; onDismiss
   );
 }
 
+// ─── Status Dashboard ─────────────────────────────────────────
+function StatusDashboard({ files, totalCount }: { files: FileRecord[]; totalCount: number }) {
+  // We use totalCount for "total" and compute status counts from visible + context
+  const processed = files.filter(f => f.status === 'processed').length;
+  const queued = files.filter(f => f.status === 'queued').length;
+  const processing = files.filter(f => f.status === 'processing').length;
+  const errors = files.filter(f => f.status === 'error').length;
+
+  if (totalCount === 0) return null;
+
+  return (
+    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+      <div className="flex items-center gap-2 p-3 rounded-lg bg-success/10 border border-success/20">
+        <CheckCircle2 className="h-4 w-4 text-success" />
+        <div>
+          <p className="text-lg font-bold text-success">{processed}</p>
+          <p className="text-[10px] text-muted-foreground">Procesados</p>
+        </div>
+      </div>
+      <div className="flex items-center gap-2 p-3 rounded-lg bg-muted border border-border">
+        <Clock className="h-4 w-4 text-muted-foreground" />
+        <div>
+          <p className="text-lg font-bold">{queued}</p>
+          <p className="text-[10px] text-muted-foreground">En cola</p>
+        </div>
+      </div>
+      <div className="flex items-center gap-2 p-3 rounded-lg bg-warning/10 border border-warning/20">
+        <Loader2 className={`h-4 w-4 text-warning ${processing > 0 ? 'animate-spin' : ''}`} />
+        <div>
+          <p className="text-lg font-bold text-warning">{processing}</p>
+          <p className="text-[10px] text-muted-foreground">Procesando</p>
+        </div>
+      </div>
+      <div className="flex items-center gap-2 p-3 rounded-lg bg-destructive/10 border border-destructive/20">
+        <AlertTriangle className="h-4 w-4 text-destructive" />
+        <div>
+          <p className="text-lg font-bold text-destructive">{errors}</p>
+          <p className="text-[10px] text-muted-foreground">Errores</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function CargaDatos() {
   const { user, profile, role, companySettings } = useAuth();
   const [files, setFiles] = useState<FileRecord[]>([]);
   const [totalCount, setTotalCount] = useState(0);
-  const [extractedDataMap, setExtractedDataMap] = useState<Record<string, ExtractedData>>({});
+  const [extractedDataMap, setExtractedDataMap] = useState<Record<string, ExtractedData[]>>({});
   const [dragging, setDragging] = useState(false);
   const [loadingFiles, setLoadingFiles] = useState(true);
   const [reprocessingId, setReprocessingId] = useState<string | null>(null);
@@ -250,11 +297,16 @@ export default function CargaDatos() {
     if (fileIds.length === 0) return;
     const { data } = await supabase
       .from('file_extracted_data')
-      .select('file_upload_id, data_category, summary, row_count')
-      .in('file_upload_id', fileIds);
+      .select('file_upload_id, data_category, summary, row_count, chunk_index')
+      .in('file_upload_id', fileIds)
+      .order('chunk_index', { ascending: true });
     if (data) {
-      const map: Record<string, ExtractedData> = {};
-      data.forEach(d => { map[d.file_upload_id] = d as ExtractedData; });
+      const map: Record<string, ExtractedData[]> = {};
+      data.forEach(d => {
+        const key = d.file_upload_id;
+        if (!map[key]) map[key] = [];
+        map[key].push(d as ExtractedData);
+      });
       setExtractedDataMap(prev => ({ ...prev, ...map }));
     }
   }, []);
@@ -281,7 +333,6 @@ export default function CargaDatos() {
         query = query.eq('file_type', typeFilter);
       }
 
-      // Pagination
       const from = currentPage * PAGE_SIZE;
       query = query.range(from, from + PAGE_SIZE - 1);
 
@@ -304,7 +355,7 @@ export default function CargaDatos() {
     fetchFiles();
   }, [fetchFiles]);
 
-  // Polling: auto-refresh when files are processing/queued
+  // Polling
   useEffect(() => {
     const hasProcessing = files.some(f => f.status === 'processing' || f.status === 'queued');
     if (hasProcessing && !pollingRef.current) {
@@ -332,13 +383,58 @@ export default function CargaDatos() {
     }
   };
 
+  // ─── Upload with presigned URL for large files ────────────
+  const uploadFileToStorage = async (file: File, userId: string): Promise<{ storagePath: string }> => {
+    if (file.size > MAX_FILE_SIZE) {
+      throw new Error(`Archivo demasiado grande (${(file.size / 1024 / 1024).toFixed(0)}MB). Máximo: 100MB.`);
+    }
+
+    if (file.size > PRESIGN_THRESHOLD) {
+      // Large file: use presigned URL
+      const { data: presignData, error: presignError } = await supabase.functions.invoke('r2-presign', {
+        body: { fileName: file.name, userId, contentType: file.type || 'application/octet-stream' },
+      });
+
+      if (presignError || !presignData?.success) {
+        throw new Error(presignError?.message || presignData?.error || 'Error obteniendo URL de subida');
+      }
+
+      // Upload directly to R2
+      const putResp = await fetch(presignData.presignedUrl, {
+        method: 'PUT',
+        headers: { 'Content-Type': file.type || 'application/octet-stream' },
+        body: file,
+      });
+
+      if (!putResp.ok) {
+        throw new Error(`Error subiendo archivo grande [${putResp.status}]`);
+      }
+
+      return { storagePath: presignData.storagePath };
+    } else {
+      // Small file: use r2-upload
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('userId', userId);
+
+      const { data: uploadData, error: uploadError } = await supabase.functions.invoke('r2-upload', {
+        body: formData,
+      });
+
+      if (uploadError || !uploadData?.success) {
+        throw new Error(uploadError?.message || uploadData?.error || 'Error de subida');
+      }
+
+      return { storagePath: uploadData.storagePath };
+    }
+  };
+
   // ─── Batch Upload with Parallel Queue ──────────────────────
   const uploadFiles = async (fileList: FileList | File[]) => {
     if (!user || !profile?.company_id) return;
     const filesToUpload = Array.from(fileList);
     if (filesToUpload.length === 0) return;
 
-    // Create queue items
     const queueItems: UploadQueueItem[] = filesToUpload.map((file, i) => ({
       file,
       id: `upload-${Date.now()}-${i}`,
@@ -347,7 +443,6 @@ export default function CargaDatos() {
     }));
     setUploadQueue(queueItems);
 
-    // Process in parallel with concurrency limit
     const activePromises: Promise<void>[] = [];
     let nextIdx = 0;
 
@@ -364,7 +459,6 @@ export default function CargaDatos() {
       updateItem({ status: 'uploading', progress: 10 });
 
       try {
-        // Hash check
         const fileHash = await computeFileHash(item.file);
         updateItem({ progress: 30 });
 
@@ -381,7 +475,6 @@ export default function CargaDatos() {
           return;
         }
 
-        // Pre-parse Excel on client
         let preParsedData: string | null = null;
         const ext = item.file.name.split('.').pop()?.toLowerCase() || '';
         if (['xls', 'xlsx'].includes(ext)) {
@@ -390,30 +483,16 @@ export default function CargaDatos() {
 
         updateItem({ progress: 50 });
 
-        // Upload to R2
-        const formData = new FormData();
-        formData.append('file', item.file);
-        formData.append('userId', user.id);
-
-        const { data: uploadData, error: uploadError } = await supabase.functions.invoke('r2-upload', {
-          body: formData,
-        });
-
-        if (uploadError || !uploadData?.success) {
-          updateItem({ status: 'error', error: uploadError?.message || uploadData?.error || 'Error de subida' });
-          await processNext();
-          return;
-        }
+        const { storagePath } = await uploadFileToStorage(item.file, user.id);
 
         updateItem({ progress: 70 });
 
-        // Insert DB record — status "queued" for async processing
         const { data: dbData, error: dbError } = await supabase.from('file_uploads').insert({
           file_name: item.file.name,
           file_type: detectFileType(item.file.name),
           file_size: item.file.size,
           status: 'queued',
-          storage_path: uploadData.storagePath,
+          storage_path: storagePath,
           uploaded_by: user.id,
           company_id: profile.company_id!,
           file_hash: fileHash,
@@ -427,7 +506,6 @@ export default function CargaDatos() {
 
         updateItem({ progress: 85, status: 'processing' });
 
-        // Fire process-file immediately (don't wait for cron)
         supabase.functions.invoke('process-file', {
           body: {
             fileUploadId: dbData.id,
@@ -438,7 +516,6 @@ export default function CargaDatos() {
           updateItem({ status: 'done', progress: 100 });
           fetchFiles();
         }).catch(() => {
-          // Will be retried by process-queue cron
           updateItem({ status: 'done', progress: 100 });
           fetchFiles();
         });
@@ -451,7 +528,6 @@ export default function CargaDatos() {
       await processNext();
     };
 
-    // Start N concurrent workers
     for (let i = 0; i < Math.min(MAX_CONCURRENT_UPLOADS, filesToUpload.length); i++) {
       activePromises.push(processNext());
     }
@@ -483,6 +559,19 @@ export default function CargaDatos() {
       setExtractedDataMap(prev => { const next = { ...prev }; delete next[file.id]; return next; });
     } catch (err: any) {
       toast.error('Error eliminando: ' + err.message);
+    }
+  };
+
+  const handleCancel = async (file: FileRecord) => {
+    try {
+      const { error } = await supabase.from('file_uploads')
+        .update({ status: 'cancelled', processing_error: 'Cancelado por el usuario' })
+        .eq('id', file.id);
+      if (error) throw error;
+      toast.success(`"${file.file_name}" cancelado`);
+      fetchFiles();
+    } catch (err: any) {
+      toast.error('Error cancelando: ' + err.message);
     }
   };
 
@@ -539,6 +628,7 @@ export default function CargaDatos() {
       case 'error': return 'Error';
       case 'queued': return 'En cola';
       case 'processing': return 'Procesando';
+      case 'cancelled': return 'Cancelado';
       default: return status || 'Desconocido';
     }
   };
@@ -548,6 +638,7 @@ export default function CargaDatos() {
       case 'processed': return 'bg-success/15 text-success';
       case 'error': return 'bg-destructive/15 text-destructive';
       case 'queued': return 'bg-muted text-muted-foreground';
+      case 'cancelled': return 'bg-muted text-muted-foreground';
       default: return 'bg-warning/15 text-warning';
     }
   };
@@ -558,6 +649,9 @@ export default function CargaDatos() {
 
       <div className="grid gap-6 lg:grid-cols-3">
         <div className="lg:col-span-2 space-y-4">
+          {/* Status Dashboard */}
+          <StatusDashboard files={files} totalCount={totalCount} />
+
           {/* Drop zone */}
           <div
             className={`border-2 border-dashed rounded-xl p-12 text-center transition-all cursor-pointer ${dragging ? 'border-primary bg-primary/5 scale-[1.01]' : 'border-border hover:border-primary/50'} ${isUploading ? 'pointer-events-none opacity-60' : ''}`}
@@ -572,7 +666,7 @@ export default function CargaDatos() {
               <Upload className="h-10 w-10 mx-auto text-muted-foreground mb-3" />
             )}
             <p className="font-medium">{isUploading ? 'Subiendo archivos...' : 'Arrastrá archivos acá o hacé click para seleccionar'}</p>
-            <p className="text-sm text-muted-foreground mt-1">PDF, CSV, Excel, Word, imágenes, XML (máx. 20MB). Podés seleccionar muchos a la vez.</p>
+            <p className="text-sm text-muted-foreground mt-1">PDF, CSV, Excel, Word, imágenes, XML (máx. 100MB). Podés seleccionar muchos a la vez.</p>
             <input
               id="file-input"
               type="file"
@@ -613,6 +707,7 @@ export default function CargaDatos() {
                 <SelectItem value="processing">Procesando</SelectItem>
                 <SelectItem value="queued">En cola</SelectItem>
                 <SelectItem value="error">Error</SelectItem>
+                <SelectItem value="cancelled">Cancelados</SelectItem>
               </SelectContent>
             </Select>
             <Select value={typeFilter} onValueChange={(v) => { setTypeFilter(v); setCurrentPage(0); }}>
@@ -650,7 +745,11 @@ export default function CargaDatos() {
                   {files.map(f => {
                     const Icon = fileIcons[f.file_type || ''] || FileText;
                     const isReprocessing = reprocessingId === f.id;
-                    const extracted = extractedDataMap[f.id];
+                    const extractedChunks = extractedDataMap[f.id];
+                    const hasChunks = extractedChunks && extractedChunks.length > 1;
+                    const firstExtracted = extractedChunks?.[0];
+                    const totalExtractedRows = extractedChunks?.reduce((sum, c) => sum + (c.row_count || 0), 0) || 0;
+
                     return (
                       <div key={f.id} className="p-3 rounded-lg hover:bg-muted/50 transition-colors">
                         <div className="flex items-center gap-3 text-sm">
@@ -659,7 +758,7 @@ export default function CargaDatos() {
                             <p className="font-medium truncate">{f.file_name}</p>
                             <p className="text-xs text-muted-foreground">
                               {f.created_at ? formatDate(f.created_at) : '—'}
-                              {f.file_size ? ` · ${(f.file_size / 1024).toFixed(0)} KB` : ''}
+                              {f.file_size ? ` · ${f.file_size > 1024 * 1024 ? `${(f.file_size / 1024 / 1024).toFixed(1)} MB` : `${(f.file_size / 1024).toFixed(0)} KB`}` : ''}
                             </p>
                             {f.status === 'error' && f.processing_error && (
                               <p className="text-xs text-destructive mt-0.5 truncate">{f.processing_error}</p>
@@ -668,7 +767,18 @@ export default function CargaDatos() {
                           <Badge className={`border-0 shrink-0 ${statusColor(f.status)}`}>
                             {statusLabel(f.status)}
                           </Badge>
-                          {(f.status === 'error' || f.status === 'processed') && (
+                          {(f.status === 'queued') && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="shrink-0 h-8 w-8 text-muted-foreground hover:text-destructive"
+                              onClick={() => handleCancel(f)}
+                              title="Cancelar"
+                            >
+                              <XCircle className="h-4 w-4" />
+                            </Button>
+                          )}
+                          {(f.status === 'error' || f.status === 'processed' || f.status === 'cancelled') && (
                             <Button
                               variant="ghost"
                               size="icon"
@@ -684,16 +794,24 @@ export default function CargaDatos() {
                             <Trash2 className="h-4 w-4" />
                           </Button>
                         </div>
-                        {extracted && f.status === 'processed' && (
+                        {firstExtracted && f.status === 'processed' && (
                           <div className="mt-2 ml-8 flex items-start gap-2 text-xs text-muted-foreground bg-muted/30 rounded-md p-2">
                             <CheckCircle2 className="h-3.5 w-3.5 text-success shrink-0 mt-0.5" />
-                            <div>
-                              <span className="font-medium text-foreground">
-                                {categoryLabels[extracted.data_category] || extracted.data_category}
-                              </span>
-                              {extracted.row_count ? ` · ${extracted.row_count} filas` : ''}
-                              {extracted.summary && (
-                                <p className="mt-0.5 leading-relaxed">{extracted.summary}</p>
+                            <div className="flex-1">
+                              <div className="flex items-center gap-2">
+                                <span className="font-medium text-foreground">
+                                  {categoryLabels[firstExtracted.data_category] || firstExtracted.data_category}
+                                </span>
+                                {totalExtractedRows > 0 && <span>· {totalExtractedRows} filas</span>}
+                                {hasChunks && (
+                                  <Badge variant="outline" className="h-5 text-[10px] gap-1">
+                                    <Layers className="h-3 w-3" />
+                                    {extractedChunks.length} bloques
+                                  </Badge>
+                                )}
+                              </div>
+                              {firstExtracted.summary && (
+                                <p className="mt-0.5 leading-relaxed">{firstExtracted.summary}</p>
                               )}
                             </div>
                           </div>
