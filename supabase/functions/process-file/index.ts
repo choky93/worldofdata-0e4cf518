@@ -477,9 +477,15 @@ serve(async (req) => {
             sheetInfo.push(`${name}(${rows.length})`);
             allRows.push(...rows);
           }
+          if (allRows.length >= MAX_EXCEL_ROWS) break; // Cap to avoid memory overflow
         }
-        console.log(`[process-file] Excel parsed: ${allRows.length} rows from sheets: ${sheetInfo.join(', ')}`);
-        processingMetadata = { method: 'server_excel_parse', format: ext, sheets: sheetInfo.join(', '), rows_total: allRows.length };
+        // Truncate if exceeded
+        const totalOriginal = allRows.length;
+        if (allRows.length > MAX_EXCEL_ROWS) {
+          allRows.length = MAX_EXCEL_ROWS;
+        }
+        console.log(`[process-file] Excel parsed: ${totalOriginal} rows (capped to ${allRows.length}) from sheets: ${sheetInfo.join(', ')}`);
+        processingMetadata = { method: 'server_excel_parse', format: ext, sheets: sheetInfo.join(', '), rows_total: totalOriginal, rows_processed: allRows.length };
 
         if (allRows.length > CHUNK_ROWS) {
           const rowChunks = chunkRows(allRows, CHUNK_ROWS);
