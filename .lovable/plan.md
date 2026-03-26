@@ -1,77 +1,52 @@
 
 
-# Fase 1 — Implementación
+# Fix: Recursión infinita en RLS de `profiles`
 
-## Paso 1: Configurar los 6 secrets
+## Problema
 
-Usar la herramienta `add_secret` para pedir al usuario que ingrese cada valor:
+Las políticas "Admins can view company profiles" y "Admins can update company profiles" en la tabla `profiles` hacen un subquery a la misma tabla `profiles`:
 
-1. `OPENAI_API_KEY`
-2. `PERPLEXITY_API_KEY`
-3. `CLOUDFLARE_R2_ACCESS_KEY_ID`
-4. `CLOUDFLARE_R2_SECRET_ACCESS_KEY`
-5. `CLOUDFLARE_R2_ENDPOINT` (ej: `https://65ea67427a4b20ab345474a27b66d128.r2.cloudflarestorage.com`)
-6. `CLOUDFLARE_R2_BUCKET_NAME` (ej: `worldofdata-uploads`)
+```sql
+company_id IN (SELECT p.company_id FROM profiles p WHERE p.id = auth.uid())
+```
 
-Los secrets quedan disponibles como variables de entorno en las edge functions.
+Esto genera recursión infinita. El mismo patrón afecta a **otras tablas** que también hacen subquery a `profiles`: `companies`, `company_settings`, `diagnostic_results`, `file_uploads`.
 
----
+## Solución
 
-## Paso 2: Crear edge function `ai-chat`
+### Paso 1: Crear función `get_user_company_id()` SECURITY DEFINER
 
-**Archivo:** `supabase/functions/ai-chat/index.ts`
+```sql
+CREATE OR REPLACE FUNCTION public.get_user_company_id()
+RETURNS UUID
+LANGUAGE sql STABLE SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT company_id FROM profiles WHERE id = auth.uid() LIMIT 1;
+$$;
 
-- CORS headers estándar
-- Recibe `{ messages, systemPrompt? }` del frontend
-- Llama a la API de OpenAI (`https://api.openai.com/v1/chat/completions`) con streaming
-- Modelo: `gpt-4o` (configurable)
-- Devuelve SSE stream al frontend
-- Manejo de errores (API key inválida, rate limit, etc.)
+REVOKE EXECUTE ON FUNCTION public.get_user_company_id FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.get_user_company_id TO authenticated;
+```
 
-## Paso 3: Crear edge function `ai-search`
+### Paso 2: Reemplazar políticas en `profiles`
 
-**Archivo:** `supabase/functions/ai-search/index.ts`
+Drop y recrear las 2 políticas problemáticas usando `get_user_company_id()`:
 
-- CORS headers
-- Recibe `{ query, context? }`
-- Llama a Perplexity API (`https://api.perplexity.ai/chat/completions`) con modelo `sonar-pro`
-- Devuelve respuesta + citations
-- Sin streaming (respuesta completa)
+- **Admins can view company profiles** → `USING (company_id = get_user_company_id() AND has_role(auth.uid(), 'admin'))`
+- **Admins can update company profiles** → mismo cambio
 
-## Paso 4: Crear edge function `r2-upload`
+### Paso 3: Corregir políticas en otras tablas (mismo patrón)
 
-**Archivo:** `supabase/functions/r2-upload/index.ts`
+Reemplazar `company_id IN (SELECT profiles.company_id FROM profiles WHERE profiles.id = auth.uid())` por `company_id = public.get_user_company_id()` en:
 
-- CORS headers
-- Recibe archivo como FormData (multipart)
-- Usa `AwsClient` de `aws4fetch` para firmar request S3 PUT a R2
-- Path: `{user_id}/{timestamp}_{filename}`
-- Devuelve `{ storagePath, success }`
+- **companies** (2 políticas: SELECT, UPDATE)
+- **company_settings** (2 políticas: SELECT, UPDATE)
+- **diagnostic_results** (3 políticas: ALL admin, SELECT users)
+- **file_uploads** (1 política: SELECT "Users can view own uploads")
 
-## Paso 5: Crear edge function `r2-delete`
-
-**Archivo:** `supabase/functions/r2-delete/index.ts`
-
-- CORS headers
-- Recibe `{ storagePath }`
-- Usa `aws4fetch` para DELETE en R2
-- Devuelve `{ success }`
-
-## Paso 6: Migrar CargaDatos.tsx
-
-**Archivo:** `src/pages/CargaDatos.tsx`
-
-Cambios:
-- **Upload:** Reemplazar `supabase.storage.from('uploads').upload(...)` por construir FormData y llamar a `supabase.functions.invoke('r2-upload', { body: formData })`
-- **Delete:** Reemplazar `supabase.storage.from('uploads').remove(...)` por `supabase.functions.invoke('r2-delete', { body: { storagePath } })`
-- La tabla `file_uploads` sigue usándose igual, solo cambia dónde se guarda el archivo físico
-
----
+Total: **1 migración** con la función + drop/recreate de ~9 políticas.
 
 ## Archivos tocados
-- `supabase/functions/ai-chat/index.ts` (nuevo)
-- `supabase/functions/ai-search/index.ts` (nuevo)
-- `supabase/functions/r2-upload/index.ts` (nuevo)
-- `supabase/functions/r2-delete/index.ts` (nuevo)
-- `src/pages/CargaDatos.tsx` (modificar upload/delete)
+- Solo migración SQL (sin cambios en código frontend)
 
