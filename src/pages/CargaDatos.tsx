@@ -2,11 +2,12 @@ import { useState, useCallback, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Upload, FileText, Image, FileSpreadsheet, Trash2, Lightbulb, Loader2, CheckCircle2, Circle } from 'lucide-react';
+import { Upload, FileText, Image, FileSpreadsheet, Trash2, Lightbulb, Loader2, RefreshCw } from 'lucide-react';
 import { formatDate } from '@/lib/formatters';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
+import * as XLSX from 'xlsx';
 
 interface FileRecord {
   id: string;
@@ -18,6 +19,8 @@ interface FileRecord {
   uploaded_by: string | null;
   created_at: string | null;
   company_id: string;
+  file_hash?: string | null;
+  processing_error?: string | null;
 }
 
 const fileIcons: Record<string, typeof FileText> = { PDF: FileText, CSV: FileSpreadsheet, XLS: FileSpreadsheet, Imagen: Image };
@@ -33,6 +36,38 @@ function detectFileType(name: string): string {
   return 'Otro';
 }
 
+async function computeFileHash(file: File): Promise<string> {
+  const buffer = await file.arrayBuffer();
+  const hashBuffer = await crypto.subtle.digest('SHA-256', buffer);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+function parseExcelToJson(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const data = new Uint8Array(e.target?.result as ArrayBuffer);
+        const wb = XLSX.read(data, { type: 'array' });
+        const result: { sheetName: string; rows: Record<string, unknown>[] }[] = [];
+        for (const name of wb.SheetNames) {
+          const rows = XLSX.utils.sheet_to_json(wb.Sheets[name], { defval: '' }) as Record<string, unknown>[];
+          if (rows.length > 0) result.push({ sheetName: name, rows: rows.slice(0, 50) });
+        }
+        const content = result.map(s =>
+          `Hoja "${s.sheetName}" (${s.rows.length} filas):\n${JSON.stringify(s.rows)}`
+        ).join('\n\n');
+        resolve(content.substring(0, 8000));
+      } catch (err) {
+        reject(err);
+      }
+    };
+    reader.onerror = () => reject(new Error('Error reading file'));
+    reader.readAsArrayBuffer(file);
+  });
+}
+
 interface SuggestionItem {
   icon: string;
   title: string;
@@ -43,55 +78,13 @@ interface SuggestionItem {
 
 function ContextualAssistant({ companySettings }: { companySettings: any }) {
   const suggestions: SuggestionItem[] = [
-    {
-      icon: '📊',
-      title: 'Hoja de ventas',
-      description: 'Subí tu Excel o CSV con las ventas del mes para calcular facturación, ticket promedio y tendencias.',
-      condition: true, // siempre relevante
-      priority: 'high',
-    },
-    {
-      icon: '💰',
-      title: 'Facturas de proveedores',
-      description: 'Subí PDFs o fotos de facturas para registrar costos y calcular tu margen real.',
-      condition: true,
-      priority: 'high',
-    },
-    {
-      icon: '📦',
-      title: 'Lista de productos / stock',
-      description: 'Subí tu inventario con cantidades, precios y costos para detectar faltantes y sobrestock.',
-      condition: !companySettings || companySettings.sells_products || companySettings.has_stock,
-      priority: 'high',
-    },
-    {
-      icon: '📈',
-      title: 'Reporte de Meta Ads',
-      description: 'Exportá el rendimiento de campañas desde Meta Business Suite y subilo acá.',
-      condition: !companySettings || companySettings.uses_meta_ads,
-      priority: 'medium',
-    },
-    {
-      icon: '🔍',
-      title: 'Reporte de Google Ads',
-      description: 'Descargá el informe de rendimiento desde Google Ads y subilo para analizar ROAS.',
-      condition: !companySettings || companySettings.uses_google_ads,
-      priority: 'medium',
-    },
-    {
-      icon: '🚚',
-      title: 'Registro de envíos',
-      description: 'Si tenés un registro de despachos o logística, subilo para cruzar con ventas.',
-      condition: !companySettings || companySettings.has_logistics,
-      priority: 'low',
-    },
-    {
-      icon: '🏦',
-      title: 'Resumen bancario',
-      description: 'Subí tu extracto bancario (CSV o PDF) para conciliar ingresos y egresos.',
-      condition: true,
-      priority: 'low',
-    },
+    { icon: '📊', title: 'Hoja de ventas', description: 'Subí tu Excel o CSV con las ventas del mes para calcular facturación, ticket promedio y tendencias.', condition: true, priority: 'high' },
+    { icon: '💰', title: 'Facturas de proveedores', description: 'Subí PDFs o fotos de facturas para registrar costos y calcular tu margen real.', condition: true, priority: 'high' },
+    { icon: '📦', title: 'Lista de productos / stock', description: 'Subí tu inventario con cantidades, precios y costos para detectar faltantes y sobrestock.', condition: !companySettings || companySettings.sells_products || companySettings.has_stock, priority: 'high' },
+    { icon: '📈', title: 'Reporte de Meta Ads', description: 'Exportá el rendimiento de campañas desde Meta Business Suite y subilo acá.', condition: !companySettings || companySettings.uses_meta_ads, priority: 'medium' },
+    { icon: '🔍', title: 'Reporte de Google Ads', description: 'Descargá el informe de rendimiento desde Google Ads y subilo para analizar ROAS.', condition: !companySettings || companySettings.uses_google_ads, priority: 'medium' },
+    { icon: '🚚', title: 'Registro de envíos', description: 'Si tenés un registro de despachos o logística, subilo para cruzar con ventas.', condition: !companySettings || companySettings.has_logistics, priority: 'low' },
+    { icon: '🏦', title: 'Resumen bancario', description: 'Subí tu extracto bancario (CSV o PDF) para conciliar ingresos y egresos.', condition: true, priority: 'low' },
   ];
 
   const activeSuggestions = suggestions.filter(s => s.condition);
@@ -152,6 +145,7 @@ export default function CargaDatos() {
   const [dragging, setDragging] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [loadingFiles, setLoadingFiles] = useState(true);
+  const [reprocessingId, setReprocessingId] = useState<string | null>(null);
 
   const fetchFiles = useCallback(async () => {
     if (!profile?.company_id) return;
@@ -187,6 +181,34 @@ export default function CargaDatos() {
 
     try {
       for (const file of filesToUpload) {
+        // Calculate hash for duplicate detection
+        const fileHash = await computeFileHash(file);
+
+        // Check for duplicates
+        const { data: existing } = await supabase
+          .from('file_uploads')
+          .select('id, file_name')
+          .eq('company_id', profile.company_id)
+          .eq('file_hash', fileHash)
+          .limit(1);
+
+        if (existing && existing.length > 0) {
+          toast.warning(`"${file.name}" ya fue cargado anteriormente (coincide con "${existing[0].file_name}"). Se omitió.`);
+          continue;
+        }
+
+        // Pre-parse Excel files on the client
+        let preParsedData: string | null = null;
+        const ext = file.name.split('.').pop()?.toLowerCase() || '';
+        if (['xls', 'xlsx'].includes(ext)) {
+          try {
+            preParsedData = await parseExcelToJson(file);
+          } catch (parseErr) {
+            console.warn('Client-side Excel parse failed, will send without pre-parsed data:', parseErr);
+          }
+        }
+
+        // Upload to R2
         const formData = new FormData();
         formData.append('file', file);
         formData.append('userId', user.id);
@@ -200,6 +222,7 @@ export default function CargaDatos() {
           continue;
         }
 
+        // Insert DB record with hash
         const { data: dbData, error: dbError } = await supabase.from('file_uploads').insert({
           file_name: file.name,
           file_type: detectFileType(file.name),
@@ -208,6 +231,7 @@ export default function CargaDatos() {
           storage_path: uploadData.storagePath,
           uploaded_by: user.id,
           company_id: profile.company_id,
+          file_hash: fileHash,
         }).select('id').single();
 
         if (dbError) {
@@ -215,14 +239,17 @@ export default function CargaDatos() {
           continue;
         }
 
-        // Trigger background processing - don't await
+        // Trigger processing with pre-parsed data
         supabase.functions.invoke('process-file', {
-          body: { fileUploadId: dbData.id, companyId: profile.company_id },
+          body: {
+            fileUploadId: dbData.id,
+            companyId: profile.company_id,
+            ...(preParsedData ? { preParsedData } : {}),
+          },
         }).then(({ error: procError }) => {
           if (procError) {
             console.error(`Processing error for ${file.name}:`, procError);
           }
-          // Refresh file list to show updated status
           fetchFiles();
         });
       }
@@ -261,6 +288,34 @@ export default function CargaDatos() {
       setFiles(prev => prev.filter(f => f.id !== file.id));
     } catch (err: any) {
       toast.error('Error eliminando: ' + err.message);
+    }
+  };
+
+  const handleReprocess = async (file: FileRecord) => {
+    if (!profile?.company_id) return;
+    setReprocessingId(file.id);
+    try {
+      // Delete old extracted data if any
+      await supabase.from('file_extracted_data').delete().eq('file_upload_id', file.id);
+
+      // Update status to processing
+      await supabase.from('file_uploads').update({ status: 'processing', processing_error: null }).eq('id', file.id);
+
+      // Trigger re-processing
+      const { error } = await supabase.functions.invoke('process-file', {
+        body: { fileUploadId: file.id, companyId: profile.company_id },
+      });
+
+      if (error) {
+        toast.error(`Error reprocesando: ${error.message}`);
+      } else {
+        toast.success(`"${file.file_name}" enviado a reprocesar`);
+      }
+      await fetchFiles();
+    } catch (err: any) {
+      toast.error('Error: ' + err.message);
+    } finally {
+      setReprocessingId(null);
     }
   };
 
@@ -310,6 +365,7 @@ export default function CargaDatos() {
                 <div className="space-y-2">
                   {files.map(f => {
                     const Icon = fileIcons[f.file_type || ''] || FileText;
+                    const isReprocessing = reprocessingId === f.id;
                     return (
                       <div key={f.id} className="flex items-center gap-3 p-3 rounded-lg hover:bg-muted/50 text-sm transition-colors">
                         <Icon className="h-5 w-5 text-muted-foreground shrink-0" />
@@ -319,10 +375,25 @@ export default function CargaDatos() {
                             {f.created_at ? formatDate(f.created_at) : '—'}
                             {f.file_size ? ` · ${(f.file_size / 1024).toFixed(0)} KB` : ''}
                           </p>
+                          {f.status === 'error' && f.processing_error && (
+                            <p className="text-xs text-destructive mt-0.5 truncate">{f.processing_error}</p>
+                          )}
                         </div>
                         <Badge className={`border-0 shrink-0 ${f.status === 'processed' ? 'bg-success/15 text-success' : f.status === 'error' ? 'bg-destructive/15 text-destructive' : 'bg-warning/15 text-warning'}`}>
                           {f.status === 'processed' ? 'Procesado' : f.status === 'error' ? 'Error' : 'Procesando'}
                         </Badge>
+                        {(f.status === 'error' || f.status === 'processed') && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="shrink-0 h-8 w-8"
+                            onClick={() => handleReprocess(f)}
+                            disabled={isReprocessing}
+                            title="Reprocesar"
+                          >
+                            {isReprocessing ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+                          </Button>
+                        )}
                         <Button variant="ghost" size="icon" className="shrink-0 h-8 w-8" onClick={() => handleDelete(f)}>
                           <Trash2 className="h-4 w-4" />
                         </Button>

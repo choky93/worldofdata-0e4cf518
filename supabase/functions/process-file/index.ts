@@ -1,7 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { AwsClient } from "npm:aws4fetch@1.0.20";
-import * as XLSX from "npm:xlsx@0.18.5";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -41,27 +40,14 @@ function parseCSV(text: string): Record<string, unknown>[] {
   return rows;
 }
 
-function parseExcel(buffer: ArrayBuffer): { sheetName: string; rows: Record<string, unknown>[] }[] {
-  const wb = XLSX.read(new Uint8Array(buffer), { type: "array" });
-  const results: { sheetName: string; rows: Record<string, unknown>[] }[] = [];
-  for (const name of wb.SheetNames) {
-    const rows = XLSX.utils.sheet_to_json(wb.Sheets[name], { defval: "" }) as Record<string, unknown>[];
-    if (rows.length > 0) results.push({ sheetName: name, rows });
-  }
-  return results;
-}
-
 function safeJsonParse(raw: string): Record<string, unknown> {
-  // Try direct parse first
   try { return JSON.parse(raw); } catch { /* continue */ }
-  // Try cleaning common issues
   try {
-    let cleaned = raw.replace(/,\s*([}\]])/g, '$1'); // trailing commas
+    let cleaned = raw.replace(/,\s*([}\]])/g, '$1');
     const lastBrace = cleaned.lastIndexOf('}');
     if (lastBrace > 0) cleaned = cleaned.substring(0, lastBrace + 1);
     return JSON.parse(cleaned);
   } catch { /* continue */ }
-  // Fallback
   return { category: "otro", summary: "No se pudo interpretar la respuesta de IA", columns: [], data: [], row_count: 0 };
 }
 
@@ -150,6 +136,7 @@ serve(async (req) => {
     const body = await req.json();
     fileUploadId = body.fileUploadId;
     const companyId = body.companyId;
+    const preParsedData = body.preParsedData; // JSON data pre-parsed from frontend for Excel files
 
     if (!fileUploadId || !companyId) {
       return new Response(JSON.stringify({ error: "Missing fileUploadId or companyId" }), {
@@ -162,44 +149,48 @@ serve(async (req) => {
     if (fetchErr || !fileRecord) throw new Error(`File not found: ${fetchErr?.message}`);
 
     const { file_name, file_type, storage_path } = fileRecord;
-    if (!storage_path) throw new Error("No storage_path");
-
-    const buffer = await downloadFromR2(storage_path);
     const ext = file_name.split('.').pop()?.toLowerCase() || '';
 
     let content = "";
     let isImage = false;
     let imageBase64 = "";
 
-    if (['csv', 'txt'].includes(ext)) {
-      const rows = parseCSV(new TextDecoder().decode(buffer));
-      content = JSON.stringify(rows.slice(0, MAX_ROWS));
-      if (rows.length > MAX_ROWS) content += `\n(${rows.length} filas totales)`;
-    } else if (['xls', 'xlsx'].includes(ext)) {
-      const sheets = parseExcel(buffer);
-      content = sheets.map(s =>
-        `Hoja "${s.sheetName}" (${s.rows.length} filas):\n${JSON.stringify(s.rows.slice(0, MAX_ROWS))}`
-      ).join('\n\n');
-    } else if (ext === 'xml') {
-      content = new TextDecoder().decode(buffer).substring(0, MAX_CONTENT_CHARS);
-    } else if (['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp'].includes(ext)) {
-      if (buffer.byteLength > MAX_IMAGE_BYTES) {
-        content = `[Imagen "${file_name}" demasiado grande (${(buffer.byteLength / 1024).toFixed(0)} KB). Nombre sugiere: ${file_name}]`;
-      } else {
-        isImage = true;
-        imageBase64 = uint8ToBase64(new Uint8Array(buffer));
-      }
-    } else if (ext === 'pdf') {
-      content = `[Archivo PDF - ${(buffer.byteLength / 1024).toFixed(0)} KB. Nombre: ${file_name}. Inferí el tipo de datos por el nombre y respondé con category y summary.]`;
-    } else if (['doc', 'docx'].includes(ext)) {
-      try {
-        const text = new TextDecoder('utf-8', { fatal: false }).decode(buffer);
-        content = text.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().substring(0, MAX_CONTENT_CHARS);
-      } catch {
-        content = `[Archivo Word - ${(buffer.byteLength / 1024).toFixed(0)} KB. Nombre: ${file_name}]`;
-      }
+    // If we have pre-parsed data from the frontend (Excel files), use it directly
+    if (preParsedData) {
+      content = typeof preParsedData === 'string' ? preParsedData : JSON.stringify(preParsedData).substring(0, MAX_CONTENT_CHARS);
     } else {
-      content = `[Archivo desconocido: ${ext}. Nombre: ${file_name}. ${(buffer.byteLength / 1024).toFixed(0)} KB]`;
+      // Download file from R2 for non-Excel types
+      if (!storage_path) throw new Error("No storage_path");
+      const buffer = await downloadFromR2(storage_path);
+
+      if (['csv', 'txt'].includes(ext)) {
+        const rows = parseCSV(new TextDecoder().decode(buffer));
+        content = JSON.stringify(rows.slice(0, MAX_ROWS));
+        if (rows.length > MAX_ROWS) content += `\n(${rows.length} filas totales)`;
+      } else if (ext === 'xml') {
+        content = new TextDecoder().decode(buffer).substring(0, MAX_CONTENT_CHARS);
+      } else if (['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp'].includes(ext)) {
+        if (buffer.byteLength > MAX_IMAGE_BYTES) {
+          content = `[Imagen "${file_name}" demasiado grande (${(buffer.byteLength / 1024).toFixed(0)} KB). Nombre sugiere: ${file_name}]`;
+        } else {
+          isImage = true;
+          imageBase64 = uint8ToBase64(new Uint8Array(buffer));
+        }
+      } else if (ext === 'pdf') {
+        content = `[Archivo PDF - ${(buffer.byteLength / 1024).toFixed(0)} KB. Nombre: ${file_name}. Inferí el tipo de datos por el nombre y respondé con category y summary.]`;
+      } else if (['doc', 'docx'].includes(ext)) {
+        try {
+          const text = new TextDecoder('utf-8', { fatal: false }).decode(buffer);
+          content = text.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().substring(0, MAX_CONTENT_CHARS);
+        } catch {
+          content = `[Archivo Word - ${(buffer.byteLength / 1024).toFixed(0)} KB. Nombre: ${file_name}]`;
+        }
+      } else if (['xls', 'xlsx'].includes(ext)) {
+        // Fallback: if no pre-parsed data was sent for Excel, send filename-based prompt
+        content = `[Archivo Excel - ${(buffer.byteLength / 1024).toFixed(0)} KB. Nombre: ${file_name}. No se pudo parsear. Inferí el tipo de datos por el nombre y respondé con category y summary.]`;
+      } else {
+        content = `[Archivo desconocido: ${ext}. Nombre: ${file_name}. ${(buffer.byteLength / 1024).toFixed(0)} KB]`;
+      }
     }
 
     const result = await extractWithAI(content, file_type || ext, file_name, isImage, imageBase64);
