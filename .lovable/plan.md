@@ -1,31 +1,12 @@
 
+# Procesamiento inteligente de archivos — IMPLEMENTADO ✅
 
-# Fix: Archivos quedan en "Procesando" para siempre
+## Qué se construyó
 
-## Problema
-Cuando se sube un archivo, se registra en la base de datos con `status: 'processing'`, pero nada actualiza ese estado después. No hay ningún proceso que cambie el status a `'processed'` una vez que el archivo se subió exitosamente a R2.
+Pipeline automático de extracción de datos: cuando un usuario sube un archivo, el sistema lo descarga de R2, extrae el contenido según el formato, lo envía a OpenAI para clasificación/estructuración, y guarda los datos extraídos en `file_extracted_data`.
 
-## Solución
-
-La forma más directa: si el upload a R2 fue exitoso (ya lo sabemos porque `r2-upload` respondió `success: true`), entonces el registro en la DB debería insertarse directamente con `status: 'processed'` en vez de `'processing'`.
-
-### Cambio en `src/pages/CargaDatos.tsx`
-
-En la función `uploadFiles`, cambiar la línea que inserta en `file_uploads`:
-
-```typescript
-// Antes
-status: 'processing',
-
-// Después
-status: 'processed',
-```
-
-Esto es correcto porque:
-- El archivo ya se subió exitosamente a R2 (confirmado por `uploadData.success`)
-- No hay ningún paso de procesamiento posterior (parseo, OCR, etc.) implementado
-- Si en el futuro se agrega procesamiento real (ej: extraer datos del Excel), se puede volver a usar `'processing'` y agregar un worker que lo actualice
-
-### Archivo tocado
-- `src/pages/CargaDatos.tsx` (1 línea)
-
+## Archivos tocados
+1. **Migración SQL** — tabla `file_extracted_data` + columna `processing_error` en `file_uploads` + RLS + política UPDATE
+2. **`supabase/functions/process-file/index.ts`** — nuevo edge function (CSV, Excel, PDF, Word, imágenes, XML)
+3. **`src/pages/CargaDatos.tsx`** — status vuelve a 'processing', trigger automático a process-file, más formatos aceptados
+4. **`supabase/functions/ai-chat/index.ts`** — contexto del copiloto incluye datos extraídos
