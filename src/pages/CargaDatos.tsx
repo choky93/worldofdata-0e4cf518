@@ -802,6 +802,18 @@ export default function CargaDatos() {
                               {isReprocessing ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
                             </Button>
                           )}
+                          {f.status === 'processing' && f.processing_started_at && (Date.now() - new Date(f.processing_started_at).getTime() > 5 * 60 * 1000) && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="shrink-0 h-8 w-8 text-warning hover:text-destructive"
+                              onClick={() => handleReprocess(f)}
+                              disabled={isReprocessing}
+                              title="Forzar reproceso (atascado)"
+                            >
+                              {isReprocessing ? <Loader2 className="h-4 w-4 animate-spin" /> : <AlertTriangle className="h-4 w-4" />}
+                            </Button>
+                          )}
                           <Button variant="ghost" size="icon" className="shrink-0 h-8 w-8" onClick={() => handleDelete(f)}>
                             <Trash2 className="h-4 w-4" />
                           </Button>
