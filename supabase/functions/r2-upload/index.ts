@@ -1,5 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { AwsClient } from "https://deno.land/x/aws4fetch@v1.0.2/mod.ts";
+import { AwsClient } from "npm:aws4fetch@1.0.20";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
