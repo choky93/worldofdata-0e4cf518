@@ -25,6 +25,7 @@ interface FileRecord {
   company_id: string;
   file_hash?: string | null;
   processing_error?: string | null;
+  processing_started_at?: string | null;
 }
 
 interface ExtractedData {
