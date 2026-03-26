@@ -623,6 +623,48 @@ export default function CargaDatos() {
     }
   };
 
+  // ─── URL Import Handler ───────────────────────────────────
+  const handleImportUrls = async () => {
+    if (!user || !profile?.company_id || !urlImportText.trim()) return;
+    setIsImportingUrls(true);
+    try {
+      const lines = urlImportText.trim().split('\n').filter(l => l.trim());
+      const urls = lines.map(line => {
+        const parts = line.split(',').map(p => p.trim());
+        if (parts.length >= 2) return { url: parts[0], name: parts[1] };
+        return parts[0];
+      });
+
+      const { data, error } = await supabase.functions.invoke('import-url', {
+        body: { urls, userId: user.id, companyId: profile.company_id },
+      });
+
+      if (error) throw error;
+      toast.success(`${data.imported} archivo(s) importado(s)${data.failed > 0 ? `, ${data.failed} fallaron` : ''}`);
+      setUrlImportText('');
+      setShowUrlImport(false);
+      fetchFiles();
+    } catch (err: any) {
+      toast.error('Error importando: ' + err.message);
+    } finally {
+      setIsImportingUrls(false);
+    }
+  };
+
+  // ─── Priority Handler ─────────────────────────────────────
+  const handlePrioritize = async (file: FileRecord) => {
+    try {
+      const { error } = await supabase.from('file_uploads')
+        .update({ priority: 1 })
+        .eq('id', file.id);
+      if (error) throw error;
+      toast.success(`"${file.file_name}" priorizado`);
+      fetchFiles();
+    } catch (err: any) {
+      toast.error('Error: ' + err.message);
+    }
+  };
+
   const totalPages = Math.ceil(totalCount / PAGE_SIZE);
   const isUploading = uploadQueue.some(i => i.status === 'pending' || i.status === 'uploading' || i.status === 'processing');
 
