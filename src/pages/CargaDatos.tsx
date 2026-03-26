@@ -283,7 +283,7 @@ export default function CargaDatos() {
               <Upload className="h-10 w-10 mx-auto text-muted-foreground mb-3" />
             )}
             <p className="font-medium">{uploading ? 'Subiendo archivos...' : 'Arrastrá archivos acá o hacé click para seleccionar'}</p>
-            <p className="text-sm text-muted-foreground mt-1">PDF, CSV, XLS/XLSX, imágenes (máx. 20MB)</p>
+            <p className="text-sm text-muted-foreground mt-1">PDF, CSV, Excel, Word, imágenes, XML (máx. 20MB)</p>
             <input
               id="file-input"
               type="file"

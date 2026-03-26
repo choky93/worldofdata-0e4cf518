@@ -46,9 +46,18 @@ async function fetchCompanyContext(companyId: string): Promise<string> {
   }
 
   // Recent uploads
-  const { data: uploads } = await sb.from("file_uploads").select("file_name, file_type, created_at").eq("company_id", companyId).order("created_at", { ascending: false }).limit(10);
+  const { data: uploads } = await sb.from("file_uploads").select("file_name, file_type, created_at, status").eq("company_id", companyId).order("created_at", { ascending: false }).limit(10);
   if (uploads?.length) {
-    parts.push(`Archivos recientes: ${uploads.map(u => `${u.file_name} (${u.file_type || "?"})`).join(", ")}.`);
+    parts.push(`Archivos recientes: ${uploads.map(u => `${u.file_name} (${u.file_type || "?"}, ${u.status || "?"})`).join(", ")}.`);
+  }
+
+  // Extracted data from files
+  const { data: extracted } = await sb.from("file_extracted_data").select("data_category, summary, row_count, created_at").eq("company_id", companyId).order("created_at", { ascending: false }).limit(10);
+  if (extracted?.length) {
+    parts.push(`\nDatos extraídos de archivos:`);
+    for (const e of extracted) {
+      parts.push(`- ${e.data_category}: ${e.summary} (${e.row_count} registros)`);
+    }
   }
 
   return parts.join("\n");
