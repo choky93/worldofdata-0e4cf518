@@ -567,40 +567,15 @@ export default function CargaDatos() {
 
   const handleReprocess = async (file: FileRecord) => {
     if (!profile?.company_id) return;
+    if (file.status === 'processing') {
+      toast.error('Este archivo ya se está procesando');
+      return;
+    }
     setReprocessingId(file.id);
     try {
       await supabase.from('file_extracted_data').delete().eq('file_upload_id', file.id);
-      await supabase.from('file_uploads').update({ status: 'processing', processing_error: null }).eq('id', file.id);
-
-      let preParsedData: string | null = null;
-      const ext = file.file_name.split('.').pop()?.toLowerCase() || '';
-      if (['xls', 'xlsx'].includes(ext)) {
-        try {
-          const buffer = await downloadFileFromR2(file.id);
-          if (buffer) {
-            preParsedData = parseExcelToJson(buffer);
-          } else {
-            toast.error(`No se pudo descargar "${file.file_name}"`);
-            setReprocessingId(null);
-            return;
-          }
-        } catch {
-          toast.error(`Error parseando "${file.file_name}"`);
-          setReprocessingId(null);
-          return;
-        }
-      }
-
-      const { error } = await supabase.functions.invoke('process-file', {
-        body: {
-          fileUploadId: file.id,
-          companyId: profile.company_id,
-          ...(preParsedData ? { preParsedData } : {}),
-        },
-      });
-
-      if (error) toast.error(`Error reprocesando: ${error.message}`);
-      else toast.success(`"${file.file_name}" enviado a reprocesar`);
+      await supabase.from('file_uploads').update({ status: 'queued', processing_error: null }).eq('id', file.id);
+      toast.success(`"${file.file_name}" re-encolado para procesar`);
       await fetchFiles();
     } catch (err: any) {
       toast.error('Error: ' + err.message);
