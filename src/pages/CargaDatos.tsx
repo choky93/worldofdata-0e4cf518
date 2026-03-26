@@ -235,7 +235,12 @@ export default function CargaDatos() {
   const handleDelete = async (file: FileRecord) => {
     try {
       if (file.storage_path) {
-        await supabase.storage.from('uploads').remove([file.storage_path]);
+        const { data, error: r2Error } = await supabase.functions.invoke('r2-delete', {
+          body: { storagePath: file.storage_path },
+        });
+        if (r2Error || !data?.success) {
+          console.warn('R2 delete warning:', r2Error?.message || data?.error);
+        }
       }
       const { error } = await supabase.from('file_uploads').delete().eq('id', file.id);
       if (error) throw error;
