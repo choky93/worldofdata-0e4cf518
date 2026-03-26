@@ -1,0 +1,1 @@
+ALTER TABLE public.file_extracted_data ADD COLUMN chunk_index integer NOT NULL DEFAULT 0;
