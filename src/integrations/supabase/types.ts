@@ -222,6 +222,7 @@ export type Database = {
           file_size: number | null
           file_type: string | null
           id: string
+          priority: number
           processing_error: string | null
           status: string | null
           storage_path: string | null
@@ -235,6 +236,7 @@ export type Database = {
           file_size?: number | null
           file_type?: string | null
           id?: string
+          priority?: number
           processing_error?: string | null
           status?: string | null
           storage_path?: string | null
@@ -248,6 +250,7 @@ export type Database = {
           file_size?: number | null
           file_type?: string | null
           id?: string
+          priority?: number
           processing_error?: string | null
           status?: string | null
           storage_path?: string | null

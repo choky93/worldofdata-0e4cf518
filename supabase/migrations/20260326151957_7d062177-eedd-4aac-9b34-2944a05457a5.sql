@@ -1,0 +1,1 @@
+ALTER TABLE public.file_uploads ADD COLUMN priority integer NOT NULL DEFAULT 0;

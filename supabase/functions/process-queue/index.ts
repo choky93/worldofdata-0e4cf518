@@ -7,7 +7,7 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-const BATCH_SIZE = 5; // Process up to 5 files per invocation
+const BATCH_SIZE = 5;
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -19,11 +19,12 @@ serve(async (req) => {
   const sb = createClient(supabaseUrl, serviceKey);
 
   try {
-    // Fetch queued files (oldest first)
+    // Fetch queued files ordered by priority DESC, then oldest first
     const { data: queuedFiles, error: fetchErr } = await sb
       .from("file_uploads")
       .select("id, company_id, file_name")
       .eq("status", "queued")
+      .order("priority", { ascending: false })
       .order("created_at", { ascending: true })
       .limit(BATCH_SIZE);
 
@@ -34,14 +35,16 @@ serve(async (req) => {
       });
     }
 
-    const results: { id: string; success: boolean; error?: string }[] = [];
+    // Mark all as processing
+    await Promise.all(
+      queuedFiles.map(f =>
+        sb.from("file_uploads").update({ status: "processing" }).eq("id", f.id)
+      )
+    );
 
-    for (const file of queuedFiles) {
-      // Mark as processing
-      await sb.from("file_uploads").update({ status: "processing" }).eq("id", file.id);
-
-      try {
-        // Call process-file function
+    // Process all files in parallel
+    const settled = await Promise.allSettled(
+      queuedFiles.map(async (file) => {
         const processResp = await fetch(`${supabaseUrl}/functions/v1/process-file`, {
           method: "POST",
           headers: {
@@ -59,9 +62,20 @@ serve(async (req) => {
           throw new Error(`process-file returned ${processResp.status}: ${errText}`);
         }
 
+        return file.id;
+      })
+    );
+
+    const results: { id: string; success: boolean; error?: string }[] = [];
+
+    for (let i = 0; i < settled.length; i++) {
+      const result = settled[i];
+      const file = queuedFiles[i];
+
+      if (result.status === "fulfilled") {
         results.push({ id: file.id, success: true });
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : "Unknown error";
+      } else {
+        const msg = result.reason instanceof Error ? result.reason.message : "Unknown error";
         console.error(`process-queue error for ${file.id}:`, msg);
         await sb.from("file_uploads").update({
           status: "error",
