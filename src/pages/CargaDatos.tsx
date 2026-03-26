@@ -479,12 +479,6 @@ export default function CargaDatos() {
           return;
         }
 
-        let preParsedData: string | null = null;
-        const ext = item.file.name.split('.').pop()?.toLowerCase() || '';
-        if (['xls', 'xlsx'].includes(ext)) {
-          try { preParsedData = await parseExcelToJson(item.file); } catch { /* ignore */ }
-        }
-
         updateItem({ progress: 50 });
 
         const { storagePath } = await uploadFileToStorage(item.file, user.id);
