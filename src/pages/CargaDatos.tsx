@@ -202,7 +202,7 @@ export default function CargaDatos() {
           file_name: file.name,
           file_type: detectFileType(file.name),
           file_size: file.size,
-          status: 'processing',
+          status: 'processed',
           storage_path: uploadData.storagePath,
           uploaded_by: user.id,
           company_id: profile.company_id,
