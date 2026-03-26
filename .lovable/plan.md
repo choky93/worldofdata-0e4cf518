@@ -1,94 +1,67 @@
 
-Diagnóstico
 
-Encontré dos problemas estructurales, no un bug aislado:
+# Diagnóstico completo y plan de corrección definitivo
 
-1. Ingesta inconsistente de Excel
-- Hoy hay dos caminos compitiendo:
-  - el frontend sube el archivo, crea el registro y llama `process-file` directamente
-  - en paralelo, el worker `process-queue` toma archivos `queued` y vuelve a llamar `process-file`
-- Para `xls/xlsx`, `process-file` solo funciona si recibe `preParsedData`.
-- El worker no envía `preParsedData`, por eso aparecen errores como `EXCEL_NEEDS_PREPARSED`.
-- Resultado: algunos Excel procesan, otros fallan, otros quedan en `processing`, y el comportamiento parece aleatorio.
+## Bugs encontrados
 
-2. Los datos cargados no alimentan todavía los módulos del producto
-- `CargaDatos.tsx` sí muestra resumen de lo extraído.
-- Pero páginas como `Dashboard.tsx`, `Ventas.tsx` y `Stock.tsx` siguen leyendo `mock-data`.
-- O sea: el archivo puede haberse cargado y extraído bien, pero el cliente “no lo ve reflejado” porque la plataforma principal todavía no consume esos datos reales.
+### BUG 1 (CRÍTICO): 6 archivos permanentemente atascados en `processing`
+La base de datos tiene 6 archivos Excel con `status = 'processing'` que nunca se completaron. No hay mecanismo de recuperación — una vez que un archivo queda en `processing`, el worker lo ignora para siempre (solo busca `queued`). Resultado: esos 6 archivos nunca se van a procesar, y el cliente los ve como "Procesando" eternamente.
 
-Plan de corrección
+### BUG 2 (CRÍTICO): `process-file` no produce logs — probablemente crashea silenciosamente
+No hay ni un solo log de `process-file` en el sistema. Esto indica que la función crashea al arrancar (probablemente por el import de SheetJS `npm:xlsx@0.18.5` en el entorno Deno de edge functions) o falla tan temprano que no llega a logear nada. Los archivos se marcan como `processing` pero `process-file` muere sin actualizar el status.
 
-1. Unificar el flujo de procesamiento
-- Definir un solo camino oficial:
-  `subida → registro en base → status queued → worker procesa`
-- Quitar la invocación directa a `process-file` desde `CargaDatos.tsx`.
-- El frontend debe solo subir y encolar, no procesar.
-- Así evitamos doble ejecución, carreras y estados inconsistentes.
+### BUG 3 (IMPORTANTE): process-queue no logea nada útil
+El worker se ejecuta cada minuto (cron funciona) pero solo muestra `booted` y `shutdown`. No hay logs de "No queued files" ni errores — lo que sugiere que el worker también podría estar fallando silenciosamente al intentar llamar a `process-file`.
 
-2. Hacer que el backend procese Excel por sí solo
-- Modificar `process-file` para parsear `xls/xlsx` directamente desde el archivo almacenado.
-- Eliminar la dependencia obligatoria de `preParsedData`.
-- `preParsedData` puede quedar solo como optimización opcional, no como requisito.
-- Con esto:
-  - el worker podrá procesar Excel
-  - reprocesar funcionará siempre
-  - las importaciones por URL también podrán procesar Excel correctamente
+### BUG 4 (MODERADO): Sin timeout/recovery para archivos atascados
+No hay lógica para detectar archivos que llevan más de X minutos en `processing` y resetearlos. Una vez atascados, quedan así para siempre.
 
-3. Corregir estados y visibilidad en Carga de Datos
-- No marcar un upload como “done” en la UI antes de que realmente termine la extracción.
-- Mejorar transición de estados:
-  - `uploading`
-  - `queued`
-  - `processing`
-  - `processed` / `error`
-- Mostrar cuando hay datos parciales en chunks pero el archivo aún sigue procesando.
-- Asegurar que `processing_error` se vea completo y no truncado en casos críticos.
+### BUG 5 (POTENCIAL): SheetJS (`npm:xlsx`) puede no funcionar en Deno edge functions
+La librería SheetJS se importa como `npm:xlsx@0.18.5`. Esta librería tiene dependencias de Node.js que pueden no ser compatibles con el runtime de Deno en edge functions, causando crash silencioso.
 
-4. Evitar re-procesamientos simultáneos del mismo archivo
-- Antes de que el worker tome un archivo, hacer lock lógico/atómico sobre el registro.
-- Si un archivo ya está en `processing`, ningún otro flujo debe volver a tomarlo.
-- Revisar también `handleReprocess` para que no pueda disparar duplicados si ya hay proceso activo.
+## Plan de corrección
 
-5. Hacer que los datos cargados impacten el producto
-- Reemplazar `mock-data` en módulos clave por datos reales derivados de `file_extracted_data`.
-- Empezar por:
-  - `Dashboard`
-  - `Ventas`
-  - `Stock`
-- Construir una capa de lectura/normalización para convertir `extracted_json` en métricas reales.
-- Si no hay datos suficientes, mostrar empty states claros en vez de mocks.
+### 1. Arreglar `process-file` para que funcione de verdad en Deno
+- Reemplazar `npm:xlsx@0.18.5` por un approach que funcione en Deno (parsear Excel usando la URL de esm.sh o un método alternativo como `npm:xlsx@0.18.5/xlsx.mjs`)
+- Agregar logging explícito al inicio de la función para diagnosticar crashes
+- Agregar try/catch granular alrededor de cada sección
 
-6. Validación completa
-- Probar de punta a punta estos casos:
-  - CSV chico
-  - CSV grande con chunks
-  - XLS/XLSX chico
-  - XLS/XLSX grande
-  - PDF
-  - reproceso de Excel
-  - varios archivos simultáneos
-- Verificar en cada caso:
-  - estado final correcto
-  - registros en `file_extracted_data`
-  - reflejo en `CargaDatos`
-  - reflejo en `Dashboard/Ventas/Stock`
+### 2. Agregar recuperación de archivos atascados en `process-queue`
+- Al inicio de cada ejecución, buscar archivos con `status = 'processing'` que tengan `updated_at` o `created_at` > 10 minutos
+- Resetear esos archivos a `queued` para que se reintenten
+- Esto evita que archivos queden permanentemente atascados
 
-Prioridad recomendada
+### 3. Agregar columna `processing_started_at` a `file_uploads`
+- Migración SQL: agregar `processing_started_at timestamptz`
+- process-queue la setea al lockear el archivo
+- Esto permite detectar con precisión cuánto tiempo lleva procesando
 
-Fase A — urgente
-- Unificar flujo
-- Backend parsea Excel
-- Corregir estados y locks
+### 4. Mejorar logging en ambas funciones
+- process-queue: logear cuántos archivos encontró, cuáles lockeó, resultados
+- process-file: logear al inicio, al descargar de R2, al parsear, al llamar a GPT-4o, al guardar
+- Con esto cualquier falla futura se diagnostica en segundos
 
-Fase B — necesaria para el cliente
-- Conectar Dashboard/Ventas/Stock a datos reales
+### 5. Resetear los 6 archivos atascados
+- Migración SQL: `UPDATE file_uploads SET status = 'queued' WHERE status = 'processing' AND created_at < NOW() - INTERVAL '5 minutes'`
 
-Resultado esperado
+### 6. Manejar timeout de edge functions
+- Edge functions tienen un timeout de ~60 segundos
+- Para archivos grandes con muchos chunks, cada chunk llama a GPT-4o (puede tardar 10-30s)
+- Si hay >2 chunks, el timeout puede matarte
+- Solución: procesar máximo 2 chunks por invocación, y si hay más, dejar el archivo como `queued` con metadata de progreso para continuar en la siguiente ejecución
 
-Después de esto, la historia cambia a:
-- cualquier archivo subido entra a una cola única
-- Excel deja de fallar por `EXCEL_NEEDS_PREPARSED`
-- no habrá dobles ejecuciones ni archivos “colgados”
-- lo cargado no solo se verá en Historial de cargas, sino también reflejado en la plataforma
+## Archivos a modificar
 
-En síntesis: sí, hay algo estructuralmente mal hoy, y es exactamente la combinación de doble procesamiento + dependencia rota de Excel + módulos que todavía siguen mostrando datos ficticios. El arreglo correcto no es un parche puntual: hay que cerrar esos tres frentes juntos.
+1. **`supabase/functions/process-file/index.ts`** — Fix SheetJS import, agregar logging, manejar timeout
+2. **`supabase/functions/process-queue/index.ts`** — Agregar recovery de archivos atascados, mejorar logging
+3. **Migración SQL** — Agregar `processing_started_at`, resetear archivos atascados
+4. **`src/pages/CargaDatos.tsx`** — Mostrar botón de "Forzar reproceso" para archivos stuck en processing >5min
+
+## Resultado esperado
+
+- Los 6 archivos atascados se van a reprocesar automáticamente
+- Si `process-file` falla, los archivos se recuperan solos en la siguiente ejecución del cron
+- SheetJS funciona correctamente en Deno
+- Cada paso del procesamiento tiene logging visible
+- No más archivos "fantasma" que quedan en `processing` eternamente
+
