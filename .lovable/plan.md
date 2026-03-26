@@ -1,51 +1,94 @@
 
+Diagnóstico
 
-# Verificación e Informe del Sistema de Carga de Datos
+Encontré dos problemas estructurales, no un bug aislado:
 
-## Estado de verificación
+1. Ingesta inconsistente de Excel
+- Hoy hay dos caminos compitiendo:
+  - el frontend sube el archivo, crea el registro y llama `process-file` directamente
+  - en paralelo, el worker `process-queue` toma archivos `queued` y vuelve a llamar `process-file`
+- Para `xls/xlsx`, `process-file` solo funciona si recibe `preParsedData`.
+- El worker no envía `preParsedData`, por eso aparecen errores como `EXCEL_NEEDS_PREPARSED`.
+- Resultado: algunos Excel procesan, otros fallan, otros quedan en `processing`, y el comportamiento parece aleatorio.
 
-Revisé todos los archivos clave del sistema. Todo está implementado correctamente:
+2. Los datos cargados no alimentan todavía los módulos del producto
+- `CargaDatos.tsx` sí muestra resumen de lo extraído.
+- Pero páginas como `Dashboard.tsx`, `Ventas.tsx` y `Stock.tsx` siguen leyendo `mock-data`.
+- O sea: el archivo puede haberse cargado y extraído bien, pero el cliente “no lo ve reflejado” porque la plataforma principal todavía no consume esos datos reales.
 
-- **`process-file/index.ts`** (460 líneas): Chunking por filas (CSV 500 rows), por texto (PDF 12K chars), visión para imágenes, extracción con GPT-4o
-- **`process-queue/index.ts`** (102 líneas): Cola paralela con `Promise.allSettled`, 5 archivos simultáneos, orden por prioridad
-- **`import-url/index.ts`** (172 líneas): Importación desde URLs con soporte Google Drive/Dropbox
-- **`r2-presign/index.ts`** (71 líneas): URLs firmadas para archivos >20MB
-- **`CargaDatos.tsx`** (969 líneas): UI completa con batch upload, filtros, paginación, dashboard de estado, importación por URL, priorización
-- **Base de datos**: Columnas `priority`, `chunk_index`, `file_hash` agregadas correctamente
-- **Sin errores** en consola del preview
+Plan de corrección
 
-## Plan: Generar informe escrito
+1. Unificar el flujo de procesamiento
+- Definir un solo camino oficial:
+  `subida → registro en base → status queued → worker procesa`
+- Quitar la invocación directa a `process-file` desde `CargaDatos.tsx`.
+- El frontend debe solo subir y encolar, no procesar.
+- Así evitamos doble ejecución, carreras y estados inconsistentes.
 
-Voy a generar un documento PDF profesional con el informe completo de todas las mejoras implementadas en el sistema de carga de datos. El informe incluirá:
+2. Hacer que el backend procese Excel por sí solo
+- Modificar `process-file` para parsear `xls/xlsx` directamente desde el archivo almacenado.
+- Eliminar la dependencia obligatoria de `preParsedData`.
+- `preParsedData` puede quedar solo como optimización opcional, no como requisito.
+- Con esto:
+  - el worker podrá procesar Excel
+  - reprocesar funcionará siempre
+  - las importaciones por URL también podrán procesar Excel correctamente
 
-1. **Resumen ejecutivo** — qué se mejoró y por qué
-2. **Estado anterior vs. actual** — comparación directa
-3. **Detalle de cada etapa** — qué se implementó en cada una
-4. **Flujo actual del sistema** — cómo funciona de punta a punta
-5. **Arquitectura técnica** — diagrama del pipeline
-6. **Capacidades actuales** — qué puede hacer el sistema hoy
+3. Corregir estados y visibilidad en Carga de Datos
+- No marcar un upload como “done” en la UI antes de que realmente termine la extracción.
+- Mejorar transición de estados:
+  - `uploading`
+  - `queued`
+  - `processing`
+  - `processed` / `error`
+- Mostrar cuando hay datos parciales en chunks pero el archivo aún sigue procesando.
+- Asegurar que `processing_error` se vea completo y no truncado en casos críticos.
 
-El documento se generará como PDF en `/mnt/documents/` usando Python con la librería `reportlab`.
+4. Evitar re-procesamientos simultáneos del mismo archivo
+- Antes de que el worker tome un archivo, hacer lock lógico/atómico sobre el registro.
+- Si un archivo ya está en `processing`, ningún otro flujo debe volver a tomarlo.
+- Revisar también `handleReprocess` para que no pueda disparar duplicados si ya hay proceso activo.
 
-### Contenido del informe
+5. Hacer que los datos cargados impacten el producto
+- Reemplazar `mock-data` en módulos clave por datos reales derivados de `file_extracted_data`.
+- Empezar por:
+  - `Dashboard`
+  - `Ventas`
+  - `Stock`
+- Construir una capa de lectura/normalización para convertir `extracted_json` en métricas reales.
+- Si no hay datos suficientes, mostrar empty states claros en vez de mocks.
 
-**Antes:**
-- Subida archivo por archivo, máx 20MB
-- Procesamiento sincrónico, uno a la vez
-- Solo 50 filas por archivo
-- Sin paginación, sin filtros
-- PDF enviado como base64 (no funcionaba bien con GPT-4o)
-- Sin cola de procesamiento
+6. Validación completa
+- Probar de punta a punta estos casos:
+  - CSV chico
+  - CSV grande con chunks
+  - XLS/XLSX chico
+  - XLS/XLSX grande
+  - PDF
+  - reproceso de Excel
+  - varios archivos simultáneos
+- Verificar en cada caso:
+  - estado final correcto
+  - registros en `file_extracted_data`
+  - reflejo en `CargaDatos`
+  - reflejo en `Dashboard/Ventas/Stock`
 
-**Después (3 etapas):**
-- Batch upload con 4 archivos simultáneos
-- Cola async con cron cada minuto + procesamiento paralelo (5 a la vez)
-- Chunking: CSV hasta cualquier tamaño (bloques de 500), PDF sin límite (bloques de 12K chars)
-- Presigned URLs para archivos hasta 100MB
-- Paginación (25 por página), búsqueda, filtros por estado y tipo
-- Dashboard de estado en tiempo real
-- Detección de duplicados con SHA-256
-- Importación por URL (Google Drive, Dropbox, enlaces directos)
-- Sistema de prioridades
-- Extracción de texto real para PDFs (unpdf), visión para imágenes, parsing robusto de CSV/Excel
+Prioridad recomendada
 
+Fase A — urgente
+- Unificar flujo
+- Backend parsea Excel
+- Corregir estados y locks
+
+Fase B — necesaria para el cliente
+- Conectar Dashboard/Ventas/Stock a datos reales
+
+Resultado esperado
+
+Después de esto, la historia cambia a:
+- cualquier archivo subido entra a una cola única
+- Excel deja de fallar por `EXCEL_NEEDS_PREPARSED`
+- no habrá dobles ejecuciones ni archivos “colgados”
+- lo cargado no solo se verá en Historial de cargas, sino también reflejado en la plataforma
+
+En síntesis: sí, hay algo estructuralmente mal hoy, y es exactamente la combinación de doble procesamiento + dependencia rota de Excel + módulos que todavía siguen mostrando datos ficticios. El arreglo correcto no es un parche puntual: hay que cerrar esos tres frentes juntos.
