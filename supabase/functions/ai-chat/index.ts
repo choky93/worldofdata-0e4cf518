@@ -136,14 +136,14 @@ serve(async (req) => {
       context?.companyName ? `\nNombre de la empresa: ${context.companyName}` : "",
     ].join("");
 
-    const response = await fetch(GATEWAY_URL, {
+    const response = await fetch(OPENAI_URL, {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${LOVABLE_API_KEY}`,
+        Authorization: `Bearer ${OPENAI_API_KEY}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "google/gemini-3-flash-preview",
+        model: "gpt-4o",
         messages: [
           { role: "system", content: systemContent },
           ...messages,
