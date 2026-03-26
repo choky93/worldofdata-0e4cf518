@@ -27,7 +27,9 @@ function detectFileType(name: string): string {
   if (ext === 'pdf') return 'PDF';
   if (ext === 'csv') return 'CSV';
   if (['xls', 'xlsx'].includes(ext)) return 'XLS';
-  if (['png', 'jpg', 'jpeg', 'webp'].includes(ext)) return 'Imagen';
+  if (['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp'].includes(ext)) return 'Imagen';
+  if (['doc', 'docx'].includes(ext)) return 'Word';
+  if (ext === 'xml') return 'XML';
   return 'Otro';
 }
 
@@ -198,20 +200,31 @@ export default function CargaDatos() {
           continue;
         }
 
-        const { error: dbError } = await supabase.from('file_uploads').insert({
+        const { data: dbData, error: dbError } = await supabase.from('file_uploads').insert({
           file_name: file.name,
           file_type: detectFileType(file.name),
           file_size: file.size,
-          status: 'processed',
+          status: 'processing',
           storage_path: uploadData.storagePath,
           uploaded_by: user.id,
           company_id: profile.company_id,
-        });
+        }).select('id').single();
 
         if (dbError) {
           toast.error(`Error registrando ${file.name}: ${dbError.message}`);
           continue;
         }
+
+        // Trigger background processing - don't await
+        supabase.functions.invoke('process-file', {
+          body: { fileUploadId: dbData.id, companyId: profile.company_id },
+        }).then(({ error: procError }) => {
+          if (procError) {
+            console.error(`Processing error for ${file.name}:`, procError);
+          }
+          // Refresh file list to show updated status
+          fetchFiles();
+        });
       }
 
       toast.success(`${filesToUpload.length} archivo(s) subido(s) correctamente`);
@@ -270,13 +283,13 @@ export default function CargaDatos() {
               <Upload className="h-10 w-10 mx-auto text-muted-foreground mb-3" />
             )}
             <p className="font-medium">{uploading ? 'Subiendo archivos...' : 'Arrastrá archivos acá o hacé click para seleccionar'}</p>
-            <p className="text-sm text-muted-foreground mt-1">PDF, CSV, XLS/XLSX, imágenes (máx. 20MB)</p>
+            <p className="text-sm text-muted-foreground mt-1">PDF, CSV, Excel, Word, imágenes, XML (máx. 20MB)</p>
             <input
               id="file-input"
               type="file"
               className="hidden"
               multiple
-              accept=".pdf,.csv,.xls,.xlsx,.png,.jpg,.jpeg"
+              accept=".pdf,.csv,.xls,.xlsx,.png,.jpg,.jpeg,.webp,.gif,.bmp,.doc,.docx,.xml,.txt"
               onChange={(e) => {
                 if (e.target.files && e.target.files.length > 0) {
                   uploadFiles(e.target.files);

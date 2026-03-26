@@ -162,6 +162,54 @@ export type Database = {
           },
         ]
       }
+      file_extracted_data: {
+        Row: {
+          company_id: string
+          created_at: string | null
+          data_category: string
+          extracted_json: Json
+          file_upload_id: string
+          id: string
+          row_count: number | null
+          summary: string | null
+        }
+        Insert: {
+          company_id: string
+          created_at?: string | null
+          data_category?: string
+          extracted_json?: Json
+          file_upload_id: string
+          id?: string
+          row_count?: number | null
+          summary?: string | null
+        }
+        Update: {
+          company_id?: string
+          created_at?: string | null
+          data_category?: string
+          extracted_json?: Json
+          file_upload_id?: string
+          id?: string
+          row_count?: number | null
+          summary?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "file_extracted_data_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "file_extracted_data_file_upload_id_fkey"
+            columns: ["file_upload_id"]
+            isOneToOne: false
+            referencedRelation: "file_uploads"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       file_uploads: {
         Row: {
           company_id: string
@@ -170,6 +218,7 @@ export type Database = {
           file_size: number | null
           file_type: string | null
           id: string
+          processing_error: string | null
           status: string | null
           storage_path: string | null
           uploaded_by: string | null
@@ -181,6 +230,7 @@ export type Database = {
           file_size?: number | null
           file_type?: string | null
           id?: string
+          processing_error?: string | null
           status?: string | null
           storage_path?: string | null
           uploaded_by?: string | null
@@ -192,6 +242,7 @@ export type Database = {
           file_size?: number | null
           file_type?: string | null
           id?: string
+          processing_error?: string | null
           status?: string | null
           storage_path?: string | null
           uploaded_by?: string | null
