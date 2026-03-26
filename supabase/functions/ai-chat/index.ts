@@ -7,7 +7,7 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-const GATEWAY_URL = "https://ai.gateway.lovable.dev/v1/chat/completions";
+const OPENAI_URL = "https://api.openai.com/v1/chat/completions";
 
 async function fetchCompanyContext(companyId: string): Promise<string> {
   const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
