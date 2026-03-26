@@ -9,10 +9,10 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-const MAX_ROWS = 500;
+const CHUNK_ROWS = 500;
+const CHUNK_CHARS = 12000;
 const MAX_CONTENT_CHARS = 15000;
-const MAX_IMAGE_BYTES = 5 * 1024 * 1024; // 5MB for vision
-const MAX_TEXT_BYTES = 10 * 1024 * 1024; // 10MB for text-based files
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 
 // ─── R2 Download ───────────────────────────────────────────────
 async function downloadFromR2(storagePath: string): Promise<ArrayBuffer> {
@@ -30,16 +30,13 @@ async function downloadFromR2(storagePath: string): Promise<ArrayBuffer> {
 // ─── CSV Parser (RFC 4180) ─────────────────────────────────────
 function parseCSV(text: string): Record<string, unknown>[] {
   if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
-
   const rawFirst = text.split(/\r?\n/)[0] || '';
   const delimiter = rawFirst.includes('\t') ? '\t' : rawFirst.includes(';') ? ';' : ',';
-
   const parsed = parseCSVWithDelimiter(text, delimiter);
   if (parsed.length < 2) return [];
-
   const headers = parsed[0].map(h => h.trim());
   const rows: Record<string, unknown>[] = [];
-  for (let i = 1; i < parsed.length && i <= MAX_ROWS; i++) {
+  for (let i = 1; i < parsed.length; i++) {
     if (parsed[i].every(v => v.trim() === '')) continue;
     const row: Record<string, unknown> = {};
     headers.forEach((h, j) => { row[h] = parsed[i][j]?.trim() || ''; });
@@ -54,49 +51,24 @@ function parseCSVWithDelimiter(text: string, delimiter: string): string[][] {
   let field = '';
   let inQuotes = false;
   let i = 0;
-
   while (i < text.length) {
     const ch = text[i];
     if (inQuotes) {
       if (ch === '"') {
-        if (i + 1 < text.length && text[i + 1] === '"') {
-          field += '"';
-          i += 2;
-        } else {
-          inQuotes = false;
-          i++;
-        }
-      } else {
-        field += ch;
-        i++;
-      }
+        if (i + 1 < text.length && text[i + 1] === '"') { field += '"'; i += 2; }
+        else { inQuotes = false; i++; }
+      } else { field += ch; i++; }
     } else {
-      if (ch === '"') {
-        inQuotes = true;
-        i++;
-      } else if (ch === delimiter) {
-        current.push(field);
-        field = '';
-        i++;
-      } else if (ch === '\r' || ch === '\n') {
-        current.push(field);
-        field = '';
+      if (ch === '"') { inQuotes = true; i++; }
+      else if (ch === delimiter) { current.push(field); field = ''; i++; }
+      else if (ch === '\r' || ch === '\n') {
+        current.push(field); field = '';
         if (ch === '\r' && i + 1 < text.length && text[i + 1] === '\n') i++;
-        rows.push(current);
-        current = [];
-        i++;
-      } else {
-        field += ch;
-        i++;
-      }
+        rows.push(current); current = []; i++;
+      } else { field += ch; i++; }
     }
   }
-
-  if (field || current.length > 0) {
-    current.push(field);
-    rows.push(current);
-  }
-
+  if (field || current.length > 0) { current.push(field); rows.push(current); }
   return rows.filter(r => r.some(v => v.trim() !== ''));
 }
 
@@ -125,28 +97,17 @@ async function extractPdfText(buffer: ArrayBuffer): Promise<{ text: string; page
     const doc = await getDocumentProxy(new Uint8Array(buffer));
     const { text, totalPages } = await extractText(doc, { mergePages: true });
     const cleanText = (typeof text === 'string' ? text : '').trim();
-
     if (cleanText.length > 50) {
-      return {
-        text: cleanText.substring(0, MAX_CONTENT_CHARS),
-        pages: totalPages,
-        method: 'text_extraction',
-      };
+      return { text: cleanText, pages: totalPages, method: 'text_extraction' };
     }
-
-    // PDF is likely scanned/image-based — very little text extracted
-    return {
-      text: cleanText,
-      pages: totalPages,
-      method: 'scanned_minimal_text',
-    };
+    return { text: cleanText, pages: totalPages, method: 'scanned_minimal_text' };
   } catch (err) {
     console.error('PDF text extraction error:', err);
     return { text: '', pages: 0, method: 'extraction_failed' };
   }
 }
 
-// ─── AI Extraction ────────────────────────────────────────────
+// ─── AI Extraction (single chunk) ─────────────────────────────
 async function extractWithAI(
   content: string,
   fileName: string,
@@ -225,6 +186,62 @@ Reglas:
   };
 }
 
+// ─── Chunking helpers ─────────────────────────────────────────
+function chunkRows(rows: Record<string, unknown>[], chunkSize: number): Record<string, unknown>[][] {
+  const chunks: Record<string, unknown>[][] = [];
+  for (let i = 0; i < rows.length; i += chunkSize) {
+    chunks.push(rows.slice(i, i + chunkSize));
+  }
+  return chunks;
+}
+
+function chunkText(text: string, chunkSize: number): string[] {
+  const chunks: string[] = [];
+  for (let i = 0; i < text.length; i += chunkSize) {
+    chunks.push(text.substring(i, i + chunkSize));
+  }
+  return chunks;
+}
+
+// ─── Process multiple chunks and save ─────────────────────────
+async function processChunks(
+  sb: ReturnType<typeof createClient>,
+  chunks: { content: string; index: number }[],
+  fileName: string,
+  fileUploadId: string,
+  companyId: string,
+  metadata: Record<string, unknown>,
+): Promise<{ category: string; summary: string; totalRows: number }> {
+  let mainCategory = "otro";
+  const summaries: string[] = [];
+  let totalRows = 0;
+
+  for (const chunk of chunks) {
+    const chunkMeta = { ...metadata, chunk_index: chunk.index, total_chunks: chunks.length };
+    const result = await extractWithAI(chunk.content, fileName, undefined, undefined, chunkMeta);
+
+    await sb.from("file_extracted_data").insert({
+      file_upload_id: fileUploadId,
+      company_id: companyId,
+      data_category: result.category,
+      extracted_json: result.data,
+      summary: result.summary,
+      row_count: result.rowCount,
+      chunk_index: chunk.index,
+    });
+
+    if (chunk.index === 0) mainCategory = result.category;
+    summaries.push(result.summary);
+    totalRows += result.rowCount;
+  }
+
+  const combinedSummary = chunks.length === 1
+    ? summaries[0]
+    : `${summaries[0]} (${chunks.length} bloques procesados, ${totalRows} filas totales)`;
+
+  return { category: mainCategory, summary: combinedSummary, totalRows };
+}
+
 // ─── Main Handler ─────────────────────────────────────────────
 serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -254,65 +271,141 @@ serve(async (req) => {
     const { file_name, storage_path } = fileRecord;
     const ext = file_name.split('.').pop()?.toLowerCase() || '';
 
-    let content = "";
-    let imageBase64: string | undefined;
-    let imageMime: string | undefined;
     let processingMetadata: Record<string, unknown> = {};
+    let resultInfo: { category: string; summary: string; totalRows: number };
 
     if (preParsedData) {
-      // Excel pre-parsed from frontend
-      content = typeof preParsedData === 'string' ? preParsedData : JSON.stringify(preParsedData).substring(0, MAX_CONTENT_CHARS);
+      // ─── Excel pre-parsed: check if needs chunking ───
+      const content = typeof preParsedData === 'string' ? preParsedData : JSON.stringify(preParsedData);
       processingMetadata = { method: 'client_preparsed', format: 'excel' };
+
+      if (content.length > MAX_CONTENT_CHARS) {
+        const textChunks = chunkText(content, CHUNK_CHARS);
+        const chunks = textChunks.map((c, i) => ({ content: c, index: i }));
+        processingMetadata.chunked = true;
+        processingMetadata.total_chunks = chunks.length;
+        resultInfo = await processChunks(sb, chunks, file_name, fileUploadId, companyId, processingMetadata);
+      } else {
+        const result = await extractWithAI(content.substring(0, MAX_CONTENT_CHARS), file_name, undefined, undefined, processingMetadata);
+        await sb.from("file_extracted_data").insert({
+          file_upload_id: fileUploadId, company_id: companyId,
+          data_category: result.category, extracted_json: result.data,
+          summary: result.summary, row_count: result.rowCount, chunk_index: 0,
+        });
+        resultInfo = { category: result.category, summary: result.summary, totalRows: result.rowCount };
+      }
     } else {
       if (!storage_path) throw new Error("No storage_path");
       const buffer = await downloadFromR2(storage_path);
       const bytes = new Uint8Array(buffer);
 
       if (['csv', 'txt'].includes(ext)) {
+        // ─── CSV/TXT: chunk by rows ───
         const text = new TextDecoder().decode(buffer);
-        const rows = parseCSV(text);
-        content = JSON.stringify(rows.slice(0, MAX_ROWS));
-        if (rows.length > MAX_ROWS) content += `\n(${rows.length} filas totales, mostrando primeras ${MAX_ROWS})`;
-        processingMetadata = { method: 'text_csv_parse', rows_total: rows.length, rows_sent: Math.min(rows.length, MAX_ROWS) };
+        const allRows = parseCSV(text);
+        processingMetadata = { method: 'text_csv_parse', rows_total: allRows.length };
+
+        if (allRows.length > CHUNK_ROWS) {
+          const rowChunks = chunkRows(allRows, CHUNK_ROWS);
+          processingMetadata.chunked = true;
+          processingMetadata.total_chunks = rowChunks.length;
+          const chunks = rowChunks.map((rows, i) => ({
+            content: JSON.stringify(rows),
+            index: i,
+          }));
+          resultInfo = await processChunks(sb, chunks, file_name, fileUploadId, companyId, processingMetadata);
+        } else {
+          const content = JSON.stringify(allRows);
+          const result = await extractWithAI(content, file_name, undefined, undefined, processingMetadata);
+          await sb.from("file_extracted_data").insert({
+            file_upload_id: fileUploadId, company_id: companyId,
+            data_category: result.category, extracted_json: result.data,
+            summary: result.summary, row_count: result.rowCount, chunk_index: 0,
+          });
+          resultInfo = { category: result.category, summary: result.summary, totalRows: result.rowCount };
+        }
 
       } else if (ext === 'xml') {
-        content = new TextDecoder().decode(buffer).substring(0, MAX_CONTENT_CHARS);
+        const content = new TextDecoder().decode(buffer).substring(0, MAX_CONTENT_CHARS);
         processingMetadata = { method: 'text_raw', format: 'xml', size_kb: Math.round(buffer.byteLength / 1024) };
+        const result = await extractWithAI(content, file_name, undefined, undefined, processingMetadata);
+        await sb.from("file_extracted_data").insert({
+          file_upload_id: fileUploadId, company_id: companyId,
+          data_category: result.category, extracted_json: result.data,
+          summary: result.summary, row_count: result.rowCount, chunk_index: 0,
+        });
+        resultInfo = { category: result.category, summary: result.summary, totalRows: result.rowCount };
 
       } else if (['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp'].includes(ext)) {
-        // Images → GPT-4o vision
+        processingMetadata = { method: 'vision', format: ext, size_kb: Math.round(buffer.byteLength / 1024) };
+        let imageBase64: string | undefined;
+        let imageMime: string | undefined;
+        let content = '';
+
         if (buffer.byteLength > MAX_IMAGE_BYTES) {
-          content = `[Imagen "${file_name}" - ${(buffer.byteLength / 1024 / 1024).toFixed(1)} MB. Demasiado grande para visión. Nombre sugiere: ${file_name}]`;
-          processingMetadata = { method: 'image_too_large', size_mb: +(buffer.byteLength / 1024 / 1024).toFixed(1) };
+          content = `[Imagen "${file_name}" - ${(buffer.byteLength / 1024 / 1024).toFixed(1)} MB. Demasiado grande para visión.]`;
+          processingMetadata.method = 'image_too_large';
         } else {
           imageBase64 = uint8ToBase64(bytes);
           imageMime = getMimeType(file_name);
-          processingMetadata = { method: 'vision', format: ext, size_kb: Math.round(buffer.byteLength / 1024) };
         }
 
+        const result = await extractWithAI(content, file_name, imageBase64, imageMime, processingMetadata);
+        await sb.from("file_extracted_data").insert({
+          file_upload_id: fileUploadId, company_id: companyId,
+          data_category: result.category, extracted_json: result.data,
+          summary: result.summary, row_count: result.rowCount, chunk_index: 0,
+        });
+        resultInfo = { category: result.category, summary: result.summary, totalRows: result.rowCount };
+
       } else if (ext === 'pdf') {
-        // PDFs → extract text first, fallback to vision for scanned docs
+        // ─── PDF: chunk by text length ───
         const pdfResult = await extractPdfText(buffer);
         processingMetadata = { method: pdfResult.method, pages: pdfResult.pages, size_kb: Math.round(buffer.byteLength / 1024) };
 
         if (pdfResult.method === 'text_extraction' && pdfResult.text.length > 50) {
-          // Good text content extracted — send as text to GPT-4o
-          content = `[PDF con ${pdfResult.pages} páginas, texto extraído]\n\n${pdfResult.text}`;
+          const fullText = pdfResult.text;
+
+          if (fullText.length > MAX_CONTENT_CHARS) {
+            const textChunks = chunkText(fullText, CHUNK_CHARS);
+            processingMetadata.chunked = true;
+            processingMetadata.total_chunks = textChunks.length;
+            const chunks = textChunks.map((t, i) => ({
+              content: `[PDF "${file_name}" - chunk ${i + 1}/${textChunks.length}, ${pdfResult.pages} páginas total]\n\n${t}`,
+              index: i,
+            }));
+            resultInfo = await processChunks(sb, chunks, file_name, fileUploadId, companyId, processingMetadata);
+          } else {
+            const content = `[PDF con ${pdfResult.pages} páginas, texto extraído]\n\n${fullText}`;
+            const result = await extractWithAI(content, file_name, undefined, undefined, processingMetadata);
+            await sb.from("file_extracted_data").insert({
+              file_upload_id: fileUploadId, company_id: companyId,
+              data_category: result.category, extracted_json: result.data,
+              summary: result.summary, row_count: result.rowCount, chunk_index: 0,
+            });
+            resultInfo = { category: result.category, summary: result.summary, totalRows: result.rowCount };
+          }
         } else {
-          // Scanned PDF or extraction failed — try vision if small enough
+          // Scanned PDF fallback
+          let content: string;
           if (buffer.byteLength <= MAX_IMAGE_BYTES) {
-            // For scanned PDFs, we convert to base64 and send as PNG to vision
-            // Note: GPT-4o vision doesn't accept PDF mime, so we describe the situation
-            // and send the raw text we did get plus the filename for context
-            content = `[PDF escaneado/imagen - ${pdfResult.pages} páginas, ${(buffer.byteLength / 1024).toFixed(0)} KB. Texto parcial extraído: "${pdfResult.text.substring(0, 2000)}". Nombre: "${file_name}". Analizá basándote en el texto parcial y el nombre del archivo.]`;
+            content = `[PDF escaneado/imagen - ${pdfResult.pages} páginas, ${(buffer.byteLength / 1024).toFixed(0)} KB. Texto parcial: "${pdfResult.text.substring(0, 2000)}". Nombre: "${file_name}".]`;
             processingMetadata.method = 'scanned_pdf_text_fallback';
           } else {
-            content = `[PDF muy grande (${(buffer.byteLength / 1024 / 1024).toFixed(1)} MB) con poco texto extraíble. Texto parcial: "${pdfResult.text.substring(0, 1000)}". Nombre: "${file_name}".]`;
+            content = `[PDF muy grande (${(buffer.byteLength / 1024 / 1024).toFixed(1)} MB) con poco texto. Texto parcial: "${pdfResult.text.substring(0, 1000)}". Nombre: "${file_name}".]`;
             processingMetadata.method = 'large_scanned_pdf_limited';
           }
+          const result = await extractWithAI(content, file_name, undefined, undefined, processingMetadata);
+          await sb.from("file_extracted_data").insert({
+            file_upload_id: fileUploadId, company_id: companyId,
+            data_category: result.category, extracted_json: result.data,
+            summary: result.summary, row_count: result.rowCount, chunk_index: 0,
+          });
+          resultInfo = { category: result.category, summary: result.summary, totalRows: result.rowCount };
         }
 
       } else if (['doc', 'docx'].includes(ext)) {
+        let content: string;
         try {
           const text = new TextDecoder('utf-8', { fatal: false }).decode(buffer);
           content = text.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().substring(0, MAX_CONTENT_CHARS);
@@ -321,34 +414,37 @@ serve(async (req) => {
           content = `[Archivo Word - ${(buffer.byteLength / 1024).toFixed(0)} KB. Nombre: ${file_name}]`;
           processingMetadata = { method: 'word_fallback', format: ext };
         }
+        const result = await extractWithAI(content, file_name, undefined, undefined, processingMetadata);
+        await sb.from("file_extracted_data").insert({
+          file_upload_id: fileUploadId, company_id: companyId,
+          data_category: result.category, extracted_json: result.data,
+          summary: result.summary, row_count: result.rowCount, chunk_index: 0,
+        });
+        resultInfo = { category: result.category, summary: result.summary, totalRows: result.rowCount };
 
       } else if (['xls', 'xlsx'].includes(ext)) {
-        // Excel without pre-parsed data — this is an error state
-        // The frontend MUST send preParsedData for Excel files
         throw new Error(`EXCEL_NEEDS_PREPARSED: El archivo Excel "${file_name}" necesita ser parseado en el cliente. Usá el botón "Reprocesar" para reintentar.`);
 
       } else {
-        content = `[Archivo desconocido: ${ext}. Nombre: "${file_name}". ${(buffer.byteLength / 1024).toFixed(0)} KB]`;
+        const content = `[Archivo desconocido: ${ext}. Nombre: "${file_name}". ${(buffer.byteLength / 1024).toFixed(0)} KB]`;
         processingMetadata = { method: 'unknown_format', format: ext };
+        const result = await extractWithAI(content, file_name, undefined, undefined, processingMetadata);
+        await sb.from("file_extracted_data").insert({
+          file_upload_id: fileUploadId, company_id: companyId,
+          data_category: result.category, extracted_json: result.data,
+          summary: result.summary, row_count: result.rowCount, chunk_index: 0,
+        });
+        resultInfo = { category: result.category, summary: result.summary, totalRows: result.rowCount };
       }
     }
-
-    const result = await extractWithAI(content, file_name, imageBase64, imageMime, processingMetadata);
-
-    const { error: insertErr } = await sb.from("file_extracted_data").insert({
-      file_upload_id: fileUploadId,
-      company_id: companyId,
-      data_category: result.category,
-      extracted_json: result.data,
-      summary: result.summary,
-      row_count: result.rowCount,
-    });
-    if (insertErr) throw new Error(`Failed to save: ${insertErr.message}`);
 
     await sb.from("file_uploads").update({ status: "processed", processing_error: null }).eq("id", fileUploadId);
 
     return new Response(JSON.stringify({
-      success: true, category: result.category, summary: result.summary, rowCount: result.rowCount,
+      success: true,
+      category: resultInfo.category,
+      summary: resultInfo.summary,
+      rowCount: resultInfo.totalRows,
       processingMetadata,
     }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
   } catch (error) {
