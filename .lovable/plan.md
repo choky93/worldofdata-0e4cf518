@@ -1,73 +1,55 @@
-# Pipeline de archivos — Estado actual (implementado)
+# Pipeline de archivos — Estado actual
 
-## Cambios realizados
+## Etapa 1 (implementada)
+- Batch upload con cola paralela (4 simultáneos)
+- Procesamiento async con pg_cron como backup
+- Paginación, filtros, búsqueda
+- MAX_ROWS 500, polling cada 5s
 
-### 1. `supabase/functions/process-file/index.ts` — Reescrito completo
+## Etapa 2 (implementada)
 
-- **Modelo**: GPT-4o con max_tokens 4096
-- **MAX_ROWS**: Aumentado de 50 a 500
-- **PDF**: Extracción de texto real con `unpdf` (pdfjs-serverless). Fallback a texto parcial + contexto para PDFs escaneados
-- **CSV**: Parser RFC 4180 con BOM UTF-8, campos entrecomillados, detección automática de delimitador
-- **Imágenes**: Visión GPT-4o hasta 5MB
-- **Excel sin preParsedData**: Error explícito pidiendo reproceso desde el cliente
-- **Metadata de procesamiento**: Cada archivo registra qué método se usó
+### E. Chunked processing
+- CSV/Excel >500 filas: se divide en bloques de 500, cada bloque se procesa con GPT-4o
+- PDF con texto >15K chars: se divide en chunks de ~12K chars
+- Cada chunk genera un registro en `file_extracted_data` con `chunk_index`
+- Sin límite práctico de tamaño de archivo
 
-### 2. `supabase/functions/process-queue/index.ts` — Worker async (NUEVO)
+### F. Presigned URLs
+- Archivos >20MB: subida directa a R2 via presigned URL (edge function `r2-presign`)
+- Archivos <=20MB: flujo normal via `r2-upload`
+- Límite de subida: 100MB por archivo
 
-- Procesa hasta 5 archivos pendientes (status: "queued") por invocación
-- Llama a `process-file` internamente para cada archivo
-- Activado por pg_cron cada minuto como red de seguridad
-- Si un archivo falla, marca como error y sigue con el siguiente
-
-### 3. `supabase/functions/r2-download/index.ts` — Descarga segura
-
-- Descarga archivos de R2 con validación de auth y pertenencia a empresa
-- Usado para reproceso de Excel
-
-### 4. `src/pages/CargaDatos.tsx` — Reescrito para escalabilidad
-
-- **Batch upload**: Subida masiva con cola visual y progreso individual
-- **Paralelo**: Hasta 4 archivos subiendo simultáneamente
-- **Status "queued"**: Los archivos se marcan como "En cola" → process-file se invoca inmediatamente + cron como backup
-- **Paginación**: 25 archivos por página con navegación
-- **Filtros**: Por estado (procesado, en cola, error, procesando) y por tipo (PDF, CSV, Excel, etc.)
-- **Búsqueda**: Por nombre de archivo
-- **Polling**: Auto-refresh cada 5s mientras hay archivos en cola o procesando
+### G. Dashboard de estado
+- Barra de resumen: procesados, en cola, procesando, errores
+- Botón "Cancelar" para archivos en cola
+- Indicador de chunks procesados por archivo
+- Soporte de estado "cancelled"
 
 ## Arquitectura de procesamiento
 
 ```text
 Usuario sube N archivos en paralelo (4 simultáneos)
        ↓
-R2 Storage + file_uploads (status: "queued")
+  >20MB → r2-presign → PUT directo a R2
+  <=20MB → r2-upload → R2
        ↓
-process-file se invoca inmediatamente para cada archivo
+file_uploads (status: "queued")
        ↓
-Si falla → pg_cron (cada 1 min) → process-queue → reintenta
+process-file se invoca inmediatamente
        ↓
-GPT-4o analiza contenido (texto/visión según formato)
+Si archivo grande:
+  CSV 10K filas → chunk 1 (0-500) → GPT-4o → file_extracted_data (chunk_index=0)
+               → chunk 2 (501-1000) → GPT-4o → file_extracted_data (chunk_index=1)
+               → ...
+  PDF texto largo → chunks de 12K chars → GPT-4o → file_extracted_data por chunk
        ↓
-file_extracted_data + status: "processed"
+Si archivo chico:
+  Procesamiento normal → 1 registro en file_extracted_data (chunk_index=0)
        ↓
-UI se actualiza por polling automático
+status: "processed" → UI se actualiza por polling
 ```
 
-## Estrategia por formato
-
-| Formato | Método | Límite |
-|---------|--------|--------|
-| CSV/TXT | Texto parseado | 15K chars, 500 filas |
-| XML | Texto raw | 15K chars |
-| Excel | preParsedData del cliente (SheetJS) | 15K chars, 500 filas |
-| PDF (con texto) | unpdf text extraction → texto | 15K chars |
-| PDF (escaneado) | Texto parcial + contexto | 15K chars |
-| Imágenes | GPT-4o visión base64 | 5MB |
-| Word | Texto raw | 15K chars |
-
-## Etapas futuras (no implementadas)
-
-- Chunked processing para archivos >500 filas
-- Presigned URLs para archivos >50MB
-- Dashboard de estado de cola
+## Etapa 3 (no implementada)
 - Importación desde Google Drive / ERPs
 - Procesamiento paralelo masivo
+- Sistema de prioridades
