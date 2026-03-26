@@ -68,38 +68,6 @@ async function computeFileHash(file: File): Promise<string> {
   return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
-function parseExcelToJson(file: File): Promise<string>;
-function parseExcelToJson(buffer: ArrayBuffer): string;
-function parseExcelToJson(input: File | ArrayBuffer): Promise<string> | string {
-  if (input instanceof ArrayBuffer) {
-    return doParseExcel(new Uint8Array(input));
-  }
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      try {
-        resolve(doParseExcel(new Uint8Array(e.target?.result as ArrayBuffer)));
-      } catch (err) {
-        reject(err);
-      }
-    };
-    reader.onerror = () => reject(new Error('Error reading file'));
-    reader.readAsArrayBuffer(input);
-  });
-}
-
-function doParseExcel(data: Uint8Array): string {
-  const wb = XLSX.read(data, { type: 'array' });
-  const result: { sheetName: string; rows: Record<string, unknown>[] }[] = [];
-  for (const name of wb.SheetNames) {
-    const rows = XLSX.utils.sheet_to_json(wb.Sheets[name], { defval: '' }) as Record<string, unknown>[];
-    if (rows.length > 0) result.push({ sheetName: name, rows: rows.slice(0, 2000) });
-  }
-  const content = result.map(s =>
-    `Hoja "${s.sheetName}" (${s.rows.length} filas):\n${JSON.stringify(s.rows)}`
-  ).join('\n\n');
-  return content;
-}
 
 const categoryLabels: Record<string, string> = {
   ventas: '📊 Ventas',

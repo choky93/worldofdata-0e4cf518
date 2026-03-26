@@ -1,10 +1,12 @@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { formatCurrency, formatPercent, formatNumber } from '@/lib/formatters';
+import { formatCurrency, formatPercent } from '@/lib/formatters';
 import { mockProducts } from '@/lib/mock-data';
+import { useExtractedData } from '@/hooks/useExtractedData';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip';
-import { AlertTriangle, Package, ShoppingCart } from 'lucide-react';
+import { AlertTriangle, Package, ShoppingCart, Database } from 'lucide-react';
+import { Link } from 'react-router-dom';
 
 function StatusBadge({ status }: { status: 'ok' | 'low' | 'overstock' }) {
   if (status === 'ok') return <Badge className="bg-success/15 text-success border-0">OK</Badge>;
@@ -22,17 +24,77 @@ function CoverageBadge({ days, leadDays }: { days: number; leadDays: number }) {
   );
 }
 
+interface ProductRow {
+  id: string;
+  name: string;
+  stock: number;
+  minStock: number;
+  maxStock: number;
+  price: number;
+  cost: number;
+  status: 'ok' | 'low' | 'overstock';
+  avgDailySales: number;
+  supplierLeadDays: number;
+}
+
+function normalizeProducts(rawData: any[]): ProductRow[] {
+  return rawData.map((r: any, i: number) => {
+    const stock = parseInt(r.stock || r.cantidad || r.unidades || r.qty || 0) || 0;
+    const minStock = parseInt(r.stock_minimo || r.min_stock || r.minimo || 0) || 0;
+    const maxStock = parseInt(r.stock_maximo || r.max_stock || r.maximo || 0) || Math.max(stock * 2, 100);
+    const price = parseFloat(r.precio || r.price || r.precio_venta || 0) || 0;
+    const cost = parseFloat(r.costo || r.cost || r.precio_costo || 0) || 0;
+
+    let status: 'ok' | 'low' | 'overstock' = 'ok';
+    if (minStock > 0 && stock < minStock) status = 'low';
+    else if (maxStock > 0 && stock > maxStock) status = 'overstock';
+
+    return {
+      id: r.id || String(i + 1),
+      name: r.nombre || r.producto || r.name || r.descripcion || `Producto ${i + 1}`,
+      stock,
+      minStock,
+      maxStock,
+      price,
+      cost,
+      status,
+      avgDailySales: parseFloat(r.venta_diaria || r.avg_daily_sales || 0) || 0,
+      supplierLeadDays: parseInt(r.lead_days || r.dias_proveedor || 0) || 10,
+    };
+  });
+}
+
 export default function Stock() {
-  const totalValue = mockProducts.reduce((s, p) => s + p.stock * p.cost, 0);
-  const alerts = mockProducts.filter(p => p.status !== 'ok');
-  const lowStock = mockProducts.filter(p => p.status === 'low');
-  const overstock = mockProducts.filter(p => p.status === 'overstock');
-  const overstockCapital = overstock.reduce((s, p) => s + (p.stock - p.maxStock) * p.cost, 0);
+  const { data: extractedData, hasData } = useExtractedData();
+  const realStock = extractedData?.stock || [];
+
+  const useReal = hasData && realStock.length > 0;
+  const products: ProductRow[] = useReal ? normalizeProducts(realStock) : mockProducts;
+
+  const totalValue = products.reduce((s, p) => s + p.stock * p.cost, 0);
+  const lowStock = products.filter(p => p.status === 'low');
+  const overstock = products.filter(p => p.status === 'overstock');
+  const alerts = products.filter(p => p.status !== 'ok');
+  const overstockCapital = overstock.reduce((s, p) => s + Math.max(0, (p.stock - p.maxStock)) * p.cost, 0);
 
   return (
     <TooltipProvider>
       <div className="space-y-6 max-w-7xl">
-        <h1 className="text-2xl font-bold">Stock e Inventario</h1>
+        <div className="flex items-center justify-between">
+          <h1 className="text-2xl font-bold">Stock e Inventario</h1>
+          {useReal ? (
+            <div className="flex items-center gap-1.5 text-xs text-success bg-success/10 rounded-lg px-3 py-1.5 border border-success/20">
+              <Database className="h-3.5 w-3.5" />
+              Datos reales ({realStock.length} productos)
+            </div>
+          ) : (
+            <Link to="/carga-datos" className="flex items-center gap-1.5 text-xs text-muted-foreground bg-muted rounded-lg px-3 py-1.5 border border-border hover:text-primary transition-colors">
+              <Database className="h-3.5 w-3.5" />
+              Datos de ejemplo — Cargá tus archivos
+            </Link>
+          )}
+        </div>
+
         <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 md:grid-cols-4">
           <Card><CardContent className="pt-6">
             <p className="text-sm text-muted-foreground">Valor del inventario</p>
@@ -40,7 +102,7 @@ export default function Stock() {
           </CardContent></Card>
           <Card><CardContent className="pt-6">
             <p className="text-sm text-muted-foreground">Productos</p>
-            <p className="text-3xl font-bold">{mockProducts.length}</p>
+            <p className="text-3xl font-bold">{products.length}</p>
           </CardContent></Card>
           <Card><CardContent className="pt-6">
             <p className="text-sm text-muted-foreground flex items-center gap-1">
@@ -64,7 +126,6 @@ export default function Stock() {
           </CardContent></Card>
         </div>
 
-        {/* Reposition alerts */}
         {alerts.length > 0 && (
           <div className="space-y-2">
             {lowStock.map(p => {
@@ -74,7 +135,7 @@ export default function Stock() {
                   <ShoppingCart className="h-4 w-4 mt-0.5 shrink-0" />
                   <div>
                     <p className="font-medium">Pedí {p.name} — solo quedan {p.stock} uds ({coverageDays} días de cobertura)</p>
-                    <p className="text-muted-foreground text-xs mt-0.5">Tu proveedor tarda {p.supplierLeadDays} días. Mínimo recomendado: {p.minStock} uds.</p>
+                    <p className="text-muted-foreground text-xs mt-0.5">Mínimo recomendado: {p.minStock} uds.</p>
                   </div>
                 </div>
               );
@@ -84,7 +145,7 @@ export default function Stock() {
                 <Package className="h-4 w-4 mt-0.5 shrink-0" />
                 <div>
                   <p className="font-medium">Sobrestock de {p.name}: {p.stock - p.maxStock} unidades de más</p>
-                  <p className="text-muted-foreground text-xs mt-0.5">Capital inmovilizado: {formatCurrency((p.stock - p.maxStock) * p.cost)}. Considerá una promo para mover stock.</p>
+                  <p className="text-muted-foreground text-xs mt-0.5">Capital inmovilizado: {formatCurrency((p.stock - p.maxStock) * p.cost)}</p>
                 </div>
               </div>
             ))}
@@ -106,8 +167,9 @@ export default function Stock() {
                 <TableHead>Estado</TableHead>
               </TableRow></TableHeader>
               <TableBody>
-                {mockProducts.map(p => {
+                {products.map(p => {
                   const coverageDays = p.avgDailySales > 0 ? Math.round(p.stock / p.avgDailySales) : 999;
+                  const margin = p.price > 0 ? ((p.price - p.cost) / p.price) * 100 : 0;
                   return (
                     <TableRow key={p.id}>
                       <TableCell className="font-medium">{p.name}</TableCell>
@@ -118,7 +180,7 @@ export default function Stock() {
                       <TableCell className="text-right tabular-nums text-muted-foreground">{p.avgDailySales}</TableCell>
                       <TableCell className="text-right tabular-nums">{formatCurrency(p.price)}</TableCell>
                       <TableCell className="text-right tabular-nums">{formatCurrency(p.cost)}</TableCell>
-                      <TableCell className="text-right tabular-nums">{formatPercent(((p.price - p.cost) / p.price) * 100)}</TableCell>
+                      <TableCell className="text-right tabular-nums">{formatPercent(margin)}</TableCell>
                       <TableCell><StatusBadge status={p.status} /></TableCell>
                     </TableRow>
                   );

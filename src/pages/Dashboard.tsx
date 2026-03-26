@@ -9,10 +9,11 @@ import {
   mockSalesCurrentMonth, mockProfit, mockCashFlow, mockAds,
   mockProducts, mockClients, mockAlerts, mockDailySales, mockCompany,
 } from '@/lib/mock-data';
+import { useExtractedData } from '@/hooks/useExtractedData';
 import {
   TrendingUp, TrendingDown, AlertTriangle, DollarSign, Package, Users,
   Megaphone, ArrowUpRight, ArrowRight, ShoppingCart, Wallet, BarChart3,
-  FileBox, CheckCircle2, AlertCircle, XCircle,
+  FileBox, CheckCircle2, AlertCircle, XCircle, Loader2, Database,
 } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, Tooltip as RTooltip, ResponsiveContainer } from 'recharts';
 import { Link, useNavigate } from 'react-router-dom';
@@ -20,15 +21,6 @@ import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/comp
 import { motion, AnimatePresence } from 'framer-motion';
 
 // ─── Health Radar ────────────────────────────────────────────────────
-const healthDimensions = [
-  { key: 'ventas', label: 'Ventas', icon: ShoppingCart, status: 'ok' as const, detail: '+12% vs año anterior', url: '/ventas', color: 'var(--module-ventas)' },
-  { key: 'finanzas', label: 'Finanzas', icon: Wallet, status: 'warning' as const, detail: 'Flujo de caja ajustado', url: '/finanzas', color: 'var(--module-finanzas)' },
-  { key: 'stock', label: 'Stock', icon: Package, status: 'critical' as const, detail: '2 productos en faltante', url: '/stock', color: 'var(--module-stock)' },
-  { key: 'clientes', label: 'Clientes', icon: Users, status: 'warning' as const, detail: '47% concentración', url: '/clientes', color: 'var(--module-clientes)' },
-  { key: 'marketing', label: 'Marketing', icon: Megaphone, status: 'ok' as const, detail: 'ROAS 4.2x', url: '/marketing', color: 'var(--module-marketing)' },
-  { key: 'operaciones', label: 'Operaciones', icon: FileBox, status: 'ok' as const, detail: 'Sin novedades', url: '/operaciones', color: 'var(--module-operaciones)' },
-];
-
 function StatusIcon({ status }: { status: 'ok' | 'warning' | 'critical' }) {
   if (status === 'ok') return <CheckCircle2 className="h-4 w-4 text-success" />;
   if (status === 'warning') return <AlertCircle className="h-4 w-4 text-warning" />;
@@ -92,17 +84,58 @@ function Stagger({ children, index }: { children: React.ReactNode; index: number
   );
 }
 
+// ─── Empty State Banner ──────────────────────────────────────────────
+function DataSourceBanner({ hasData, loading }: { hasData: boolean; loading: boolean }) {
+  if (loading) return null;
+  return (
+    <div className={`rounded-lg px-4 py-2.5 text-xs flex items-center gap-2 ${hasData ? 'bg-success/10 text-success border border-success/20' : 'bg-muted text-muted-foreground border border-border'}`}>
+      <Database className="h-3.5 w-3.5 shrink-0" />
+      {hasData ? (
+        <span>Mostrando datos reales extraídos de tus archivos cargados</span>
+      ) : (
+        <span>Mostrando datos de ejemplo. <Link to="/carga-datos" className="underline font-medium">Cargá tus archivos</Link> para ver datos reales.</span>
+      )}
+    </div>
+  );
+}
+
 // ─── Dashboard ───────────────────────────────────────────────────────
 export default function Dashboard() {
   const { profile, companySettings, companyName } = useAuth();
   const navigate = useNavigate();
+  const { data: extractedData, loading: dataLoading, hasData } = useExtractedData();
   const name = profile?.full_name || 'Usuario';
   const company = companyName || mockCompany.name;
   const showStock = !companySettings || companySettings.has_stock || companySettings.sells_products;
   const showAds = !companySettings || companySettings.uses_meta_ads || companySettings.uses_google_ads;
 
+  // Derive real metrics if available
+  const realVentas = extractedData?.ventas || [];
+  const realStock = extractedData?.stock || [];
+  const realGastos = extractedData?.gastos || [];
+
+  const salesTotal = hasData && realVentas.length > 0
+    ? realVentas.reduce((sum: number, r: any) => {
+        const val = parseFloat(r.monto || r.total || r.amount || r.valor || r.importe || 0);
+        return sum + (isNaN(val) ? 0 : val);
+      }, 0)
+    : null;
+
+  const healthDimensions = [
+    { key: 'ventas', label: 'Ventas', icon: ShoppingCart, status: (hasData && realVentas.length > 0 ? 'ok' : 'warning') as 'ok' | 'warning' | 'critical', detail: hasData && salesTotal ? `${formatCurrency(salesTotal)} acumulado` : '+12% vs año anterior', url: '/ventas', color: 'var(--module-ventas)' },
+    { key: 'finanzas', label: 'Finanzas', icon: Wallet, status: 'warning' as const, detail: hasData && realGastos.length > 0 ? `${realGastos.length} registros de gastos` : 'Flujo de caja ajustado', url: '/finanzas', color: 'var(--module-finanzas)' },
+    { key: 'stock', label: 'Stock', icon: Package, status: (hasData && realStock.length > 0 ? 'ok' : 'critical') as 'ok' | 'warning' | 'critical', detail: hasData && realStock.length > 0 ? `${realStock.length} productos cargados` : '2 productos en faltante', url: '/stock', color: 'var(--module-stock)' },
+    { key: 'clientes', label: 'Clientes', icon: Users, status: 'warning' as const, detail: '47% concentración', url: '/clientes', color: 'var(--module-clientes)' },
+    { key: 'marketing', label: 'Marketing', icon: Megaphone, status: 'ok' as const, detail: 'ROAS 4.2x', url: '/marketing', color: 'var(--module-marketing)' },
+    { key: 'operaciones', label: 'Operaciones', icon: FileBox, status: 'ok' as const, detail: 'Sin novedades', url: '/operaciones', color: 'var(--module-operaciones)' },
+  ];
+
+  const useSales = salesTotal !== null ? salesTotal : mockSalesCurrentMonth.accumulated;
+
   const highlights = [
-    `Llevás vendido ${formatCurrency(mockSalesCurrentMonth.accumulated)} en marzo. Estás un 12% arriba del mismo período del año pasado.`,
+    salesTotal !== null
+      ? `Llevás vendido ${formatCurrency(salesTotal)} según tus datos cargados.`
+      : `Llevás vendido ${formatCurrency(mockSalesCurrentMonth.accumulated)} en marzo. Estás un 12% arriba del mismo período del año pasado.`,
     `Tenés ${formatCurrency(mockCashFlow.pendingCollections)} pendientes de cobro de 3 clientes.`,
     showStock ? `Tu stock de Impresora Ender 3 V3 alcanza para 10 días. Tu proveedor tarda 15.` : null,
     `Tu ROAS promedio es ${mockAds.roas}x — un 15.6% mejor que el mes pasado.`,
@@ -133,13 +166,18 @@ export default function Dashboard() {
           </div>
         </Stagger>
 
-        {/* Ticker */}
+        {/* Data source banner */}
         <Stagger index={1}>
+          <DataSourceBanner hasData={hasData} loading={dataLoading} />
+        </Stagger>
+
+        {/* Ticker */}
+        <Stagger index={2}>
           <TickerBar highlights={highlights} />
         </Stagger>
 
         {/* Health Radar */}
-        <Stagger index={2}>
+        <Stagger index={3}>
           <div className="grid gap-2 grid-cols-2 sm:grid-cols-3 lg:grid-cols-6">
             {visibleHealth.map((dim) => (
               <button
@@ -158,7 +196,7 @@ export default function Dashboard() {
         </Stagger>
 
         {/* Compact KPIs */}
-        <Stagger index={3}>
+        <Stagger index={4}>
           <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
             <Link to="/ventas">
               <Card className="module-border-ventas hover:shadow-lg transition-all cursor-pointer h-full">
@@ -167,14 +205,16 @@ export default function Dashboard() {
                     <ShoppingCart className="h-3.5 w-3.5" />
                     <span className="text-xs font-medium">Ventas del Mes</span>
                   </div>
-                  <p className="kpi-value">{formatCurrency(mockSalesCurrentMonth.accumulated)}</p>
-                  <div className="flex items-center gap-2 mt-2">
-                    <Progress value={mockSalesCurrentMonth.progressPercent} className="h-1.5 flex-1" />
-                    <span className="text-[11px] text-muted-foreground tabular-nums">{mockSalesCurrentMonth.progressPercent}%</span>
-                  </div>
-                  <p className="text-[11px] text-success mt-1 flex items-center gap-0.5">
-                    <TrendingUp className="h-3 w-3" /> +12% vs año anterior
-                  </p>
+                  <p className="kpi-value">{formatCurrency(useSales)}</p>
+                  {!hasData && (
+                    <div className="flex items-center gap-2 mt-2">
+                      <Progress value={mockSalesCurrentMonth.progressPercent} className="h-1.5 flex-1" />
+                      <span className="text-[11px] text-muted-foreground tabular-nums">{mockSalesCurrentMonth.progressPercent}%</span>
+                    </div>
+                  )}
+                  {hasData && realVentas.length > 0 && (
+                    <p className="text-[11px] text-muted-foreground mt-1">{realVentas.length} transacciones cargadas</p>
+                  )}
                 </CardContent>
               </Card>
             </Link>
@@ -242,7 +282,7 @@ export default function Dashboard() {
         </Stagger>
 
         {/* Sales Chart */}
-        <Stagger index={4}>
+        <Stagger index={5}>
           <Card>
             <CardHeader className="pb-1">
               <CardTitle className="text-sm font-semibold text-muted-foreground">Ventas diarias — Marzo 2026</CardTitle>
@@ -279,7 +319,7 @@ export default function Dashboard() {
 
         {/* Decisions of the day + Stock */}
         <div className="grid gap-3 md:grid-cols-2">
-          <Stagger index={5}>
+          <Stagger index={6}>
             <Card className="h-full">
               <CardHeader className="pb-2">
                 <CardTitle className="text-sm font-semibold flex items-center gap-2">
@@ -291,7 +331,7 @@ export default function Dashboard() {
               </CardHeader>
               <CardContent>
                 <div className="space-y-2.5">
-                  {decisions.map((alert, i) => (
+                  {decisions.map((alert) => (
                     <div key={alert.id} className={`text-sm p-3 rounded-lg border-l-4 ${
                       alert.priority === 'high' ? 'border-l-destructive bg-destructive/[0.04]' :
                       alert.priority === 'medium' ? 'border-l-warning bg-warning/[0.04]' :
@@ -309,7 +349,7 @@ export default function Dashboard() {
             </Card>
           </Stagger>
 
-          <Stagger index={6}>
+          <Stagger index={7}>
             <div className="grid gap-3 grid-rows-2 h-full">
               {showStock && (
                 <Link to="/stock">
@@ -319,17 +359,21 @@ export default function Dashboard() {
                         <Package className="h-3.5 w-3.5" />
                         <span className="text-xs font-semibold">Stock Crítico</span>
                       </div>
-                      <div className="space-y-1.5">
-                        {mockProducts.filter(p => p.status !== 'ok').slice(0, 3).map((p) => (
-                          <div key={p.id} className="flex items-center justify-between text-[13px]">
-                            <span className="truncate flex-1">{p.name}</span>
-                            <span className="tabular-nums mx-2 text-muted-foreground">{p.stock} uds</span>
-                            <Badge className={`text-[10px] h-5 ${p.status === 'low' ? 'bg-destructive/15 text-destructive border-0' : 'bg-warning/15 text-warning border-0'}`}>
-                              {p.status === 'low' ? 'Faltante' : 'Sobrestock'}
-                            </Badge>
-                          </div>
-                        ))}
-                      </div>
+                      {hasData && realStock.length > 0 ? (
+                        <p className="text-sm text-muted-foreground">{realStock.length} productos en tu inventario</p>
+                      ) : (
+                        <div className="space-y-1.5">
+                          {mockProducts.filter(p => p.status !== 'ok').slice(0, 3).map((p) => (
+                            <div key={p.id} className="flex items-center justify-between text-[13px]">
+                              <span className="truncate flex-1">{p.name}</span>
+                              <span className="tabular-nums mx-2 text-muted-foreground">{p.stock} uds</span>
+                              <Badge className={`text-[10px] h-5 ${p.status === 'low' ? 'bg-destructive/15 text-destructive border-0' : 'bg-warning/15 text-warning border-0'}`}>
+                                {p.status === 'low' ? 'Faltante' : 'Sobrestock'}
+                              </Badge>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </CardContent>
                   </Card>
                 </Link>
@@ -340,12 +384,16 @@ export default function Dashboard() {
                   <CardContent className="p-4">
                     <div className="flex items-center gap-1.5 text-muted-foreground mb-2">
                       <Users className="h-3.5 w-3.5" />
-                      <span className="text-xs font-semibold">Cobros Pendientes</span>
+                      <span className="text-xs font-semibold">Clientes Top</span>
                     </div>
-                    <p className="kpi-value text-destructive">{formatCurrency(mockClients.reduce((s, c) => s + c.pendingPayment, 0))}</p>
-                    <p className="text-[11px] text-muted-foreground mt-1">
-                      de {mockClients.filter(c => c.pendingPayment > 0).length} clientes
-                    </p>
+                    <div className="space-y-1.5">
+                      {mockClients.slice(0, 3).map(c => (
+                        <div key={c.id} className="flex items-center justify-between text-[13px]">
+                          <span className="truncate flex-1">{c.name}</span>
+                          <span className="tabular-nums text-muted-foreground">{formatCurrency(c.totalPurchases)}</span>
+                        </div>
+                      ))}
+                    </div>
                   </CardContent>
                 </Card>
               </Link>
