@@ -9,7 +9,7 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-const MAX_ROWS = 50;
+const MAX_ROWS = 500;
 const MAX_CONTENT_CHARS = 15000;
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024; // 5MB for vision
 const MAX_TEXT_BYTES = 10 * 1024 * 1024; // 10MB for text-based files
