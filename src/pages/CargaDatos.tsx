@@ -341,19 +341,6 @@ export default function CargaDatos() {
     };
   }, [files, fetchFiles]);
 
-  const downloadFileFromR2 = async (fileUploadId: string): Promise<ArrayBuffer | null> => {
-    try {
-      const { data, error } = await supabase.functions.invoke('r2-download', {
-        body: { fileUploadId },
-      });
-      if (error) throw error;
-      if (data instanceof Blob) return await data.arrayBuffer();
-      return null;
-    } catch (err) {
-      console.error('Download from R2 failed:', err);
-      return null;
-    }
-  };
 
   // ─── Upload with presigned URL for large files ────────────
   const uploadFileToStorage = async (file: File, userId: string): Promise<{ storagePath: string }> => {
