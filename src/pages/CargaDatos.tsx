@@ -289,7 +289,7 @@ export default function CargaDatos() {
               type="file"
               className="hidden"
               multiple
-              accept=".pdf,.csv,.xls,.xlsx,.png,.jpg,.jpeg"
+              accept=".pdf,.csv,.xls,.xlsx,.png,.jpg,.jpeg,.webp,.gif,.bmp,.doc,.docx,.xml,.txt"
               onChange={(e) => {
                 if (e.target.files && e.target.files.length > 0) {
                   uploadFiles(e.target.files);
