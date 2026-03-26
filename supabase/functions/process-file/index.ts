@@ -2,6 +2,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { AwsClient } from "npm:aws4fetch@1.0.20";
 import { extractText, getDocumentProxy } from "npm:unpdf@0.12.1";
+import * as XLSX from "npm:xlsx@0.18.5";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -422,8 +423,39 @@ serve(async (req) => {
         });
         resultInfo = { category: result.category, summary: result.summary, totalRows: result.rowCount };
 
-      } else if (['xls', 'xlsx'].includes(ext)) {
-        throw new Error(`EXCEL_NEEDS_PREPARSED: El archivo Excel "${file_name}" necesita ser parseado en el cliente. Usá el botón "Reprocesar" para reintentar.`);
+    } else if (['xls', 'xlsx'].includes(ext)) {
+        // ─── Excel: parse server-side with SheetJS ───
+        const wb = XLSX.read(bytes, { type: 'array' });
+        const allRows: Record<string, unknown>[] = [];
+        const sheetInfo: string[] = [];
+        for (const name of wb.SheetNames) {
+          const rows = XLSX.utils.sheet_to_json(wb.Sheets[name], { defval: '' }) as Record<string, unknown>[];
+          if (rows.length > 0) {
+            sheetInfo.push(`${name}(${rows.length})`);
+            allRows.push(...rows);
+          }
+        }
+        processingMetadata = { method: 'server_excel_parse', format: ext, sheets: sheetInfo.join(', '), rows_total: allRows.length };
+
+        if (allRows.length > CHUNK_ROWS) {
+          const rowChunks = chunkRows(allRows, CHUNK_ROWS);
+          processingMetadata.chunked = true;
+          processingMetadata.total_chunks = rowChunks.length;
+          const chunks = rowChunks.map((rows, i) => ({
+            content: JSON.stringify(rows),
+            index: i,
+          }));
+          resultInfo = await processChunks(sb, chunks, file_name, fileUploadId, companyId, processingMetadata);
+        } else {
+          const content = JSON.stringify(allRows);
+          const result = await extractWithAI(content.substring(0, MAX_CONTENT_CHARS), file_name, undefined, undefined, processingMetadata);
+          await sb.from("file_extracted_data").insert({
+            file_upload_id: fileUploadId, company_id: companyId,
+            data_category: result.category, extracted_json: result.data,
+            summary: result.summary, row_count: result.rowCount, chunk_index: 0,
+          });
+          resultInfo = { category: result.category, summary: result.summary, totalRows: result.rowCount };
+        }
 
       } else {
         const content = `[Archivo desconocido: ${ext}. Nombre: "${file_name}". ${(buffer.byteLength / 1024).toFixed(0)} KB]`;

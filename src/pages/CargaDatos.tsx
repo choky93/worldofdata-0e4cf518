@@ -11,7 +11,7 @@ import { formatDate } from '@/lib/formatters';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
-import * as XLSX from 'xlsx';
+
 
 interface FileRecord {
   id: string;
@@ -68,38 +68,6 @@ async function computeFileHash(file: File): Promise<string> {
   return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
-function parseExcelToJson(file: File): Promise<string>;
-function parseExcelToJson(buffer: ArrayBuffer): string;
-function parseExcelToJson(input: File | ArrayBuffer): Promise<string> | string {
-  if (input instanceof ArrayBuffer) {
-    return doParseExcel(new Uint8Array(input));
-  }
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      try {
-        resolve(doParseExcel(new Uint8Array(e.target?.result as ArrayBuffer)));
-      } catch (err) {
-        reject(err);
-      }
-    };
-    reader.onerror = () => reject(new Error('Error reading file'));
-    reader.readAsArrayBuffer(input);
-  });
-}
-
-function doParseExcel(data: Uint8Array): string {
-  const wb = XLSX.read(data, { type: 'array' });
-  const result: { sheetName: string; rows: Record<string, unknown>[] }[] = [];
-  for (const name of wb.SheetNames) {
-    const rows = XLSX.utils.sheet_to_json(wb.Sheets[name], { defval: '' }) as Record<string, unknown>[];
-    if (rows.length > 0) result.push({ sheetName: name, rows: rows.slice(0, 2000) });
-  }
-  const content = result.map(s =>
-    `Hoja "${s.sheetName}" (${s.rows.length} filas):\n${JSON.stringify(s.rows)}`
-  ).join('\n\n');
-  return content;
-}
 
 const categoryLabels: Record<string, string> = {
   ventas: '📊 Ventas',
@@ -373,19 +341,6 @@ export default function CargaDatos() {
     };
   }, [files, fetchFiles]);
 
-  const downloadFileFromR2 = async (fileUploadId: string): Promise<ArrayBuffer | null> => {
-    try {
-      const { data, error } = await supabase.functions.invoke('r2-download', {
-        body: { fileUploadId },
-      });
-      if (error) throw error;
-      if (data instanceof Blob) return await data.arrayBuffer();
-      return null;
-    } catch (err) {
-      console.error('Download from R2 failed:', err);
-      return null;
-    }
-  };
 
   // ─── Upload with presigned URL for large files ────────────
   const uploadFileToStorage = async (file: File, userId: string): Promise<{ storagePath: string }> => {
@@ -479,12 +434,6 @@ export default function CargaDatos() {
           return;
         }
 
-        let preParsedData: string | null = null;
-        const ext = item.file.name.split('.').pop()?.toLowerCase() || '';
-        if (['xls', 'xlsx'].includes(ext)) {
-          try { preParsedData = await parseExcelToJson(item.file); } catch { /* ignore */ }
-        }
-
         updateItem({ progress: 50 });
 
         const { storagePath } = await uploadFileToStorage(item.file, user.id);
@@ -508,23 +457,9 @@ export default function CargaDatos() {
           return;
         }
 
-        updateItem({ progress: 85, status: 'processing' });
-
-        supabase.functions.invoke('process-file', {
-          body: {
-            fileUploadId: dbData.id,
-            companyId: profile.company_id,
-            ...(preParsedData ? { preParsedData } : {}),
-          },
-        }).then(() => {
-          updateItem({ status: 'done', progress: 100 });
-          fetchFiles();
-        }).catch(() => {
-          updateItem({ status: 'done', progress: 100 });
-          fetchFiles();
-        });
-
+        // File is queued — the worker (process-queue) will handle processing
         updateItem({ status: 'done', progress: 100 });
+        toast.success(`"${item.file.name}" en cola para procesar`);
       } catch (err: any) {
         updateItem({ status: 'error', error: err.message });
       }
@@ -581,40 +516,15 @@ export default function CargaDatos() {
 
   const handleReprocess = async (file: FileRecord) => {
     if (!profile?.company_id) return;
+    if (file.status === 'processing') {
+      toast.error('Este archivo ya se está procesando');
+      return;
+    }
     setReprocessingId(file.id);
     try {
       await supabase.from('file_extracted_data').delete().eq('file_upload_id', file.id);
-      await supabase.from('file_uploads').update({ status: 'processing', processing_error: null }).eq('id', file.id);
-
-      let preParsedData: string | null = null;
-      const ext = file.file_name.split('.').pop()?.toLowerCase() || '';
-      if (['xls', 'xlsx'].includes(ext)) {
-        try {
-          const buffer = await downloadFileFromR2(file.id);
-          if (buffer) {
-            preParsedData = parseExcelToJson(buffer);
-          } else {
-            toast.error(`No se pudo descargar "${file.file_name}"`);
-            setReprocessingId(null);
-            return;
-          }
-        } catch {
-          toast.error(`Error parseando "${file.file_name}"`);
-          setReprocessingId(null);
-          return;
-        }
-      }
-
-      const { error } = await supabase.functions.invoke('process-file', {
-        body: {
-          fileUploadId: file.id,
-          companyId: profile.company_id,
-          ...(preParsedData ? { preParsedData } : {}),
-        },
-      });
-
-      if (error) toast.error(`Error reprocesando: ${error.message}`);
-      else toast.success(`"${file.file_name}" enviado a reprocesar`);
+      await supabase.from('file_uploads').update({ status: 'queued', processing_error: null }).eq('id', file.id);
+      toast.success(`"${file.file_name}" re-encolado para procesar`);
       await fetchFiles();
     } catch (err: any) {
       toast.error('Error: ' + err.message);

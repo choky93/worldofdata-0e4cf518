@@ -35,16 +35,33 @@ serve(async (req) => {
       });
     }
 
-    // Mark all as processing
-    await Promise.all(
-      queuedFiles.map(f =>
-        sb.from("file_uploads").update({ status: "processing" }).eq("id", f.id)
-      )
-    );
+    // Atomic lock: only take files that are still 'queued'
+    const lockedIds: string[] = [];
+    for (const f of queuedFiles) {
+      const { data: updated, error: lockErr } = await sb
+        .from("file_uploads")
+        .update({ status: "processing" })
+        .eq("id", f.id)
+        .eq("status", "queued") // atomic: only if still queued
+        .select("id")
+        .single();
+
+      if (!lockErr && updated) {
+        lockedIds.push(f.id);
+      }
+    }
+
+    if (lockedIds.length === 0) {
+      return new Response(JSON.stringify({ processed: 0, message: "No files locked (already taken)" }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    const filesToProcess = queuedFiles.filter(f => lockedIds.includes(f.id));
 
     // Process all files in parallel
     const settled = await Promise.allSettled(
-      queuedFiles.map(async (file) => {
+      filesToProcess.map(async (file) => {
         const processResp = await fetch(`${supabaseUrl}/functions/v1/process-file`, {
           method: "POST",
           headers: {
@@ -70,7 +87,7 @@ serve(async (req) => {
 
     for (let i = 0; i < settled.length; i++) {
       const result = settled[i];
-      const file = queuedFiles[i];
+      const file = filesToProcess[i];
 
       if (result.status === "fulfilled") {
         results.push({ id: file.id, success: true });

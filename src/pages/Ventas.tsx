@@ -1,47 +1,85 @@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { formatCurrency, formatDate } from '@/lib/formatters';
 import { mockMonthlySales, mockDailySales, mockSalesCurrentMonth } from '@/lib/mock-data';
+import { useExtractedData } from '@/hooks/useExtractedData';
 import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Tooltip as UITooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip';
-import { TrendingUp } from 'lucide-react';
-
-const salesHistory = [
-  { date: '2026-03-15', client: 'TecnoPlast SRL', product: 'Filamento PLA 1kg x50', amount: 425000 },
-  { date: '2026-03-14', client: 'MakerSpace BA', product: 'Impresora Ender 3 V3', amount: 350000 },
-  { date: '2026-03-12', client: 'Proto Ingeniería', product: 'Servicio impresión industrial', amount: 420000 },
-  { date: '2026-03-10', client: 'Diseño 3D Studio', product: 'Filamento PETG + ABS', amount: 185000 },
-  { date: '2026-03-08', client: 'FabLab Córdoba', product: 'Repuestos varios', amount: 92000 },
-  { date: '2026-03-05', client: 'TecnoPlast SRL', product: 'Resina UV 1L x10', amount: 220000 },
-  { date: '2026-03-02', client: 'Dental3D', product: 'Filamento PLA 1kg x20', amount: 170000 },
-];
+import { TrendingUp, Database } from 'lucide-react';
+import { Link } from 'react-router-dom';
 
 export default function Ventas() {
-  const yoyChange = ((mockSalesCurrentMonth.accumulated - mockSalesCurrentMonth.previousYearSameMonth) / mockSalesCurrentMonth.previousYearSameMonth * 100).toFixed(0);
+  const { data: extractedData, hasData } = useExtractedData();
+  const realVentas = extractedData?.ventas || [];
+
+  // Try to build real sales data
+  const realSalesTotal = hasData && realVentas.length > 0
+    ? realVentas.reduce((sum: number, r: any) => {
+        const val = parseFloat(r.monto || r.total || r.amount || r.valor || r.importe || 0);
+        return sum + (isNaN(val) ? 0 : val);
+      }, 0)
+    : null;
+
+  const salesHistory = hasData && realVentas.length > 0
+    ? realVentas.slice(0, 20).map((r: any, i: number) => ({
+        date: r.fecha || r.date || '—',
+        client: r.cliente || r.client || r.nombre || '—',
+        product: r.producto || r.detalle || r.descripcion || r.product || '—',
+        amount: parseFloat(r.monto || r.total || r.amount || r.valor || r.importe || 0) || 0,
+      }))
+    : [
+        { date: '2026-03-15', client: 'TecnoPlast SRL', product: 'Filamento PLA 1kg x50', amount: 425000 },
+        { date: '2026-03-14', client: 'MakerSpace BA', product: 'Impresora Ender 3 V3', amount: 350000 },
+        { date: '2026-03-12', client: 'Proto Ingeniería', product: 'Servicio impresión industrial', amount: 420000 },
+        { date: '2026-03-10', client: 'Diseño 3D Studio', product: 'Filamento PETG + ABS', amount: 185000 },
+        { date: '2026-03-08', client: 'FabLab Córdoba', product: 'Repuestos varios', amount: 92000 },
+        { date: '2026-03-05', client: 'TecnoPlast SRL', product: 'Resina UV 1L x10', amount: 220000 },
+        { date: '2026-03-02', client: 'Dental3D', product: 'Filamento PLA 1kg x20', amount: 170000 },
+      ];
+
+  const accumulated = realSalesTotal ?? mockSalesCurrentMonth.accumulated;
+  const estimated = realSalesTotal ? Math.round(realSalesTotal * 1.6) : mockSalesCurrentMonth.estimated;
+  const prevYear = mockSalesCurrentMonth.previousYearSameMonth;
+  const yoyChange = ((accumulated - prevYear) / prevYear * 100).toFixed(0);
 
   return (
     <TooltipProvider>
       <div className="space-y-6 max-w-7xl">
-        <h1 className="text-2xl font-bold">Ventas</h1>
+        <div className="flex items-center justify-between">
+          <h1 className="text-2xl font-bold">Ventas</h1>
+          {hasData && realVentas.length > 0 && (
+            <div className="flex items-center gap-1.5 text-xs text-success bg-success/10 rounded-lg px-3 py-1.5 border border-success/20">
+              <Database className="h-3.5 w-3.5" />
+              Datos reales ({realVentas.length} registros)
+            </div>
+          )}
+          {(!hasData || realVentas.length === 0) && (
+            <Link to="/carga-datos" className="flex items-center gap-1.5 text-xs text-muted-foreground bg-muted rounded-lg px-3 py-1.5 border border-border hover:text-primary transition-colors">
+              <Database className="h-3.5 w-3.5" />
+              Datos de ejemplo — Cargá tus archivos
+            </Link>
+          )}
+        </div>
+
         <div className="grid gap-4 md:grid-cols-4">
           <Card><CardContent className="pt-6">
             <p className="text-sm text-muted-foreground">Acumulado mes</p>
-            <p className="text-3xl font-bold tabular-nums">{formatCurrency(mockSalesCurrentMonth.accumulated)}</p>
+            <p className="text-3xl font-bold tabular-nums">{formatCurrency(accumulated)}</p>
           </CardContent></Card>
           <Card><CardContent className="pt-6">
             <p className="text-sm text-muted-foreground">Estimado mes</p>
-            <p className="text-3xl font-bold tabular-nums">{formatCurrency(mockSalesCurrentMonth.estimated)}</p>
+            <p className="text-3xl font-bold tabular-nums">{formatCurrency(estimated)}</p>
           </CardContent></Card>
           <Card><CardContent className="pt-6">
             <p className="text-sm text-muted-foreground">Falta vender</p>
-            <p className="text-3xl font-bold tabular-nums">{formatCurrency(mockSalesCurrentMonth.estimated - mockSalesCurrentMonth.accumulated)}</p>
+            <p className="text-3xl font-bold tabular-nums">{formatCurrency(estimated - accumulated)}</p>
           </CardContent></Card>
           <Card><CardContent className="pt-6">
             <p className="text-sm text-muted-foreground flex items-center gap-1">
               vs año anterior
               <UITooltip>
                 <TooltipTrigger asChild><span className="cursor-help">ⓘ</span></TooltipTrigger>
-                <TooltipContent><p className="text-xs">Comparación con el mismo mes del año pasado ({formatCurrency(mockSalesCurrentMonth.previousYearSameMonth)})</p></TooltipContent>
+                <TooltipContent><p className="text-xs">Comparación con el mismo mes del año pasado ({formatCurrency(prevYear)})</p></TooltipContent>
               </UITooltip>
             </p>
             <p className="text-2xl font-bold text-success flex items-center gap-1">
@@ -97,7 +135,7 @@ export default function Ventas() {
               <TableBody>
                 {salesHistory.map((s, i) => (
                   <TableRow key={i}>
-                    <TableCell className="tabular-nums">{formatDate(s.date)}</TableCell>
+                    <TableCell className="tabular-nums">{s.date !== '—' ? formatDate(s.date) : '—'}</TableCell>
                     <TableCell className="font-medium">{s.client}</TableCell>
                     <TableCell className="text-muted-foreground">{s.product}</TableCell>
                     <TableCell className="text-right font-medium tabular-nums">{formatCurrency(s.amount)}</TableCell>
