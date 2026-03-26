@@ -1,39 +1,61 @@
 
 
-# Fix: process-file falla por límites de CPU, memoria y JSON roto
+# Fix: Archivos no se procesan + Detección de duplicados
 
-## Problemas encontrados en los logs
+## Problema raíz
 
-1. **CPU Time exceeded**: `XLSX.read()` + `JSON.stringify(rows, null, 2)` con pretty-print de 100 filas consume todo el CPU disponible en Edge Functions
-2. **Memory limit exceeded**: descargar archivos completos + parsear + convertir a base64 en memoria simultáneamente
-3. **JSON parse error en línea 136**: OpenAI devuelve JSON inválido y `JSON.parse()` explota sin retry ni fallback
+Revisé todo el pipeline y encontré lo siguiente:
 
-## Cambios en `supabase/functions/process-file/index.ts`
+1. **`file_extracted_data` está vacía** — los 7 archivos dicen `processed` pero no tienen datos extraídos. Esto viene de una versión anterior del código que marcaba `processed` sin hacer nada.
 
-### A. Reducir carga de CPU y memoria
-- Limitar a **30 filas** en vez de 100 para el contenido enviado a OpenAI
-- Usar `JSON.stringify()` **sin pretty-print** (sin `null, 2`) — ahorra CPU significativamente
-- Truncar contenido a **8,000 caracteres** en vez de 30,000
-- Usar `gpt-4o-mini` en vez de `gpt-4o` — más rápido, menos tokens, suficiente para clasificar datos tabulares
-- Reducir `max_tokens` de 4096 a 2048
+2. **`process-file` se cuelga al invocarlo** — lo probé directamente y devolvió timeout ("context canceled"). El problema más probable es que **`npm:xlsx@0.18.5` es demasiado pesado** para importar en un Edge Function de Deno. Son ~2MB de librería que se importa en cada cold start, y combinado con `npm:aws4fetch`, el boot time excede el límite.
 
-### B. Manejar JSON roto de OpenAI
-- Envolver `JSON.parse()` en try/catch
-- Si falla, intentar limpiar el string (remover trailing commas, truncar en último `}` válido)
-- Si sigue fallando, devolver un resultado genérico con category "otro" en vez de crashear
+3. **No hay detección de duplicados** — si el usuario sube el mismo archivo dos veces, se procesan ambos y se suman las métricas dos veces.
 
-### C. Optimizar conversión de imágenes a base64
-- El loop `String.fromCharCode` byte a byte (líneas 199-203) es extremadamente lento para archivos grandes
-- Limitar imágenes a 500KB para base64, rechazar las más grandes con un fallback de texto
+## Plan de corrección
 
-### D. Eliminar código muerto del PDF
-- Las líneas 206-216 convierten PDF a base64 y luego lo descartan (`isImage = false`). Eliminar esa conversión inútil que gasta CPU y memoria
+### 1. Reescribir `process-file` sin dependencia pesada de XLSX
 
-## Archivo tocado
+**Archivo:** `supabase/functions/process-file/index.ts`
 
-Solo `supabase/functions/process-file/index.ts`
+El cambio principal es **no parsear Excel en el Edge Function**. En vez de importar `npm:xlsx` (que revienta los límites de boot), usar una estrategia en dos partes:
 
-## Resultado esperado
+- **CSV/TXT/XML**: parsear directamente con código nativo (ya funciona bien, es liviano)
+- **Excel (XLS/XLSX)**: en vez de usar SheetJS en el Edge Function, convertir el archivo a base64 y enviarlo a OpenAI con instrucciones de que extraiga los datos. OpenAI `gpt-4o-mini` puede leer archivos Excel enviados como attachment. Alternativamente, hacer el parseo de Excel **en el frontend** antes de subir (usando SheetJS del lado del cliente, donde no hay límites de CPU) y enviar el JSON ya parseado junto con el archivo.
 
-Los archivos de <1MB (Excel, CSV) deberían procesarse en segundos sin exceder límites de CPU/memoria. Los errores de JSON ya no van a dejar archivos trabados en "Procesando".
+**Enfoque recomendado: parsear Excel en el frontend**
+- En `CargaDatos.tsx`, antes de llamar a `process-file`, si el archivo es XLS/XLSX, usar SheetJS (ya está en el bundle del cliente) para extraer las primeras 50 filas como JSON
+- Enviar ese JSON pre-parseado como parte del body de `process-file`
+- `process-file` solo necesita llamar a OpenAI para clasificar/estructurar, sin necesidad de importar XLSX
+
+Esto elimina la dependencia pesada del Edge Function y resuelve el timeout.
+
+### 2. Detección de duplicados por hash
+
+**Archivos:** `CargaDatos.tsx` + migración de DB
+
+- Agregar columna `file_hash` (TEXT) a la tabla `file_uploads`
+- En el frontend, calcular un hash SHA-256 del archivo antes de subirlo (usando `crypto.subtle.digest`)
+- Antes de insertar en `file_uploads`, consultar si ya existe un archivo con el mismo hash para la misma empresa
+- Si existe, mostrar un toast: "Este archivo ya fue cargado anteriormente" y no procesarlo de nuevo
+- Si es un archivo nuevo, guardar el hash junto con el registro
+
+### 3. Limpieza de archivos viejos con status incorrecto
+
+Los 7 archivos actuales dicen `processed` pero no tienen datos. Dos opciones:
+- **Opción A**: Agregar un botón "Reprocesar" que detecte archivos sin datos en `file_extracted_data` y los reenvíe al pipeline
+- **Opción B** (más simple): Actualizar el status de esos archivos a `pending` para que el usuario sepa que necesitan reprocesarse, y agregar lógica para reprocesar
+
+### Archivos a modificar
+
+1. **`supabase/functions/process-file/index.ts`** — quitar `npm:xlsx`, recibir datos pre-parseados del frontend
+2. **`src/pages/CargaDatos.tsx`** — parsear Excel en el cliente, calcular hash, detectar duplicados, botón reprocesar
+3. **Migración SQL** — agregar columna `file_hash` a `file_uploads`
+
+### Resultado esperado
+
+- Archivos Excel se procesan en segundos (parseo en cliente, solo clasificación en servidor)
+- CSV/PDF/imágenes siguen procesándose como antes pero sin el peso de XLSX
+- Archivos duplicados se detectan antes de subir y se avisa al usuario
+- Los archivos viejos se pueden reprocesar con un click
 
