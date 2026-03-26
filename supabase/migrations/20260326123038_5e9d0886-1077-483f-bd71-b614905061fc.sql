@@ -1,0 +1,1 @@
+ALTER TABLE public.file_uploads ADD COLUMN file_hash TEXT;

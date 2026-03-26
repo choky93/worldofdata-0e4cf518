@@ -214,6 +214,7 @@ export type Database = {
         Row: {
           company_id: string
           created_at: string | null
+          file_hash: string | null
           file_name: string
           file_size: number | null
           file_type: string | null
@@ -226,6 +227,7 @@ export type Database = {
         Insert: {
           company_id: string
           created_at?: string | null
+          file_hash?: string | null
           file_name: string
           file_size?: number | null
           file_type?: string | null
@@ -238,6 +240,7 @@ export type Database = {
         Update: {
           company_id?: string
           created_at?: string | null
+          file_hash?: string | null
           file_name?: string
           file_size?: number | null
           file_type?: string | null
