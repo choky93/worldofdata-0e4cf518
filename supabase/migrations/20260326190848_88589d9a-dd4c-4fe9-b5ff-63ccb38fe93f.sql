@@ -1,0 +1,1 @@
+ALTER TABLE public.file_uploads ADD COLUMN IF NOT EXISTS processing_started_at timestamptz;

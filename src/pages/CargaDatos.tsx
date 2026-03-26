@@ -25,6 +25,7 @@ interface FileRecord {
   company_id: string;
   file_hash?: string | null;
   processing_error?: string | null;
+  processing_started_at?: string | null;
 }
 
 interface ExtractedData {
@@ -516,14 +517,10 @@ export default function CargaDatos() {
 
   const handleReprocess = async (file: FileRecord) => {
     if (!profile?.company_id) return;
-    if (file.status === 'processing') {
-      toast.error('Este archivo ya se está procesando');
-      return;
-    }
     setReprocessingId(file.id);
     try {
       await supabase.from('file_extracted_data').delete().eq('file_upload_id', file.id);
-      await supabase.from('file_uploads').update({ status: 'queued', processing_error: null }).eq('id', file.id);
+      await supabase.from('file_uploads').update({ status: 'queued', processing_error: null, processing_started_at: null }).eq('id', file.id);
       toast.success(`"${file.file_name}" re-encolado para procesar`);
       await fetchFiles();
     } catch (err: any) {
@@ -799,6 +796,18 @@ export default function CargaDatos() {
                               title="Reprocesar"
                             >
                               {isReprocessing ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+                            </Button>
+                          )}
+                          {f.status === 'processing' && f.processing_started_at && (Date.now() - new Date(f.processing_started_at).getTime() > 5 * 60 * 1000) && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="shrink-0 h-8 w-8 text-warning hover:text-destructive"
+                              onClick={() => handleReprocess(f)}
+                              disabled={isReprocessing}
+                              title="Forzar reproceso (atascado)"
+                            >
+                              {isReprocessing ? <Loader2 className="h-4 w-4 animate-spin" /> : <AlertTriangle className="h-4 w-4" />}
                             </Button>
                           )}
                           <Button variant="ghost" size="icon" className="shrink-0 h-8 w-8" onClick={() => handleDelete(f)}>
