@@ -1,24 +1,31 @@
 
 
-# Corregir ai-chat: usar OpenAI del cliente en vez de Lovable AI Gateway
+# Fix: Archivos quedan en "Procesando" para siempre
 
 ## Problema
-El edge function `ai-chat` está usando el Lovable AI Gateway con `LOVABLE_API_KEY`, lo que te cobra a vos (desarrollador). El cliente ya tiene su propia `OPENAI_API_KEY` configurada como secret y la intención siempre fue que los costos de IA los pague el cliente.
+Cuando se sube un archivo, se registra en la base de datos con `status: 'processing'`, pero nada actualiza ese estado después. No hay ningún proceso que cambie el status a `'processed'` una vez que el archivo se subió exitosamente a R2.
 
-## Cambios en `supabase/functions/ai-chat/index.ts`
+## Solución
 
-1. **Reemplazar el gateway URL** por la API directa de OpenAI: `https://api.openai.com/v1/chat/completions`
-2. **Usar `OPENAI_API_KEY`** en vez de `LOVABLE_API_KEY` para autenticación
-3. **Cambiar el modelo** a `gpt-4o` (o `gpt-4o-mini` si se prefiere menor costo) — modelos actuales de OpenAI
-4. **Mantener todo lo demás igual**: contexto de negocio, streaming SSE, modo search (Perplexity), manejo de errores
+La forma más directa: si el upload a R2 fue exitoso (ya lo sabemos porque `r2-upload` respondió `success: true`), entonces el registro en la DB debería insertarse directamente con `status: 'processed'` en vez de `'processing'`.
 
-## Detalle técnico
+### Cambio en `src/pages/CargaDatos.tsx`
 
-- Línea 10: `GATEWAY_URL` → `https://api.openai.com/v1/chat/completions`
-- Líneas 62-68: Leer `OPENAI_API_KEY` en vez de `LOVABLE_API_KEY`
-- Línea 146: Modelo → `gpt-4o` (o el que el cliente prefiera)
-- El resto del código (fetchCompanyContext, modo search con Perplexity, streaming) no cambia
+En la función `uploadFiles`, cambiar la línea que inserta en `file_uploads`:
 
-## Archivos tocados
-- `supabase/functions/ai-chat/index.ts` (solo este archivo)
+```typescript
+// Antes
+status: 'processing',
+
+// Después
+status: 'processed',
+```
+
+Esto es correcto porque:
+- El archivo ya se subió exitosamente a R2 (confirmado por `uploadData.success`)
+- No hay ningún paso de procesamiento posterior (parseo, OCR, etc.) implementado
+- Si en el futuro se agrega procesamiento real (ej: extraer datos del Excel), se puede volver a usar `'processing'` y agregar un worker que lo actualice
+
+### Archivo tocado
+- `src/pages/CargaDatos.tsx` (1 línea)
 
