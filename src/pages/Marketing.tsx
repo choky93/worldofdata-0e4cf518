@@ -16,6 +16,8 @@ interface CampaignRow {
   clicks: number;
   ctr: number;
   conversions: number;
+  reach: number;
+  impressions: number;
 }
 
 function normalizeMarketing(rows: any[]): CampaignRow[] {
