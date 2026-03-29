@@ -4,7 +4,7 @@ import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/contexts/AuthContext';
-import { formatCurrency, getGreeting } from '@/lib/formatters';
+import { formatCurrency, getGreeting, parseLocalNumber } from '@/lib/formatters';
 import { useExtractedData } from '@/hooks/useExtractedData';
 import {
   TrendingUp, AlertTriangle, DollarSign, Package, Users,
