@@ -20,7 +20,7 @@ function aggregateByDate(ventas: any[]): { day: string; value: number }[] {
     } else if (/^\d{2}\/\d{2}\/\d{4}/.test(raw)) {
       key = raw.substring(0, 5);
     }
-    const amt = parseLocalNumber(r.monto || r.total || r.amount || r.valor || r.importe || 0);
+    const amt = parseLocalNumber(r.monto || r.total || r.amount || r.valor || r.importe || r.ganancia || r.monto_total || r.monto_venta || r.total_mensual_iva_inc || r.precio || 0);
     map.set(key, (map.get(key) || 0) + amt);
   }
   return Array.from(map.entries()).slice(-30).map(([day, value]) => ({ day, value }));
@@ -45,7 +45,7 @@ function aggregateByMonth(ventas: any[]): { month: string; value: number }[] {
       if (!isNaN(dt.getTime())) key = dt.toLocaleDateString('es-AR', { month: 'short', year: 'numeric' });
     }
     if (!key) continue;
-    const amt = parseLocalNumber(r.monto || r.total || r.amount || r.valor || r.importe || 0);
+    const amt = parseLocalNumber(r.monto || r.total || r.amount || r.valor || r.importe || r.ganancia || r.monto_total || r.monto_venta || r.total_mensual_iva_inc || r.precio || 0);
     map.set(key, (map.get(key) || 0) + amt);
   }
   const parseKey = (s: string) => new Date(s.replace(/(\w+) (\d{4})/, '$1 1, $2')).getTime();
@@ -102,14 +102,14 @@ export default function Ventas() {
   }
 
   const salesTotal = realVentas.reduce((sum: number, r: any) => {
-    return sum + parseLocalNumber(r.monto || r.total || r.amount || r.valor || r.importe || 0);
+    return sum + parseLocalNumber(r.monto || r.total || r.amount || r.valor || r.importe || r.ganancia || r.monto_total || r.monto_venta || r.total_mensual_iva_inc || r.precio || 0);
   }, 0);
 
   const salesHistory = realVentas.slice(0, 50).map((r: any, i: number) => ({
     date: r.fecha || r.date || '—',
     client: r.cliente || r.client || r.nombre || '—',
-    product: r.producto || r.detalle || r.descripcion || r.product || '—',
-    amount: parseLocalNumber(r.monto || r.total || r.amount || r.valor || r.importe || 0),
+    product: r.producto || r.detalle || r.descripcion || r.product || r.categoria || r.rubro || '—',
+    amount: parseLocalNumber(r.monto || r.total || r.amount || r.valor || r.importe || r.ganancia || r.monto_total || r.monto_venta || r.total_mensual_iva_inc || r.precio || 0),
   }));
 
   const dailyChart = aggregateByDate(realVentas);

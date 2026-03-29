@@ -115,7 +115,7 @@ export default function Dashboard() {
 
   const salesTotal = hasData && realVentas.length > 0
     ? realVentas.reduce((sum: number, r: any) => {
-        const val = parseLocalNumber(r.monto || r.total || r.amount || r.valor || r.importe || 0);
+        const val = parseLocalNumber(r.monto || r.total || r.amount || r.valor || r.importe || r.ganancia || r.monto_total || r.monto_venta || r.total_mensual_iva_inc || r.precio || 0);
         return sum + val;
       }, 0)
     : null;
@@ -179,7 +179,7 @@ export default function Dashboard() {
       if (!isNaN(d.getTime())) {
         key = d.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit' });
       }
-      const amt = parseLocalNumber(r.monto || r.total || r.amount || r.valor || r.importe || 0);
+      const amt = parseLocalNumber(r.monto || r.total || r.amount || r.valor || r.importe || r.ganancia || r.monto_total || r.monto_venta || r.total_mensual_iva_inc || r.precio || 0);
       map.set(key, (map.get(key) || 0) + amt);
     }
     return Array.from(map.entries())
