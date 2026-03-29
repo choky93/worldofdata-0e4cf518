@@ -10,12 +10,12 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-const CHUNK_ROWS = 500;
+const CHUNK_ROWS = 1000;
 const CHUNK_CHARS = 12000;
 const MAX_CONTENT_CHARS = 15000;
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
-const MAX_EXCEL_ROWS = 5000; // Cap to avoid memory limit in edge functions
-const MAX_CHUNKS_PER_INVOCATION = 2;
+const MAX_EXCEL_ROWS = 50000;
+const MAX_CHUNKS_PER_INVOCATION = 5;
 
 // ─── R2 Download ───────────────────────────────────────────────
 async function downloadFromR2(storagePath: string): Promise<ArrayBuffer> {
@@ -319,6 +319,7 @@ serve(async (req) => {
         resultInfo = { category: r.category, summary: r.summary, totalRows: r.totalRows };
       } else {
         const result = await extractWithAI(content.substring(0, MAX_CONTENT_CHARS), file_name, undefined, undefined, processingMetadata);
+        await sb.from("file_extracted_data").delete().eq("file_upload_id", fileUploadId).eq("chunk_index", 0);
         await sb.from("file_extracted_data").insert({
           file_upload_id: fileUploadId, company_id: companyId,
           data_category: result.category, extracted_json: result.data,
@@ -354,6 +355,7 @@ serve(async (req) => {
         } else {
           const content = JSON.stringify(allRows);
           const result = await extractWithAI(content, file_name, undefined, undefined, processingMetadata);
+          await sb.from("file_extracted_data").delete().eq("file_upload_id", fileUploadId).eq("chunk_index", 0);
           await sb.from("file_extracted_data").insert({
             file_upload_id: fileUploadId, company_id: companyId,
             data_category: result.category, extracted_json: result.data,
@@ -366,6 +368,7 @@ serve(async (req) => {
         const content = new TextDecoder().decode(buffer).substring(0, MAX_CONTENT_CHARS);
         processingMetadata = { method: 'text_raw', format: 'xml', size_kb: Math.round(buffer.byteLength / 1024) };
         const result = await extractWithAI(content, file_name, undefined, undefined, processingMetadata);
+        await sb.from("file_extracted_data").delete().eq("file_upload_id", fileUploadId).eq("chunk_index", 0);
         await sb.from("file_extracted_data").insert({
           file_upload_id: fileUploadId, company_id: companyId,
           data_category: result.category, extracted_json: result.data,
@@ -388,6 +391,7 @@ serve(async (req) => {
         }
 
         const result = await extractWithAI(content, file_name, imageBase64, imageMime, processingMetadata);
+        await sb.from("file_extracted_data").delete().eq("file_upload_id", fileUploadId).eq("chunk_index", 0);
         await sb.from("file_extracted_data").insert({
           file_upload_id: fileUploadId, company_id: companyId,
           data_category: result.category, extracted_json: result.data,
@@ -422,6 +426,7 @@ serve(async (req) => {
           } else {
             const content = `[PDF con ${pdfResult.pages} páginas, texto extraído]\n\n${fullText}`;
             const result = await extractWithAI(content, file_name, undefined, undefined, processingMetadata);
+            await sb.from("file_extracted_data").delete().eq("file_upload_id", fileUploadId).eq("chunk_index", 0);
             await sb.from("file_extracted_data").insert({
               file_upload_id: fileUploadId, company_id: companyId,
               data_category: result.category, extracted_json: result.data,
@@ -439,6 +444,7 @@ serve(async (req) => {
             processingMetadata.method = 'large_scanned_pdf_limited';
           }
           const result = await extractWithAI(content, file_name, undefined, undefined, processingMetadata);
+          await sb.from("file_extracted_data").delete().eq("file_upload_id", fileUploadId).eq("chunk_index", 0);
           await sb.from("file_extracted_data").insert({
             file_upload_id: fileUploadId, company_id: companyId,
             data_category: result.category, extracted_json: result.data,
@@ -458,6 +464,7 @@ serve(async (req) => {
           processingMetadata = { method: 'word_fallback', format: ext };
         }
         const result = await extractWithAI(content, file_name, undefined, undefined, processingMetadata);
+        await sb.from("file_extracted_data").delete().eq("file_upload_id", fileUploadId).eq("chunk_index", 0);
         await sb.from("file_extracted_data").insert({
           file_upload_id: fileUploadId, company_id: companyId,
           data_category: result.category, extracted_json: result.data,
@@ -484,10 +491,12 @@ serve(async (req) => {
           }
           if (allRows.length >= MAX_EXCEL_ROWS) break; // Cap to avoid memory overflow
         }
-        // Truncate if exceeded
         const totalOriginal = allRows.length;
+        let truncationWarning: string | null = null;
         if (allRows.length > MAX_EXCEL_ROWS) {
           allRows.length = MAX_EXCEL_ROWS;
+          truncationWarning = `Archivo truncado: ${totalOriginal} filas encontradas, se procesaron ${MAX_EXCEL_ROWS}. Considere dividir el archivo.`;
+          console.warn(`[process-file] ⚠️ ${truncationWarning}`);
         }
         console.log(`[process-file] Excel parsed: ${totalOriginal} rows (capped to ${allRows.length}) from sheets: ${sheetInfo.join(', ')}`);
         processingMetadata = { method: 'server_excel_parse', format: ext, sheets: sheetInfo.join(', '), rows_total: totalOriginal, rows_processed: allRows.length };
@@ -508,6 +517,7 @@ serve(async (req) => {
         } else {
           const content = JSON.stringify(allRows);
           const result = await extractWithAI(content.substring(0, MAX_CONTENT_CHARS), file_name, undefined, undefined, processingMetadata);
+          await sb.from("file_extracted_data").delete().eq("file_upload_id", fileUploadId).eq("chunk_index", 0);
           await sb.from("file_extracted_data").insert({
             file_upload_id: fileUploadId, company_id: companyId,
             data_category: result.category, extracted_json: result.data,
@@ -515,11 +525,15 @@ serve(async (req) => {
           });
           resultInfo = { category: result.category, summary: result.summary, totalRows: result.rowCount };
         }
+        if (truncationWarning) {
+          await sb.from("file_uploads").update({ processing_error: truncationWarning }).eq("id", fileUploadId);
+        }
 
       } else {
         const content = `[Archivo desconocido: ${ext}. Nombre: "${file_name}". ${(buffer.byteLength / 1024).toFixed(0)} KB]`;
         processingMetadata = { method: 'unknown_format', format: ext };
         const result = await extractWithAI(content, file_name, undefined, undefined, processingMetadata);
+        await sb.from("file_extracted_data").delete().eq("file_upload_id", fileUploadId).eq("chunk_index", 0);
         await sb.from("file_extracted_data").insert({
           file_upload_id: fileUploadId, company_id: companyId,
           data_category: result.category, extracted_json: result.data,

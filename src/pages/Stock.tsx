@@ -1,7 +1,6 @@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { formatCurrency, formatPercent } from '@/lib/formatters';
-import { mockProducts } from '@/lib/mock-data';
 import { useExtractedData } from '@/hooks/useExtractedData';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip';
@@ -69,7 +68,18 @@ export default function Stock() {
   const realStock = extractedData?.stock || [];
 
   const useReal = hasData && realStock.length > 0;
-  const products: ProductRow[] = useReal ? normalizeProducts(realStock) : mockProducts;
+  const products: ProductRow[] = useReal ? normalizeProducts(realStock) : [];
+
+  if (!useReal) {
+    return (
+      <div className="flex flex-col items-center justify-center py-20 text-center space-y-4">
+        <Package className="h-12 w-12 text-muted-foreground" />
+        <h2 className="text-xl font-semibold">Sin datos de stock</h2>
+        <p className="text-muted-foreground max-w-md">Cargá un archivo con datos de inventario para ver el análisis completo.</p>
+        <Link to="/carga-datos" className="text-primary hover:underline text-sm">Ir a Carga de Datos →</Link>
+      </div>
+    );
+  }
 
   const totalValue = products.reduce((s, p) => s + p.stock * p.cost, 0);
   const lowStock = products.filter(p => p.status === 'low');
@@ -82,17 +92,10 @@ export default function Stock() {
       <div className="space-y-6 max-w-7xl">
         <div className="flex items-center justify-between">
           <h1 className="text-2xl font-bold">Stock e Inventario</h1>
-          {useReal ? (
-            <div className="flex items-center gap-1.5 text-xs text-success bg-success/10 rounded-lg px-3 py-1.5 border border-success/20">
-              <Database className="h-3.5 w-3.5" />
-              Datos reales ({realStock.length} productos)
-            </div>
-          ) : (
-            <Link to="/carga-datos" className="flex items-center gap-1.5 text-xs text-muted-foreground bg-muted rounded-lg px-3 py-1.5 border border-border hover:text-primary transition-colors">
-              <Database className="h-3.5 w-3.5" />
-              Datos de ejemplo — Cargá tus archivos
-            </Link>
-          )}
+          <div className="flex items-center gap-1.5 text-xs text-success bg-success/10 rounded-lg px-3 py-1.5 border border-success/20">
+            <Database className="h-3.5 w-3.5" />
+            Datos reales ({realStock.length} productos)
+          </div>
         </div>
 
         <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 md:grid-cols-4">
