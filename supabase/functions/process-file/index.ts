@@ -368,6 +368,7 @@ serve(async (req) => {
         const content = new TextDecoder().decode(buffer).substring(0, MAX_CONTENT_CHARS);
         processingMetadata = { method: 'text_raw', format: 'xml', size_kb: Math.round(buffer.byteLength / 1024) };
         const result = await extractWithAI(content, file_name, undefined, undefined, processingMetadata);
+        await sb.from("file_extracted_data").delete().eq("file_upload_id", fileUploadId).eq("chunk_index", 0);
         await sb.from("file_extracted_data").insert({
           file_upload_id: fileUploadId, company_id: companyId,
           data_category: result.category, extracted_json: result.data,
