@@ -92,17 +92,10 @@ export default function Stock() {
       <div className="space-y-6 max-w-7xl">
         <div className="flex items-center justify-between">
           <h1 className="text-2xl font-bold">Stock e Inventario</h1>
-          {useReal ? (
-            <div className="flex items-center gap-1.5 text-xs text-success bg-success/10 rounded-lg px-3 py-1.5 border border-success/20">
-              <Database className="h-3.5 w-3.5" />
-              Datos reales ({realStock.length} productos)
-            </div>
-          ) : (
-            <Link to="/carga-datos" className="flex items-center gap-1.5 text-xs text-muted-foreground bg-muted rounded-lg px-3 py-1.5 border border-border hover:text-primary transition-colors">
-              <Database className="h-3.5 w-3.5" />
-              Datos de ejemplo — Cargá tus archivos
-            </Link>
-          )}
+          <div className="flex items-center gap-1.5 text-xs text-success bg-success/10 rounded-lg px-3 py-1.5 border border-success/20">
+            <Database className="h-3.5 w-3.5" />
+            Datos reales ({realStock.length} productos)
+          </div>
         </div>
 
         <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 md:grid-cols-4">
