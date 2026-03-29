@@ -222,6 +222,7 @@ export type Database = {
           file_size: number | null
           file_type: string | null
           id: string
+          next_chunk_index: number | null
           priority: number
           processing_error: string | null
           processing_started_at: string | null
@@ -237,6 +238,7 @@ export type Database = {
           file_size?: number | null
           file_type?: string | null
           id?: string
+          next_chunk_index?: number | null
           priority?: number
           processing_error?: string | null
           processing_started_at?: string | null
@@ -252,6 +254,7 @@ export type Database = {
           file_size?: number | null
           file_type?: string | null
           id?: string
+          next_chunk_index?: number | null
           priority?: number
           processing_error?: string | null
           processing_started_at?: string | null

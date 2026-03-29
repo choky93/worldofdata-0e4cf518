@@ -1,0 +1,1 @@
+ALTER TABLE public.file_uploads ADD COLUMN IF NOT EXISTS next_chunk_index integer DEFAULT 0;
