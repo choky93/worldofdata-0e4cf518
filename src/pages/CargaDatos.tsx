@@ -316,6 +316,18 @@ export default function CargaDatos() {
       setFiles(records);
       setTotalCount(count || 0);
 
+      // Detect new errors and show toast
+      const currentErrorIds = new Set(records.filter(f => f.status === 'error').map(f => f.id));
+      for (const f of records) {
+        if (f.status === 'error' && !prevErrorIdsRef.current.has(f.id)) {
+          toast.error(`Error procesando "${f.file_name}"`, {
+            description: f.processing_error || 'Error desconocido durante el procesamiento',
+            duration: 8000,
+          });
+        }
+      }
+      prevErrorIdsRef.current = currentErrorIds;
+
       const processedIds = records.filter(f => f.status === 'processed').map(f => f.id);
       if (processedIds.length > 0) fetchExtractedData(processedIds);
     } catch (err) {
