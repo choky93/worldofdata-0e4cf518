@@ -491,10 +491,12 @@ serve(async (req) => {
           }
           if (allRows.length >= MAX_EXCEL_ROWS) break; // Cap to avoid memory overflow
         }
-        // Truncate if exceeded
         const totalOriginal = allRows.length;
+        let truncationWarning: string | null = null;
         if (allRows.length > MAX_EXCEL_ROWS) {
           allRows.length = MAX_EXCEL_ROWS;
+          truncationWarning = `Archivo truncado: ${totalOriginal} filas encontradas, se procesaron ${MAX_EXCEL_ROWS}. Considere dividir el archivo.`;
+          console.warn(`[process-file] ⚠️ ${truncationWarning}`);
         }
         console.log(`[process-file] Excel parsed: ${totalOriginal} rows (capped to ${allRows.length}) from sheets: ${sheetInfo.join(', ')}`);
         processingMetadata = { method: 'server_excel_parse', format: ext, sheets: sheetInfo.join(', '), rows_total: totalOriginal, rows_processed: allRows.length };
