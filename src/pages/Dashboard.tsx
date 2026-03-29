@@ -4,16 +4,12 @@ import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/contexts/AuthContext';
-import { formatCurrency, formatPercent, getGreeting } from '@/lib/formatters';
-import {
-  mockSalesCurrentMonth, mockProfit, mockCashFlow, mockAds,
-  mockProducts, mockClients, mockAlerts, mockDailySales, mockCompany,
-} from '@/lib/mock-data';
+import { formatCurrency, getGreeting } from '@/lib/formatters';
 import { useExtractedData } from '@/hooks/useExtractedData';
 import {
-  TrendingUp, TrendingDown, AlertTriangle, DollarSign, Package, Users,
+  TrendingUp, AlertTriangle, DollarSign, Package, Users,
   Megaphone, ArrowUpRight, ArrowRight, ShoppingCart, Wallet, BarChart3,
-  FileBox, CheckCircle2, AlertCircle, XCircle, Loader2, Database,
+  FileBox, CheckCircle2, AlertCircle, XCircle, Loader2, Database, Upload,
 } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, Tooltip as RTooltip, ResponsiveContainer } from 'recharts';
 import { Link, useNavigate } from 'react-router-dom';
@@ -38,6 +34,8 @@ function TickerBar({ highlights }: { highlights: string[] }) {
     }, 5000);
     return () => clearInterval(interval);
   }, [highlights.length]);
+
+  if (highlights.length === 0) return null;
 
   return (
     <div className="bg-primary/[0.06] rounded-xl px-4 py-3 overflow-hidden relative flex items-center border border-primary/10">
@@ -84,7 +82,7 @@ function Stagger({ children, index }: { children: React.ReactNode; index: number
   );
 }
 
-// ─── Empty State Banner ──────────────────────────────────────────────
+// ─── Data Source Banner ──────────────────────────────────────────────
 function DataSourceBanner({ hasData, loading }: { hasData: boolean; loading: boolean }) {
   if (loading) return null;
   return (
@@ -93,7 +91,7 @@ function DataSourceBanner({ hasData, loading }: { hasData: boolean; loading: boo
       {hasData ? (
         <span>Mostrando datos reales extraídos de tus archivos cargados</span>
       ) : (
-        <span>Mostrando datos de ejemplo. <Link to="/carga-datos" className="underline font-medium">Cargá tus archivos</Link> para ver datos reales.</span>
+        <span>Sin datos cargados. <Link to="/carga-datos" className="underline font-medium">Cargá tus archivos</Link> para ver tus métricas reales.</span>
       )}
     </div>
   );
@@ -105,14 +103,15 @@ export default function Dashboard() {
   const navigate = useNavigate();
   const { data: extractedData, loading: dataLoading, hasData } = useExtractedData();
   const name = profile?.full_name || 'Usuario';
-  const company = companyName || mockCompany.name;
+  const company = companyName || 'tu empresa';
   const showStock = !companySettings || companySettings.has_stock || companySettings.sells_products;
   const showAds = !companySettings || companySettings.uses_meta_ads || companySettings.uses_google_ads;
 
-  // Derive real metrics if available
   const realVentas = extractedData?.ventas || [];
   const realStock = extractedData?.stock || [];
   const realGastos = extractedData?.gastos || [];
+  const realClientes = extractedData?.clientes || [];
+  const realMarketing = extractedData?.marketing || [];
 
   const salesTotal = hasData && realVentas.length > 0
     ? realVentas.reduce((sum: number, r: any) => {
@@ -121,39 +120,72 @@ export default function Dashboard() {
       }, 0)
     : null;
 
+  const gastosTotal = hasData && realGastos.length > 0
+    ? realGastos.reduce((sum: number, r: any) => {
+        const val = parseFloat(r.monto || r.total || r.amount || r.importe || 0);
+        return sum + (isNaN(val) ? 0 : val);
+      }, 0)
+    : null;
+
+  const marketingSpend = hasData && realMarketing.length > 0
+    ? realMarketing.reduce((sum: number, r: any) => {
+        const val = parseFloat(r.gasto || r.inversion || r.spend || r.costo || r.importe || 0);
+        return sum + (isNaN(val) ? 0 : val);
+      }, 0)
+    : null;
+
   const healthDimensions = [
-    { key: 'ventas', label: 'Ventas', icon: ShoppingCart, status: (hasData && realVentas.length > 0 ? 'ok' : 'warning') as 'ok' | 'warning' | 'critical', detail: hasData && salesTotal ? `${formatCurrency(salesTotal)} acumulado` : '+12% vs año anterior', url: '/ventas', color: 'var(--module-ventas)' },
-    { key: 'finanzas', label: 'Finanzas', icon: Wallet, status: 'warning' as const, detail: hasData && realGastos.length > 0 ? `${realGastos.length} registros de gastos` : 'Flujo de caja ajustado', url: '/finanzas', color: 'var(--module-finanzas)' },
-    { key: 'stock', label: 'Stock', icon: Package, status: (hasData && realStock.length > 0 ? 'ok' : 'critical') as 'ok' | 'warning' | 'critical', detail: hasData && realStock.length > 0 ? `${realStock.length} productos cargados` : '2 productos en faltante', url: '/stock', color: 'var(--module-stock)' },
-    { key: 'clientes', label: 'Clientes', icon: Users, status: 'warning' as const, detail: '47% concentración', url: '/clientes', color: 'var(--module-clientes)' },
-    { key: 'marketing', label: 'Marketing', icon: Megaphone, status: 'ok' as const, detail: 'ROAS 4.2x', url: '/marketing', color: 'var(--module-marketing)' },
-    { key: 'operaciones', label: 'Operaciones', icon: FileBox, status: 'ok' as const, detail: 'Sin novedades', url: '/operaciones', color: 'var(--module-operaciones)' },
+    { key: 'ventas', label: 'Ventas', icon: ShoppingCart, status: (hasData && realVentas.length > 0 ? 'ok' : 'warning') as 'ok' | 'warning' | 'critical', detail: salesTotal !== null ? `${formatCurrency(salesTotal)} acumulado` : 'Sin datos', url: '/ventas', color: 'var(--module-ventas)' },
+    { key: 'finanzas', label: 'Finanzas', icon: Wallet, status: (hasData && realGastos.length > 0 ? 'ok' : 'warning') as 'ok' | 'warning' | 'critical', detail: gastosTotal !== null ? `${formatCurrency(gastosTotal)} en gastos` : 'Sin datos', url: '/finanzas', color: 'var(--module-finanzas)' },
+    { key: 'stock', label: 'Stock', icon: Package, status: (hasData && realStock.length > 0 ? 'ok' : 'warning') as 'ok' | 'warning' | 'critical', detail: hasData && realStock.length > 0 ? `${realStock.length} productos cargados` : 'Sin datos', url: '/stock', color: 'var(--module-stock)' },
+    { key: 'clientes', label: 'Clientes', icon: Users, status: (hasData && realClientes.length > 0 ? 'ok' : 'warning') as 'ok' | 'warning' | 'critical', detail: hasData && realClientes.length > 0 ? `${realClientes.length} clientes` : 'Sin datos', url: '/clientes', color: 'var(--module-clientes)' },
+    { key: 'marketing', label: 'Marketing', icon: Megaphone, status: (hasData && realMarketing.length > 0 ? 'ok' : 'warning') as 'ok' | 'warning' | 'critical', detail: marketingSpend !== null ? `${formatCurrency(marketingSpend)} invertidos` : 'Sin datos', url: '/marketing', color: 'var(--module-marketing)' },
+    { key: 'operaciones', label: 'Operaciones', icon: FileBox, status: 'ok' as const, detail: hasData ? `${realVentas.length + realGastos.length} registros` : 'Sin datos', url: '/operaciones', color: 'var(--module-operaciones)' },
   ];
 
-  const useSales = salesTotal !== null ? salesTotal : mockSalesCurrentMonth.accumulated;
-
-  const highlights = [
-    salesTotal !== null
-      ? `Llevás vendido ${formatCurrency(salesTotal)} según tus datos cargados.`
-      : `Llevás vendido ${formatCurrency(mockSalesCurrentMonth.accumulated)} en marzo. Estás un 12% arriba del mismo período del año pasado.`,
-    `Tenés ${formatCurrency(mockCashFlow.pendingCollections)} pendientes de cobro de 3 clientes.`,
-    showStock ? `Tu stock de Impresora Ender 3 V3 alcanza para 10 días. Tu proveedor tarda 15.` : null,
-    `Tu ROAS promedio es ${mockAds.roas}x — un 15.6% mejor que el mes pasado.`,
-  ].filter(Boolean) as string[];
-
-  const chartData = mockDailySales.map(d => ({
-    day: d.day,
-    value: d.projected ? undefined : d.value,
-    projected: d.projected ? d.value : (d === mockDailySales.filter(x => !x.projected).at(-1) ? d.value : undefined),
-  }));
-
-  const decisions = mockAlerts.filter(a => !a.read && a.suggestion).slice(0, 3);
+  const highlights: string[] = [];
+  if (salesTotal !== null) {
+    highlights.push(`Llevás vendido ${formatCurrency(salesTotal)} según tus datos cargados.`);
+  }
+  if (gastosTotal !== null && salesTotal !== null) {
+    const net = salesTotal - gastosTotal;
+    highlights.push(`Resultado neto: ${formatCurrency(net)} (ventas menos gastos registrados).`);
+  }
+  if (realClientes.length > 0) {
+    highlights.push(`Tenés ${realClientes.length} clientes cargados en la plataforma.`);
+  }
+  if (realStock.length > 0) {
+    highlights.push(`Tu inventario tiene ${realStock.length} productos registrados.`);
+  }
+  if (!hasData) {
+    highlights.push('Cargá tus archivos en "Carga de datos" para ver tus métricas reales.');
+  }
 
   const visibleHealth = healthDimensions.filter(d => {
     if (d.key === 'stock' && !showStock) return false;
     if (d.key === 'marketing' && !showAds) return false;
     return true;
   });
+
+  // Build sales chart from real data if available
+  const salesChartData = (() => {
+    if (!hasData || realVentas.length === 0) return [];
+    const map = new Map<string, number>();
+    for (const r of realVentas) {
+      const raw: string = r.fecha || r.date || '';
+      if (!raw) continue;
+      let key = raw;
+      const d = new Date(raw);
+      if (!isNaN(d.getTime())) {
+        key = d.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit' });
+      }
+      const amt = parseFloat(r.monto || r.total || r.amount || r.valor || r.importe || 0) || 0;
+      map.set(key, (map.get(key) || 0) + amt);
+    }
+    return Array.from(map.entries())
+      .slice(-30)
+      .map(([day, value]) => ({ day, value }));
+  })();
 
   return (
     <TooltipProvider>
@@ -172,9 +204,11 @@ export default function Dashboard() {
         </Stagger>
 
         {/* Ticker */}
-        <Stagger index={2}>
-          <TickerBar highlights={highlights} />
-        </Stagger>
+        {highlights.length > 0 && (
+          <Stagger index={2}>
+            <TickerBar highlights={highlights} />
+          </Stagger>
+        )}
 
         {/* Health Radar */}
         <Stagger index={3}>
@@ -195,7 +229,7 @@ export default function Dashboard() {
           </div>
         </Stagger>
 
-        {/* Compact KPIs */}
+        {/* KPIs */}
         <Stagger index={4}>
           <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
             <Link to="/ventas">
@@ -203,17 +237,15 @@ export default function Dashboard() {
                 <CardContent className="p-4">
                   <div className="flex items-center gap-1.5 text-muted-foreground mb-2">
                     <ShoppingCart className="h-3.5 w-3.5" />
-                    <span className="text-xs font-medium">Ventas del Mes</span>
+                    <span className="text-xs font-medium">Ventas cargadas</span>
                   </div>
-                  <p className="kpi-value">{formatCurrency(useSales)}</p>
-                  {!hasData && (
-                    <div className="flex items-center gap-2 mt-2">
-                      <Progress value={mockSalesCurrentMonth.progressPercent} className="h-1.5 flex-1" />
-                      <span className="text-[11px] text-muted-foreground tabular-nums">{mockSalesCurrentMonth.progressPercent}%</span>
-                    </div>
-                  )}
-                  {hasData && realVentas.length > 0 && (
-                    <p className="text-[11px] text-muted-foreground mt-1">{realVentas.length} transacciones cargadas</p>
+                  {salesTotal !== null ? (
+                    <>
+                      <p className="kpi-value">{formatCurrency(salesTotal)}</p>
+                      <p className="text-[11px] text-muted-foreground mt-1">{realVentas.length} transacciones</p>
+                    </>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">Sin datos</p>
                   )}
                 </CardContent>
               </Card>
@@ -224,16 +256,16 @@ export default function Dashboard() {
                 <CardContent className="p-4">
                   <div className="flex items-center gap-1.5 text-muted-foreground mb-2">
                     <Wallet className="h-3.5 w-3.5" />
-                    <span className="text-xs font-medium">Ganancia</span>
-                    <Tooltip>
-                      <TooltipTrigger asChild><span className="text-[10px] cursor-help">ⓘ</span></TooltipTrigger>
-                      <TooltipContent><p className="text-xs">Ventas - Costos variables - Costos fijos</p></TooltipContent>
-                    </Tooltip>
+                    <span className="text-xs font-medium">Gastos cargados</span>
                   </div>
-                  <p className="kpi-value">{formatCurrency(mockProfit.netProfit)}</p>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Margen: <span className="font-semibold text-foreground">{formatPercent(mockProfit.marginPercent)}</span>
-                  </p>
+                  {gastosTotal !== null ? (
+                    <>
+                      <p className="kpi-value">{formatCurrency(gastosTotal)}</p>
+                      <p className="text-[11px] text-muted-foreground mt-1">{realGastos.length} registros</p>
+                    </>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">Sin datos</p>
+                  )}
                 </CardContent>
               </Card>
             </Link>
@@ -243,16 +275,18 @@ export default function Dashboard() {
                 <CardContent className="p-4">
                   <div className="flex items-center gap-1.5 text-muted-foreground mb-2">
                     <DollarSign className="h-3.5 w-3.5" />
-                    <span className="text-xs font-medium">Flujo de Caja</span>
+                    <span className="text-xs font-medium">Resultado neto</span>
                   </div>
-                  <p className="kpi-value">{formatCurrency(mockCashFlow.availableToday)}</p>
-                  <p className="text-[11px] text-muted-foreground mt-1">Disponible hoy</p>
-                  <div className={`mt-2 rounded-lg px-2 py-1.5 text-[11px] flex items-center gap-1 ${
-                    mockCashFlow.status === 'warning' ? 'bg-warning/10 text-warning' : 'bg-destructive/10 text-destructive'
-                  }`}>
-                    <AlertTriangle className="h-3 w-3 shrink-0" />
-                    Fin de mes: {formatCurrency(mockCashFlow.estimatedEndOfMonth)}
-                  </div>
+                  {salesTotal !== null && gastosTotal !== null ? (
+                    <>
+                      <p className={`kpi-value ${salesTotal - gastosTotal >= 0 ? 'text-success' : 'text-destructive'}`}>
+                        {formatCurrency(salesTotal - gastosTotal)}
+                      </p>
+                      <p className="text-[11px] text-muted-foreground mt-1">Ventas − Gastos</p>
+                    </>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">Sin datos</p>
+                  )}
                 </CardContent>
               </Card>
             </Link>
@@ -263,17 +297,16 @@ export default function Dashboard() {
                   <CardContent className="p-4">
                     <div className="flex items-center gap-1.5 text-muted-foreground mb-2">
                       <Megaphone className="h-3.5 w-3.5" />
-                      <span className="text-xs font-medium">Ads</span>
-                      <Tooltip>
-                        <TooltipTrigger asChild><span className="text-[10px] cursor-help">ⓘ</span></TooltipTrigger>
-                        <TooltipContent><p className="text-xs">ROAS = Ingresos / Gasto en publicidad</p></TooltipContent>
-                      </Tooltip>
+                      <span className="text-xs font-medium">Marketing</span>
                     </div>
-                    <p className="kpi-value">{formatCurrency(mockAds.totalSpend)}</p>
-                    <p className="text-xs mt-1">ROAS: <span className="font-bold text-success">{mockAds.roas}x</span></p>
-                    <p className="text-[11px] text-success mt-0.5 flex items-center gap-0.5">
-                      <TrendingUp className="h-3 w-3" /> +15.6% vs mes anterior
-                    </p>
+                    {marketingSpend !== null ? (
+                      <>
+                        <p className="kpi-value">{formatCurrency(marketingSpend)}</p>
+                        <p className="text-[11px] text-muted-foreground mt-1">gasto en publicidad</p>
+                      </>
+                    ) : (
+                      <p className="text-sm text-muted-foreground">Sin datos</p>
+                    )}
                   </CardContent>
                 </Card>
               </Link>
@@ -281,125 +314,96 @@ export default function Dashboard() {
           </div>
         </Stagger>
 
-        {/* Sales Chart */}
-        <Stagger index={5}>
-          <Card>
-            <CardHeader className="pb-1">
-              <CardTitle className="text-sm font-semibold text-muted-foreground">Ventas diarias — Marzo 2026</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="h-56">
-                <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={chartData}>
-                    <defs>
-                      <linearGradient id="salesGrad" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor="hsl(var(--primary))" stopOpacity={0.25} />
-                        <stop offset="100%" stopColor="hsl(var(--primary))" stopOpacity={0} />
-                      </linearGradient>
-                      <linearGradient id="projGrad" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor="hsl(var(--primary))" stopOpacity={0.08} />
-                        <stop offset="100%" stopColor="hsl(var(--primary))" stopOpacity={0} />
-                      </linearGradient>
-                    </defs>
-                    <XAxis dataKey="day" tick={{ fontSize: 11 }} axisLine={false} tickLine={false} />
-                    <YAxis tick={{ fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={(v) => `$${(v/1000).toFixed(0)}k`} />
-                    <RTooltip formatter={(v: number) => formatCurrency(v)} />
-                    <Area type="monotone" dataKey="value" stroke="hsl(var(--primary))" fill="url(#salesGrad)" strokeWidth={2.5} connectNulls={false} />
-                    <Area type="monotone" dataKey="projected" stroke="hsl(var(--primary))" fill="url(#projGrad)" strokeWidth={2} strokeDasharray="6 4" connectNulls={false} />
-                  </AreaChart>
-                </ResponsiveContainer>
-              </div>
-              <div className="flex gap-4 mt-2 text-xs text-muted-foreground">
-                <span className="flex items-center gap-1.5"><span className="w-5 h-0.5 bg-primary rounded inline-block" /> Real</span>
-                <span className="flex items-center gap-1.5"><span className="w-5 h-0.5 inline-block" style={{ borderTop: '2px dashed hsl(var(--primary))', height: 0 }} /> Proyección</span>
-              </div>
-            </CardContent>
-          </Card>
-        </Stagger>
-
-        {/* Decisions of the day + Stock */}
-        <div className="grid gap-3 md:grid-cols-2">
-          <Stagger index={6}>
-            <Card className="h-full">
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-semibold flex items-center gap-2">
-                  <span className="h-5 w-5 rounded-full bg-primary/10 flex items-center justify-center">
-                    <ArrowRight className="h-3 w-3 text-primary" />
-                  </span>
-                  Hoy deberías...
-                </CardTitle>
+        {/* Sales Chart — only if there's real data */}
+        {salesChartData.length >= 2 && (
+          <Stagger index={5}>
+            <Card>
+              <CardHeader className="pb-1">
+                <CardTitle className="text-sm font-semibold text-muted-foreground">Ventas por fecha</CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="space-y-2.5">
-                  {decisions.map((alert) => (
-                    <div key={alert.id} className={`text-sm p-3 rounded-lg border-l-4 ${
-                      alert.priority === 'high' ? 'border-l-destructive bg-destructive/[0.04]' :
-                      alert.priority === 'medium' ? 'border-l-warning bg-warning/[0.04]' :
-                      'border-l-primary bg-primary/[0.04]'
-                    }`}>
-                      <p className="text-[13px] leading-snug">{alert.suggestion}</p>
-                      <p className="text-[11px] text-muted-foreground mt-1 italic">{alert.message}</p>
-                    </div>
-                  ))}
+                <div className="h-56">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart data={salesChartData}>
+                      <defs>
+                        <linearGradient id="salesGrad" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor="hsl(var(--primary))" stopOpacity={0.25} />
+                          <stop offset="100%" stopColor="hsl(var(--primary))" stopOpacity={0} />
+                        </linearGradient>
+                      </defs>
+                      <XAxis dataKey="day" tick={{ fontSize: 11 }} axisLine={false} tickLine={false} />
+                      <YAxis tick={{ fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`} />
+                      <RTooltip formatter={(v: number) => formatCurrency(v)} />
+                      <Area type="monotone" dataKey="value" stroke="hsl(var(--primary))" fill="url(#salesGrad)" strokeWidth={2.5} />
+                    </AreaChart>
+                  </ResponsiveContainer>
                 </div>
-                <Link to="/alertas" className="text-xs text-primary hover:underline mt-3 inline-flex items-center gap-1">
-                  Ver todas las alertas <ArrowRight className="h-3 w-3" />
+              </CardContent>
+            </Card>
+          </Stagger>
+        )}
+
+        {/* Empty CTA — only shown when no data at all */}
+        {!hasData && !dataLoading && (
+          <Stagger index={5}>
+            <Card className="border-dashed">
+              <CardContent className="flex flex-col items-center justify-center py-10 gap-4 text-center">
+                <Upload className="h-10 w-10 text-muted-foreground/30" />
+                <div>
+                  <p className="font-medium">Cargá tus primeros archivos</p>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    Subí tus Excel de ventas, PDFs de facturas, CSVs de stock o cualquier reporte de tu empresa.
+                    La plataforma los procesa automáticamente con IA.
+                  </p>
+                </div>
+                <Link to="/carga-datos">
+                  <Button className="flex items-center gap-2">
+                    <Upload className="h-4 w-4" />
+                    Ir a Carga de datos
+                  </Button>
                 </Link>
               </CardContent>
             </Card>
           </Stagger>
+        )}
 
-          <Stagger index={7}>
-            <div className="grid gap-3 grid-rows-2 h-full">
-              {showStock && (
+        {/* Stock + Clientes summary */}
+        {hasData && (realStock.length > 0 || realClientes.length > 0) && (
+          <div className="grid gap-3 md:grid-cols-2">
+            {showStock && realStock.length > 0 && (
+              <Stagger index={6}>
                 <Link to="/stock">
                   <Card className="module-border-stock hover:shadow-lg transition-all cursor-pointer h-full">
                     <CardContent className="p-4">
                       <div className="flex items-center gap-1.5 text-muted-foreground mb-2">
                         <Package className="h-3.5 w-3.5" />
-                        <span className="text-xs font-semibold">Stock Crítico</span>
+                        <span className="text-xs font-semibold">Inventario</span>
                       </div>
-                      {hasData && realStock.length > 0 ? (
-                        <p className="text-sm text-muted-foreground">{realStock.length} productos en tu inventario</p>
-                      ) : (
-                        <div className="space-y-1.5">
-                          {mockProducts.filter(p => p.status !== 'ok').slice(0, 3).map((p) => (
-                            <div key={p.id} className="flex items-center justify-between text-[13px]">
-                              <span className="truncate flex-1">{p.name}</span>
-                              <span className="tabular-nums mx-2 text-muted-foreground">{p.stock} uds</span>
-                              <Badge className={`text-[10px] h-5 ${p.status === 'low' ? 'bg-destructive/15 text-destructive border-0' : 'bg-warning/15 text-warning border-0'}`}>
-                                {p.status === 'low' ? 'Faltante' : 'Sobrestock'}
-                              </Badge>
-                            </div>
-                          ))}
-                        </div>
-                      )}
+                      <p className="text-sm">{realStock.length} productos cargados</p>
+                      <p className="text-xs text-muted-foreground mt-1">Ver detalle en Stock →</p>
                     </CardContent>
                   </Card>
                 </Link>
-              )}
-
-              <Link to="/clientes">
-                <Card className="module-border-clientes hover:shadow-lg transition-all cursor-pointer h-full">
-                  <CardContent className="p-4">
-                    <div className="flex items-center gap-1.5 text-muted-foreground mb-2">
-                      <Users className="h-3.5 w-3.5" />
-                      <span className="text-xs font-semibold">Clientes Top</span>
-                    </div>
-                    <div className="space-y-1.5">
-                      {mockClients.slice(0, 3).map(c => (
-                        <div key={c.id} className="flex items-center justify-between text-[13px]">
-                          <span className="truncate flex-1">{c.name}</span>
-                          <span className="tabular-nums text-muted-foreground">{formatCurrency(c.totalPurchases)}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </CardContent>
-                </Card>
-              </Link>
-            </div>
-          </Stagger>
-        </div>
+              </Stagger>
+            )}
+            {realClientes.length > 0 && (
+              <Stagger index={7}>
+                <Link to="/clientes">
+                  <Card className="module-border-clientes hover:shadow-lg transition-all cursor-pointer h-full">
+                    <CardContent className="p-4">
+                      <div className="flex items-center gap-1.5 text-muted-foreground mb-2">
+                        <Users className="h-3.5 w-3.5" />
+                        <span className="text-xs font-semibold">Clientes</span>
+                      </div>
+                      <p className="text-sm">{realClientes.length} clientes cargados</p>
+                      <p className="text-xs text-muted-foreground mt-1">Ver detalle en Clientes →</p>
+                    </CardContent>
+                  </Card>
+                </Link>
+              </Stagger>
+            )}
+          </div>
+        )}
       </div>
     </TooltipProvider>
   );

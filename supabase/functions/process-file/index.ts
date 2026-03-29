@@ -233,6 +233,11 @@ async function processChunksLimited(
     const chunkMeta = { ...metadata, chunk_index: chunk.index, total_chunks: chunks.length };
     const result = await extractWithAI(chunk.content, fileName, undefined, undefined, chunkMeta);
 
+    await sb.from("file_extracted_data")
+      .delete()
+      .eq("file_upload_id", fileUploadId)
+      .eq("chunk_index", chunk.index);
+
     await sb.from("file_extracted_data").insert({
       file_upload_id: fileUploadId,
       company_id: companyId,
@@ -306,7 +311,7 @@ serve(async (req) => {
         const r = await processChunksLimited(sb, chunks, file_name, fileUploadId, companyId, processingMetadata, startChunk);
         if (!r.allDone) {
           // Re-queue for next invocation
-          await sb.from("file_uploads").update({ status: "queued", processing_error: null }).eq("id", fileUploadId);
+          await sb.from("file_uploads").update({ status: "queued", processing_error: null, next_chunk_index: r.processedUpTo }).eq("id", fileUploadId);
           return new Response(JSON.stringify({ success: true, partial: true, processedUpTo: r.processedUpTo }), {
             headers: { ...corsHeaders, "Content-Type": "application/json" },
           });
@@ -340,7 +345,7 @@ serve(async (req) => {
           const chunks = rowChunks.map((rows, i) => ({ content: JSON.stringify(rows), index: i }));
           const r = await processChunksLimited(sb, chunks, file_name, fileUploadId, companyId, processingMetadata, startChunk);
           if (!r.allDone) {
-            await sb.from("file_uploads").update({ status: "queued", processing_error: null }).eq("id", fileUploadId);
+            await sb.from("file_uploads").update({ status: "queued", processing_error: null, next_chunk_index: r.processedUpTo }).eq("id", fileUploadId);
             return new Response(JSON.stringify({ success: true, partial: true, processedUpTo: r.processedUpTo }), {
               headers: { ...corsHeaders, "Content-Type": "application/json" },
             });
@@ -408,7 +413,7 @@ serve(async (req) => {
             }));
             const r = await processChunksLimited(sb, chunks, file_name, fileUploadId, companyId, processingMetadata, startChunk);
             if (!r.allDone) {
-              await sb.from("file_uploads").update({ status: "queued", processing_error: null }).eq("id", fileUploadId);
+              await sb.from("file_uploads").update({ status: "queued", processing_error: null, next_chunk_index: r.processedUpTo }).eq("id", fileUploadId);
               return new Response(JSON.stringify({ success: true, partial: true, processedUpTo: r.processedUpTo }), {
                 headers: { ...corsHeaders, "Content-Type": "application/json" },
               });
@@ -494,7 +499,7 @@ serve(async (req) => {
           const chunks = rowChunks.map((rows, i) => ({ content: JSON.stringify(rows), index: i }));
           const r = await processChunksLimited(sb, chunks, file_name, fileUploadId, companyId, processingMetadata, startChunk);
           if (!r.allDone) {
-            await sb.from("file_uploads").update({ status: "queued", processing_error: null }).eq("id", fileUploadId);
+            await sb.from("file_uploads").update({ status: "queued", processing_error: null, next_chunk_index: r.processedUpTo }).eq("id", fileUploadId);
             return new Response(JSON.stringify({ success: true, partial: true, processedUpTo: r.processedUpTo }), {
               headers: { ...corsHeaders, "Content-Type": "application/json" },
             });

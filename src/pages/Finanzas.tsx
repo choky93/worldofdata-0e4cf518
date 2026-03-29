@@ -2,15 +2,16 @@ import { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { formatCurrency, formatDate } from '@/lib/formatters';
-import { mockFinancial, mockCashFlow, mockExpenses } from '@/lib/mock-data';
+import { useExtractedData } from '@/hooks/useExtractedData';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip';
-import { HelpCircle, Plus, ArrowDownCircle, ArrowUpCircle, Trash2, BookOpen } from 'lucide-react';
+import { HelpCircle, Plus, ArrowDownCircle, ArrowUpCircle, Trash2, BookOpen, Upload, Database } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { Link } from 'react-router-dom';
 
 interface LedgerEntry {
   id: string;
@@ -21,20 +22,34 @@ interface LedgerEntry {
   date: string;
 }
 
-const mockLedger: LedgerEntry[] = [
-  { id: '1', type: 'ingreso', amount: 85000, category: 'Venta sin factura', note: 'Venta directa filamentos a particular', date: '2026-03-18' },
-  { id: '2', type: 'egreso', amount: 12000, category: 'Gastos varios', note: 'Envíos informales', date: '2026-03-17' },
-  { id: '3', type: 'ingreso', amount: 45000, category: 'Cobro pendiente', note: 'Cobro parcial Dental3D (no facturado)', date: '2026-03-15' },
-  { id: '4', type: 'egreso', amount: 28000, category: 'Mantenimiento', note: 'Reparación impresora del taller', date: '2026-03-14' },
-  { id: '5', type: 'ingreso', amount: 120000, category: 'Servicio', note: 'Impresión piezas custom (pago en efectivo)', date: '2026-03-12' },
-  { id: '6', type: 'egreso', amount: 55000, category: 'Proveedor', note: 'Compra insumos mercado informal', date: '2026-03-10' },
-];
-
 const CATEGORIES_INGRESO = ['Venta sin factura', 'Cobro pendiente', 'Servicio', 'Otro'];
 const CATEGORIES_EGRESO = ['Gastos varios', 'Mantenimiento', 'Proveedor', 'Sueldos informales', 'Otro'];
 
+interface ExpenseRow {
+  name: string;
+  amount: number;
+  dueDate: string;
+  status: 'paid' | 'pending' | 'overdue';
+}
+
+function normalizeExpenses(rows: any[]): ExpenseRow[] {
+  return rows.map((r: any) => {
+    const statusRaw = (r.estado || r.status || '').toLowerCase();
+    let status: 'paid' | 'pending' | 'overdue' = 'pending';
+    if (statusRaw === 'pagado' || statusRaw === 'paid') status = 'paid';
+    else if (statusRaw === 'vencido' || statusRaw === 'overdue') status = 'overdue';
+    return {
+      name: r.concepto || r.nombre || r.descripcion || r.name || r.gasto || 'Gasto',
+      amount: parseFloat(r.monto || r.importe || r.amount || r.total || 0) || 0,
+      dueDate: r.vencimiento || r.fecha_vencimiento || r.fecha || r.due_date || '',
+      status,
+    };
+  });
+}
+
 export default function Finanzas() {
-  const [ledger, setLedger] = useState<LedgerEntry[]>(mockLedger);
+  const { data: extractedData, hasData } = useExtractedData();
+  const [ledger, setLedger] = useState<LedgerEntry[]>([]);
   const [showForm, setShowForm] = useState(false);
   const [formType, setFormType] = useState<'ingreso' | 'egreso'>('ingreso');
   const [formAmount, setFormAmount] = useState('');
@@ -64,10 +79,38 @@ export default function Finanzas() {
 
   const removeEntry = (id: string) => setLedger(ledger.filter(e => e.id !== id));
 
+  // Derive financial data from extracted records
+  const realVentas = extractedData?.ventas || [];
+  const realGastos = extractedData?.gastos || [];
+  const realFacturas = extractedData?.facturas || [];
+
+  const totalVentasReal = realVentas.reduce((s: number, r: any) =>
+    s + (parseFloat(r.monto || r.total || r.amount || r.valor || r.importe || 0) || 0), 0);
+  const totalGastosReal = realGastos.reduce((s: number, r: any) =>
+    s + (parseFloat(r.monto || r.total || r.amount || r.importe || 0) || 0), 0);
+  const totalFacturasReal = realFacturas.reduce((s: number, r: any) =>
+    s + (parseFloat(r.monto || r.total || r.amount || r.importe || 0) || 0), 0);
+
+  const hasFinancialData = hasData && (realVentas.length > 0 || realGastos.length > 0 || realFacturas.length > 0);
+  const expenses: ExpenseRow[] = hasData && realGastos.length > 0 ? normalizeExpenses(realGastos) : [];
+
   return (
     <TooltipProvider>
       <div className="space-y-6 max-w-7xl">
-        <h1 className="text-2xl font-bold tracking-tight">Finanzas</h1>
+        <div className="flex items-center justify-between">
+          <h1 className="text-2xl font-bold tracking-tight">Finanzas</h1>
+          {hasFinancialData ? (
+            <div className="flex items-center gap-1.5 text-xs text-success bg-success/10 rounded-lg px-3 py-1.5 border border-success/20">
+              <Database className="h-3.5 w-3.5" />
+              Datos reales cargados
+            </div>
+          ) : (
+            <Link to="/carga-datos" className="flex items-center gap-1.5 text-xs text-muted-foreground bg-muted rounded-lg px-3 py-1.5 border border-border hover:text-primary transition-colors">
+              <Upload className="h-3.5 w-3.5" />
+              Cargá tus archivos financieros
+            </Link>
+          )}
+        </div>
 
         <Tabs defaultValue="comparativa">
           <TabsList>
@@ -82,63 +125,70 @@ export default function Finanzas() {
 
           {/* ─── Comparativa ──────────────────────────────── */}
           <TabsContent value="comparativa" className="mt-4">
-            <div className="grid gap-4 md:grid-cols-2">
-              <Card className="module-border-finanzas">
-                <CardHeader>
-                  <CardTitle className="text-sm flex items-center gap-1">
-                    Presupuesto Financiero (Devengado)
-                    <Tooltip><TooltipTrigger asChild><HelpCircle className="h-3.5 w-3.5 text-muted-foreground" /></TooltipTrigger>
-                    <TooltipContent className="max-w-xs"><p className="text-xs">Lo que se GENERÓ comercialmente. Ej: vendiste $1.300 en 3 cuotas → registra $1.300 como venta.</p></TooltipContent></Tooltip>
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  <Row label="Ventas totales" value={mockFinancial.financial.totalSales} />
-                  <Row label="Costos totales" value={-mockFinancial.financial.totalCosts} negative />
-                  <div className="border-t pt-2">
-                    <Row label="Resultado neto" value={mockFinancial.financial.netResult} bold />
-                  </div>
-                </CardContent>
-              </Card>
+            {hasFinancialData ? (
+              <div className="grid gap-4 md:grid-cols-2">
+                <Card className="module-border-finanzas">
+                  <CardHeader>
+                    <CardTitle className="text-sm flex items-center gap-1">
+                      Ingresos (Ventas)
+                      <Tooltip><TooltipTrigger asChild><HelpCircle className="h-3.5 w-3.5 text-muted-foreground" /></TooltipTrigger>
+                      <TooltipContent className="max-w-xs"><p className="text-xs">Total acumulado de registros de ventas cargados.</p></TooltipContent></Tooltip>
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    <Row label="Total ventas" value={totalVentasReal} />
+                    {totalFacturasReal > 0 && <Row label="Total facturas" value={totalFacturasReal} />}
+                    <Row label="Registros" value={realVentas.length + realFacturas.length} isCount />
+                  </CardContent>
+                </Card>
 
-              <Card className="module-border-finanzas">
-                <CardHeader>
-                  <CardTitle className="text-sm flex items-center gap-1">
-                    Presupuesto Económico (Caja)
-                    <Tooltip><TooltipTrigger asChild><HelpCircle className="h-3.5 w-3.5 text-muted-foreground" /></TooltipTrigger>
-                    <TooltipContent className="max-w-xs"><p className="text-xs">Lo que EFECTIVAMENTE entró y salió. Ej: de $1.300 en cuotas, solo cobraste $400 este mes.</p></TooltipContent></Tooltip>
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  <Row label="Ingresos efectivos" value={mockFinancial.economic.totalIncome} />
-                  <Row label="Egresos efectivos" value={-mockFinancial.economic.totalExpenses} negative />
-                  <div className="border-t pt-2">
-                    <Row label="Flujo neto" value={mockFinancial.economic.netCash} bold />
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
+                <Card className="module-border-finanzas">
+                  <CardHeader>
+                    <CardTitle className="text-sm flex items-center gap-1">
+                      Egresos (Gastos)
+                      <Tooltip><TooltipTrigger asChild><HelpCircle className="h-3.5 w-3.5 text-muted-foreground" /></TooltipTrigger>
+                      <TooltipContent className="max-w-xs"><p className="text-xs">Total acumulado de registros de gastos cargados.</p></TooltipContent></Tooltip>
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    <Row label="Total gastos" value={totalGastosReal} />
+                    <Row label="Registros" value={realGastos.length} isCount />
+                  </CardContent>
+                </Card>
 
-            <Card className="mt-4">
-              <CardContent className="pt-6">
-                <p className="text-sm text-muted-foreground mb-2">Diferencia entre devengado y caja</p>
-                <p className="kpi-value">
-                  {formatCurrency(mockFinancial.financial.netResult - mockFinancial.economic.netCash)}
-                </p>
-                <p className="text-xs text-muted-foreground mt-1">Plata que generaste pero todavía no cobraste</p>
-              </CardContent>
-            </Card>
+                {totalVentasReal > 0 && (
+                  <Card className="md:col-span-2">
+                    <CardContent className="pt-6">
+                      <p className="text-sm text-muted-foreground mb-2">Resultado neto (Ventas − Gastos)</p>
+                      <p className={`kpi-value ${totalVentasReal - totalGastosReal >= 0 ? 'text-success' : 'text-destructive'}`}>
+                        {formatCurrency(totalVentasReal - totalGastosReal)}
+                      </p>
+                    </CardContent>
+                  </Card>
+                )}
+              </div>
+            ) : (
+              <div className="flex flex-col items-center justify-center py-16 gap-4 text-center">
+                <p className="text-muted-foreground">Sin datos financieros cargados.</p>
+                <Link to="/carga-datos">
+                  <Button variant="outline" size="sm" className="flex items-center gap-2">
+                    <Upload className="h-4 w-4" />
+                    Cargar archivos de ventas y gastos
+                  </Button>
+                </Link>
+              </div>
+            )}
           </TabsContent>
 
           <TabsContent value="financiero" className="mt-4">
-            <Card><CardContent className="pt-6 text-center text-muted-foreground">Vista detallada del presupuesto financiero — próximamente con datos reales</CardContent></Card>
+            <Card><CardContent className="pt-6 text-center text-muted-foreground">Vista detallada del presupuesto financiero — disponible cuando cargues archivos con datos de ventas</CardContent></Card>
           </TabsContent>
           <TabsContent value="economico" className="mt-4">
-            <Card><CardContent className="pt-6 text-center text-muted-foreground">Vista detallada del presupuesto económico — próximamente con datos reales</CardContent></Card>
+            <Card><CardContent className="pt-6 text-center text-muted-foreground">Vista detallada del presupuesto económico — disponible cuando cargues archivos con datos de caja</CardContent></Card>
           </TabsContent>
 
           {/* ─── Bitácora Operativa ───────────────────────── */}
           <TabsContent value="bitacora" className="mt-4 space-y-4">
-            {/* Summary cards */}
             <div className="grid gap-3 grid-cols-3">
               <Card>
                 <CardContent className="p-4">
@@ -166,7 +216,6 @@ export default function Finanzas() {
               </Card>
             </div>
 
-            {/* Info banner */}
             <div className="bg-primary/[0.05] border border-primary/10 rounded-xl px-4 py-3 flex items-start gap-3">
               <BookOpen className="h-4 w-4 text-primary mt-0.5 shrink-0" />
               <div>
@@ -177,7 +226,6 @@ export default function Finanzas() {
               </div>
             </div>
 
-            {/* Add button / Form */}
             <div className="flex justify-end">
               <Button onClick={() => setShowForm(!showForm)} variant={showForm ? 'secondary' : 'default'} size="sm">
                 <Plus className="h-4 w-4 mr-1" />
@@ -237,43 +285,46 @@ export default function Finanzas() {
               )}
             </AnimatePresence>
 
-            {/* Ledger table */}
             <Card>
               <CardContent className="pt-5">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Tipo</TableHead>
-                      <TableHead>Categoría</TableHead>
-                      <TableHead>Nota</TableHead>
-                      <TableHead>Fecha</TableHead>
-                      <TableHead className="text-right">Monto</TableHead>
-                      <TableHead className="w-10"></TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {ledger.map((entry) => (
-                      <TableRow key={entry.id}>
-                        <TableCell>
-                          <Badge className={`border-0 text-[11px] ${entry.type === 'ingreso' ? 'bg-success/15 text-success' : 'bg-destructive/15 text-destructive'}`}>
-                            {entry.type === 'ingreso' ? '↓ Ingreso' : '↑ Egreso'}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="text-sm">{entry.category}</TableCell>
-                        <TableCell className="text-sm text-muted-foreground max-w-[200px] truncate">{entry.note}</TableCell>
-                        <TableCell className="text-sm tabular-nums">{formatDate(entry.date)}</TableCell>
-                        <TableCell className={`text-right font-semibold tabular-nums ${entry.type === 'ingreso' ? 'text-success' : 'text-destructive'}`}>
-                          {entry.type === 'egreso' ? '-' : '+'}{formatCurrency(entry.amount)}
-                        </TableCell>
-                        <TableCell>
-                          <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive" onClick={() => removeEntry(entry.id)}>
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </Button>
-                        </TableCell>
+                {ledger.length === 0 ? (
+                  <p className="text-center text-muted-foreground text-sm py-6">No hay registros todavía. Usá el botón "Nuevo registro" para agregar.</p>
+                ) : (
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Tipo</TableHead>
+                        <TableHead>Categoría</TableHead>
+                        <TableHead>Nota</TableHead>
+                        <TableHead>Fecha</TableHead>
+                        <TableHead className="text-right">Monto</TableHead>
+                        <TableHead className="w-10"></TableHead>
                       </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
+                    </TableHeader>
+                    <TableBody>
+                      {ledger.map((entry) => (
+                        <TableRow key={entry.id}>
+                          <TableCell>
+                            <Badge className={`border-0 text-[11px] ${entry.type === 'ingreso' ? 'bg-success/15 text-success' : 'bg-destructive/15 text-destructive'}`}>
+                              {entry.type === 'ingreso' ? '↓ Ingreso' : '↑ Egreso'}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="text-sm">{entry.category}</TableCell>
+                          <TableCell className="text-sm text-muted-foreground max-w-[200px] truncate">{entry.note}</TableCell>
+                          <TableCell className="text-sm tabular-nums">{formatDate(entry.date)}</TableCell>
+                          <TableCell className={`text-right font-semibold tabular-nums ${entry.type === 'ingreso' ? 'text-success' : 'text-destructive'}`}>
+                            {entry.type === 'egreso' ? '-' : '+'}{formatCurrency(entry.amount)}
+                          </TableCell>
+                          <TableCell>
+                            <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive" onClick={() => removeEntry(entry.id)}>
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                )}
               </CardContent>
             </Card>
           </TabsContent>
@@ -281,27 +332,44 @@ export default function Finanzas() {
 
         {/* Gastos del mes */}
         <Card>
-          <CardHeader><CardTitle className="text-sm text-muted-foreground">Gastos del mes</CardTitle></CardHeader>
+          <CardHeader>
+            <CardTitle className="text-sm text-muted-foreground">
+              Gastos cargados {expenses.length > 0 && `(${expenses.length} registros)`}
+            </CardTitle>
+          </CardHeader>
           <CardContent>
-            <Table>
-              <TableHeader><TableRow>
-                <TableHead>Concepto</TableHead><TableHead>Vencimiento</TableHead><TableHead>Estado</TableHead><TableHead className="text-right">Monto</TableHead>
-              </TableRow></TableHeader>
-              <TableBody>
-                {mockExpenses.map((e, i) => (
-                  <TableRow key={i}>
-                    <TableCell>{e.name}</TableCell>
-                    <TableCell className="tabular-nums">{formatDate(e.dueDate)}</TableCell>
-                    <TableCell>
-                      <Badge className={`border-0 ${e.status === 'paid' ? 'bg-success/15 text-success' : e.status === 'overdue' ? 'bg-destructive/15 text-destructive' : 'bg-warning/15 text-warning'}`}>
-                        {e.status === 'paid' ? 'Pagado' : e.status === 'overdue' ? 'Vencido' : 'Pendiente'}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="text-right font-medium tabular-nums">{formatCurrency(e.amount)}</TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+            {expenses.length === 0 ? (
+              <div className="text-center py-8 text-muted-foreground text-sm">
+                {hasData
+                  ? 'No se encontraron registros de gastos en los archivos cargados.'
+                  : 'Cargá archivos con gastos, facturas o egresos para verlos acá.'}
+              </div>
+            ) : (
+              <Table>
+                <TableHeader><TableRow>
+                  <TableHead>Concepto</TableHead>
+                  <TableHead>Vencimiento</TableHead>
+                  <TableHead>Estado</TableHead>
+                  <TableHead className="text-right">Monto</TableHead>
+                </TableRow></TableHeader>
+                <TableBody>
+                  {expenses.map((e, i) => (
+                    <TableRow key={i}>
+                      <TableCell>{e.name}</TableCell>
+                      <TableCell className="tabular-nums">
+                        {e.dueDate ? (() => { try { return formatDate(e.dueDate); } catch { return e.dueDate; } })() : '—'}
+                      </TableCell>
+                      <TableCell>
+                        <Badge className={`border-0 ${e.status === 'paid' ? 'bg-success/15 text-success' : e.status === 'overdue' ? 'bg-destructive/15 text-destructive' : 'bg-warning/15 text-warning'}`}>
+                          {e.status === 'paid' ? 'Pagado' : e.status === 'overdue' ? 'Vencido' : 'Pendiente'}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-right font-medium tabular-nums">{formatCurrency(e.amount)}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
           </CardContent>
         </Card>
       </div>
@@ -309,12 +377,12 @@ export default function Finanzas() {
   );
 }
 
-function Row({ label, value, negative, bold }: { label: string; value: number; negative?: boolean; bold?: boolean }) {
+function Row({ label, value, negative, bold, isCount }: { label: string; value: number; negative?: boolean; bold?: boolean; isCount?: boolean }) {
   return (
     <div className="flex justify-between text-sm">
       <span className={bold ? 'font-semibold' : 'text-muted-foreground'}>{label}</span>
       <span className={`tabular-nums ${bold ? 'font-bold text-lg' : 'font-medium'} ${negative ? 'text-destructive' : ''}`}>
-        {formatCurrency(Math.abs(value))}
+        {isCount ? value : formatCurrency(Math.abs(value))}
       </span>
     </div>
   );

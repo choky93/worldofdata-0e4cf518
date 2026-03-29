@@ -1,81 +1,153 @@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { formatCurrency, formatPercent, formatNumber } from '@/lib/formatters';
-import { mockAds } from '@/lib/mock-data';
+import { useExtractedData } from '@/hooks/useExtractedData';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { TrendingUp } from 'lucide-react';
-import { BarChart, Bar, XAxis, YAxis, Tooltip as RTooltip, ResponsiveContainer, CartesianGrid, Legend, AreaChart, Area } from 'recharts';
+import { TrendingUp, Upload, Database, Loader2, Megaphone } from 'lucide-react';
+import { BarChart, Bar, XAxis, YAxis, Tooltip as RTooltip, ResponsiveContainer, CartesianGrid, Legend } from 'recharts';
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip';
+import { Button } from '@/components/ui/button';
+import { Link } from 'react-router-dom';
+
+interface CampaignRow {
+  name: string;
+  spend: number;
+  revenue: number;
+  roas: number;
+  clicks: number;
+  ctr: number;
+  conversions: number;
+}
+
+function normalizeMarketing(rows: any[]): CampaignRow[] {
+  return rows.map((r: any) => {
+    const spend = parseFloat(r.gasto || r.inversion || r.spend || r.costo || r.importe || 0) || 0;
+    const revenue = parseFloat(r.ingresos || r.revenue || r.ventas || r.retorno || 0) || 0;
+    const roas = spend > 0 ? (revenue > 0 ? revenue / spend : parseFloat(r.roas || 0) || 0) : parseFloat(r.roas || 0) || 0;
+    return {
+      name: r.campaña || r.campana || r.nombre || r.name || r.campaign || 'Campaña',
+      spend,
+      revenue,
+      roas: parseFloat(roas.toFixed(2)),
+      clicks: parseInt(r.clicks || r.clics || 0) || 0,
+      ctr: parseFloat(r.ctr || 0) || 0,
+      conversions: parseInt(r.conversiones || r.conversions || 0) || 0,
+    };
+  });
+}
 
 export default function Marketing() {
+  const { data: extractedData, hasData, loading } = useExtractedData();
+  const realMarketing = extractedData?.marketing || [];
+  const useReal = hasData && realMarketing.length > 0;
+
+  if (loading) {
+    return (
+      <div className="space-y-6 max-w-7xl">
+        <h1 className="text-2xl font-bold">Marketing — Inversión Publicitaria</h1>
+        <div className="flex items-center justify-center py-20 gap-2 text-muted-foreground">
+          <Loader2 className="h-5 w-5 animate-spin" />
+          <span>Cargando datos...</span>
+        </div>
+      </div>
+    );
+  }
+
+  if (!useReal) {
+    return (
+      <TooltipProvider>
+        <div className="space-y-6 max-w-7xl">
+          <h1 className="text-2xl font-bold">Marketing — Inversión Publicitaria</h1>
+          <div className="flex flex-col items-center justify-center py-20 gap-4 text-center">
+            <Megaphone className="h-12 w-12 text-muted-foreground/30" />
+            <div>
+              <p className="text-lg font-medium">Sin datos de marketing</p>
+              <p className="text-muted-foreground mt-1 max-w-md">
+                Cargá reportes de tus campañas de Meta Ads, Google Ads u otras plataformas para ver ROAS, clicks, conversiones y más.
+              </p>
+            </div>
+            <Link to="/carga-datos">
+              <Button className="flex items-center gap-2">
+                <Upload className="h-4 w-4" />
+                Cargar reportes de campañas
+              </Button>
+            </Link>
+          </div>
+        </div>
+      </TooltipProvider>
+    );
+  }
+
+  const campaigns = normalizeMarketing(realMarketing);
+  const totalSpend = campaigns.reduce((s, c) => s + c.spend, 0);
+  const totalRevenue = campaigns.reduce((s, c) => s + c.revenue, 0);
+  const globalRoas = totalSpend > 0 ? totalRevenue / totalSpend : 0;
+  const totalClicks = campaigns.reduce((s, c) => s + c.clicks, 0);
+  const totalConversions = campaigns.reduce((s, c) => s + c.conversions, 0);
+
+  const chartData = campaigns.map(c => ({
+    name: c.name.length > 14 ? c.name.slice(0, 14) + '…' : c.name,
+    gasto: c.spend,
+    ingresos: c.revenue,
+  }));
+
   return (
     <TooltipProvider>
       <div className="space-y-6 max-w-7xl">
-        <h1 className="text-2xl font-bold">Marketing — Inversión Publicitaria</h1>
-        <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 md:grid-cols-3">
+        <div className="flex items-center justify-between">
+          <h1 className="text-2xl font-bold">Marketing — Inversión Publicitaria</h1>
+          <div className="flex items-center gap-1.5 text-xs text-success bg-success/10 rounded-lg px-3 py-1.5 border border-success/20">
+            <Database className="h-3.5 w-3.5" />
+            Datos reales ({campaigns.length} campañas)
+          </div>
+        </div>
+
+        <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 md:grid-cols-4">
           <Card><CardContent className="pt-6">
-            <p className="text-sm text-muted-foreground">Gasto total del mes</p>
-            <p className="text-3xl font-bold tabular-nums">{formatCurrency(mockAds.totalSpend)}</p>
+            <p className="text-sm text-muted-foreground">Gasto total</p>
+            <p className="text-3xl font-bold tabular-nums">{formatCurrency(totalSpend)}</p>
           </CardContent></Card>
           <Card><CardContent className="pt-6">
             <p className="text-sm text-muted-foreground flex items-center gap-1">
               ROAS global
               <Tooltip>
                 <TooltipTrigger asChild><span className="cursor-help">ⓘ</span></TooltipTrigger>
-                <TooltipContent><p className="text-xs">Return On Ad Spend = Ingresos generados / Gasto en publicidad. Un ROAS de 4x significa que por cada $1 invertido generás $4.</p></TooltipContent>
+                <TooltipContent><p className="text-xs">Return On Ad Spend = Ingresos generados / Gasto en publicidad.</p></TooltipContent>
               </Tooltip>
             </p>
-            <p className="text-3xl font-bold text-success">{mockAds.roas}x</p>
+            <p className={`text-3xl font-bold ${globalRoas > 0 ? 'text-success' : ''}`}>
+              {globalRoas > 0 ? `${globalRoas.toFixed(1)}x` : '—'}
+            </p>
           </CardContent></Card>
           <Card><CardContent className="pt-6">
-            <p className="text-sm text-muted-foreground">vs mes anterior</p>
-            <p className="text-xl font-bold flex items-center gap-1"><TrendingUp className="h-4 w-4 text-success" /> +15.6%</p>
+            <p className="text-sm text-muted-foreground">Clicks totales</p>
+            <p className="text-3xl font-bold tabular-nums">{totalClicks > 0 ? formatNumber(totalClicks) : '—'}</p>
+          </CardContent></Card>
+          <Card><CardContent className="pt-6">
+            <p className="text-sm text-muted-foreground">Conversiones</p>
+            <p className="text-3xl font-bold tabular-nums">{totalConversions > 0 ? totalConversions : '—'}</p>
           </CardContent></Card>
         </div>
 
-        {/* Performance chart */}
-        <div className="grid gap-4 lg:grid-cols-2">
+        {chartData.length > 0 && totalRevenue > 0 && (
           <Card>
-            <CardHeader><CardTitle className="text-sm text-muted-foreground">Gasto vs Ingresos (últimos 6 meses)</CardTitle></CardHeader>
+            <CardHeader><CardTitle className="text-sm text-muted-foreground">Gasto vs Ingresos por campaña</CardTitle></CardHeader>
             <CardContent>
               <div className="h-52">
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={mockAds.monthlyPerformance}>
+                  <BarChart data={chartData}>
                     <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                    <XAxis dataKey="month" tick={{ fontSize: 11 }} />
-                    <YAxis tick={{ fontSize: 10 }} tickFormatter={(v) => `$${(v/1000).toFixed(0)}k`} />
+                    <XAxis dataKey="name" tick={{ fontSize: 11 }} />
+                    <YAxis tick={{ fontSize: 10 }} tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`} />
                     <RTooltip formatter={(v: number) => formatCurrency(v)} />
                     <Legend />
-                    <Bar dataKey="spend" name="Gasto" fill="hsl(var(--destructive))" opacity={0.7} radius={[2, 2, 0, 0]} />
-                    <Bar dataKey="revenue" name="Ingresos" fill="hsl(var(--primary))" opacity={0.8} radius={[2, 2, 0, 0]} />
+                    <Bar dataKey="gasto" name="Gasto" fill="hsl(var(--destructive))" opacity={0.7} radius={[2, 2, 0, 0]} />
+                    <Bar dataKey="ingresos" name="Ingresos" fill="hsl(var(--primary))" opacity={0.8} radius={[2, 2, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
               </div>
             </CardContent>
           </Card>
-
-          <Card>
-            <CardHeader><CardTitle className="text-sm text-muted-foreground">Evolución del ROAS</CardTitle></CardHeader>
-            <CardContent>
-              <div className="h-52">
-                <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={mockAds.monthlyPerformance}>
-                    <defs>
-                      <linearGradient id="roasGrad" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="hsl(var(--success))" stopOpacity={0.3} />
-                        <stop offset="95%" stopColor="hsl(var(--success))" stopOpacity={0} />
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                    <XAxis dataKey="month" tick={{ fontSize: 11 }} />
-                    <YAxis tick={{ fontSize: 10 }} tickFormatter={(v) => `${v}x`} domain={[0, 'auto']} />
-                    <RTooltip formatter={(v: number) => `${v}x`} />
-                    <Area type="monotone" dataKey="roas" stroke="hsl(var(--success))" fill="url(#roasGrad)" strokeWidth={2} />
-                  </AreaChart>
-                </ResponsiveContainer>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
+        )}
 
         <Card>
           <CardHeader><CardTitle className="text-sm text-muted-foreground">Desglose por campaña</CardTitle></CardHeader>
@@ -84,38 +156,20 @@ export default function Marketing() {
               <TableHeader><TableRow>
                 <TableHead>Campaña</TableHead>
                 <TableHead className="text-right">Gasto</TableHead>
-                <TableHead className="text-right">Ingresos</TableHead>
-                <TableHead className="text-right">
-                  <span className="flex items-center justify-end gap-1">
-                    ROAS
-                    <Tooltip>
-                      <TooltipTrigger asChild><span className="cursor-help">ⓘ</span></TooltipTrigger>
-                      <TooltipContent><p className="text-xs">Retorno sobre inversión publicitaria</p></TooltipContent>
-                    </Tooltip>
-                  </span>
-                </TableHead>
-                <TableHead className="text-right">Clicks</TableHead>
-                <TableHead className="text-right">
-                  <span className="flex items-center justify-end gap-1">
-                    CTR
-                    <Tooltip>
-                      <TooltipTrigger asChild><span className="cursor-help">ⓘ</span></TooltipTrigger>
-                      <TooltipContent><p className="text-xs">Click-Through Rate: porcentaje de personas que vieron el anuncio y hicieron click</p></TooltipContent>
-                    </Tooltip>
-                  </span>
-                </TableHead>
-                <TableHead className="text-right">Conversiones</TableHead>
+                {totalRevenue > 0 && <TableHead className="text-right">Ingresos</TableHead>}
+                {globalRoas > 0 && <TableHead className="text-right">ROAS</TableHead>}
+                {totalClicks > 0 && <TableHead className="text-right">Clicks</TableHead>}
+                {totalConversions > 0 && <TableHead className="text-right">Conversiones</TableHead>}
               </TableRow></TableHeader>
               <TableBody>
-                {mockAds.campaigns.map((c, i) => (
+                {campaigns.map((c, i) => (
                   <TableRow key={i}>
                     <TableCell className="font-medium">{c.name}</TableCell>
                     <TableCell className="text-right tabular-nums">{formatCurrency(c.spend)}</TableCell>
-                    <TableCell className="text-right tabular-nums">{formatCurrency(c.revenue)}</TableCell>
-                    <TableCell className="text-right font-bold tabular-nums">{c.roas}x</TableCell>
-                    <TableCell className="text-right tabular-nums">{formatNumber(c.clicks)}</TableCell>
-                    <TableCell className="text-right tabular-nums">{formatPercent(c.ctr)}</TableCell>
-                    <TableCell className="text-right tabular-nums">{c.conversions}</TableCell>
+                    {totalRevenue > 0 && <TableCell className="text-right tabular-nums">{formatCurrency(c.revenue)}</TableCell>}
+                    {globalRoas > 0 && <TableCell className="text-right font-bold tabular-nums">{c.roas > 0 ? `${c.roas}x` : '—'}</TableCell>}
+                    {totalClicks > 0 && <TableCell className="text-right tabular-nums">{c.clicks > 0 ? formatNumber(c.clicks) : '—'}</TableCell>}
+                    {totalConversions > 0 && <TableCell className="text-right tabular-nums">{c.conversions || '—'}</TableCell>}
                   </TableRow>
                 ))}
               </TableBody>

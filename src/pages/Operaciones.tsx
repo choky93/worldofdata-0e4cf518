@@ -3,29 +3,124 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { formatCurrency, formatDate } from '@/lib/formatters';
-import { mockOperations } from '@/lib/mock-data';
+import { useExtractedData } from '@/hooks/useExtractedData';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { FileBox, Upload, Loader2, Database } from 'lucide-react';
+import { Link } from 'react-router-dom';
 
 type FilterType = 'all' | 'sale' | 'purchase';
 
+interface OpRow {
+  id: string;
+  type: 'sale' | 'purchase';
+  description: string;
+  amount: number;
+  date: string;
+  counterpart: string;
+  category: string;
+}
+
+function normalizeOps(ventas: any[], gastos: any[]): OpRow[] {
+  const ops: OpRow[] = [];
+
+  ventas.forEach((r: any, i: number) => {
+    ops.push({
+      id: `v-${i}`,
+      type: 'sale',
+      description: r.descripcion || r.detalle || r.producto || r.concepto || 'Venta',
+      amount: parseFloat(r.monto || r.total || r.amount || r.valor || r.importe || 0) || 0,
+      date: r.fecha || r.date || '',
+      counterpart: r.cliente || r.nombre || r.client || '',
+      category: r.categoria || r.category || r.tipo || 'Ventas',
+    });
+  });
+
+  gastos.forEach((r: any, i: number) => {
+    ops.push({
+      id: `g-${i}`,
+      type: 'purchase',
+      description: r.concepto || r.descripcion || r.detalle || r.nombre || 'Gasto',
+      amount: parseFloat(r.monto || r.total || r.amount || r.importe || 0) || 0,
+      date: r.fecha || r.vencimiento || r.date || '',
+      counterpart: r.proveedor || r.supplier || r.nombre || '',
+      category: r.categoria || r.category || r.tipo || 'Gastos',
+    });
+  });
+
+  // Sort by date descending
+  return ops.sort((a, b) => {
+    if (!a.date && !b.date) return 0;
+    if (!a.date) return 1;
+    if (!b.date) return -1;
+    return new Date(b.date).getTime() - new Date(a.date).getTime();
+  });
+}
+
 export default function Operaciones() {
+  const { data: extractedData, hasData, loading } = useExtractedData();
   const [filter, setFilter] = useState<FilterType>('all');
 
-  const filtered = filter === 'all' ? mockOperations : mockOperations.filter(op => op.type === filter);
-  const totalSales = mockOperations.filter(op => op.type === 'sale').reduce((s, op) => s + op.amount, 0);
-  const totalPurchases = mockOperations.filter(op => op.type === 'purchase').reduce((s, op) => s + op.amount, 0);
+  if (loading) {
+    return (
+      <div className="space-y-6 max-w-7xl">
+        <h1 className="text-2xl font-bold">Operaciones</h1>
+        <div className="flex items-center justify-center py-20 gap-2 text-muted-foreground">
+          <Loader2 className="h-5 w-5 animate-spin" />
+          <span>Cargando datos...</span>
+        </div>
+      </div>
+    );
+  }
+
+  const realVentas = extractedData?.ventas || [];
+  const realGastos = extractedData?.gastos || [];
+  const hasOps = hasData && (realVentas.length > 0 || realGastos.length > 0);
+
+  if (!hasOps) {
+    return (
+      <div className="space-y-6 max-w-7xl">
+        <h1 className="text-2xl font-bold">Operaciones</h1>
+        <div className="flex flex-col items-center justify-center py-20 gap-4 text-center">
+          <FileBox className="h-12 w-12 text-muted-foreground/30" />
+          <div>
+            <p className="text-lg font-medium">Sin operaciones cargadas</p>
+            <p className="text-muted-foreground mt-1 max-w-md">
+              Cargá archivos de ventas, compras o gastos para ver el registro completo de operaciones de tu empresa.
+            </p>
+          </div>
+          <Link to="/carga-datos">
+            <Button className="flex items-center gap-2">
+              <Upload className="h-4 w-4" />
+              Cargar archivos
+            </Button>
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
+  const allOps = normalizeOps(realVentas, realGastos);
+  const filtered = filter === 'all' ? allOps : allOps.filter(op => op.type === filter);
+  const totalSales = allOps.filter(op => op.type === 'sale').reduce((s, op) => s + op.amount, 0);
+  const totalPurchases = allOps.filter(op => op.type === 'purchase').reduce((s, op) => s + op.amount, 0);
 
   return (
     <div className="space-y-6 max-w-7xl">
-      <h1 className="text-2xl font-bold">Operaciones</h1>
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-bold">Operaciones</h1>
+        <div className="flex items-center gap-1.5 text-xs text-success bg-success/10 rounded-lg px-3 py-1.5 border border-success/20">
+          <Database className="h-3.5 w-3.5" />
+          {allOps.length} operaciones
+        </div>
+      </div>
 
       <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 md:grid-cols-3">
         <Card><CardContent className="pt-6">
-          <p className="text-sm text-muted-foreground">Total vendido</p>
+          <p className="text-sm text-muted-foreground">Total ventas</p>
           <p className="text-3xl font-bold text-success tabular-nums">{formatCurrency(totalSales)}</p>
         </CardContent></Card>
         <Card><CardContent className="pt-6">
-          <p className="text-sm text-muted-foreground">Total comprado</p>
+          <p className="text-sm text-muted-foreground">Total gastos/compras</p>
           <p className="text-3xl font-bold text-destructive tabular-nums">{formatCurrency(totalPurchases)}</p>
         </CardContent></Card>
         <Card><CardContent className="pt-6">
@@ -48,7 +143,7 @@ export default function Operaciones() {
                 onClick={() => setFilter(f)}
                 className="text-xs h-7"
               >
-                {f === 'all' ? 'Todas' : f === 'sale' ? 'Ventas' : 'Compras'}
+                {f === 'all' ? 'Todas' : f === 'sale' ? 'Ventas' : 'Compras/Gastos'}
               </Button>
             ))}
           </div>
@@ -66,15 +161,17 @@ export default function Operaciones() {
             <TableBody>
               {filtered.map(op => (
                 <TableRow key={op.id}>
-                  <TableCell className="tabular-nums">{formatDate(op.date)}</TableCell>
+                  <TableCell className="tabular-nums">
+                    {op.date ? (() => { try { return formatDate(op.date); } catch { return op.date; } })() : '—'}
+                  </TableCell>
                   <TableCell>
                     <Badge variant={op.type === 'sale' ? 'default' : 'outline'}>
-                      {op.type === 'sale' ? 'Venta' : 'Compra'}
+                      {op.type === 'sale' ? 'Venta' : 'Compra/Gasto'}
                     </Badge>
                   </TableCell>
                   <TableCell className="text-muted-foreground">{op.category}</TableCell>
                   <TableCell>{op.description}</TableCell>
-                  <TableCell>{op.counterpart}</TableCell>
+                  <TableCell>{op.counterpart || '—'}</TableCell>
                   <TableCell className={`text-right font-medium tabular-nums ${op.type === 'purchase' ? 'text-destructive' : 'text-success'}`}>
                     {op.type === 'purchase' ? '-' : '+'}{formatCurrency(op.amount)}
                   </TableCell>
