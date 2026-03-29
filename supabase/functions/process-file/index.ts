@@ -319,6 +319,7 @@ serve(async (req) => {
         resultInfo = { category: r.category, summary: r.summary, totalRows: r.totalRows };
       } else {
         const result = await extractWithAI(content.substring(0, MAX_CONTENT_CHARS), file_name, undefined, undefined, processingMetadata);
+        await sb.from("file_extracted_data").delete().eq("file_upload_id", fileUploadId).eq("chunk_index", 0);
         await sb.from("file_extracted_data").insert({
           file_upload_id: fileUploadId, company_id: companyId,
           data_category: result.category, extracted_json: result.data,
