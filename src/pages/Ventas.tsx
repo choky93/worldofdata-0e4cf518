@@ -45,7 +45,7 @@ function aggregateByMonth(ventas: any[]): { month: string; value: number }[] {
       if (!isNaN(dt.getTime())) key = dt.toLocaleDateString('es-AR', { month: 'short', year: 'numeric' });
     }
     if (!key) continue;
-    const amt = parseFloat(r.monto || r.total || r.amount || r.valor || r.importe || 0) || 0;
+    const amt = parseLocalNumber(r.monto || r.total || r.amount || r.valor || r.importe || 0);
     map.set(key, (map.get(key) || 0) + amt);
   }
   const parseKey = (s: string) => new Date(s.replace(/(\w+) (\d{4})/, '$1 1, $2')).getTime();
