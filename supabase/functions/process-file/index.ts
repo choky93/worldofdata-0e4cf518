@@ -15,7 +15,7 @@ const CHUNK_CHARS = 12000;
 const MAX_CONTENT_CHARS = 15000;
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 const MAX_EXCEL_ROWS = 50000;
-const MAX_CHUNKS_PER_INVOCATION = 5;
+const MAX_CHUNKS_PER_INVOCATION = 3; // Reduced from 5 to avoid worker limits on heavy files
 
 // ─── R2 Download ───────────────────────────────────────────────
 async function downloadFromR2(storagePath: string): Promise<ArrayBuffer> {
