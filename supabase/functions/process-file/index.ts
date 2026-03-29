@@ -475,7 +475,6 @@ serve(async (req) => {
       } else if (['xls', 'xlsx'].includes(ext)) {
         // ─── EXCEL: Check if we can resume from cached chunks ─────
         if (startChunk > 0) {
-          // We already parsed this file before. Check if raw cache exists.
           const { data: cachedChunks } = await sb
             .from("file_extracted_data")
             .select("chunk_index, extracted_json")
@@ -484,12 +483,12 @@ serve(async (req) => {
             .order("chunk_index", { ascending: true });
 
           if (cachedChunks && cachedChunks.length > 0) {
-            console.log(`[process-file] Resuming from cached raw chunks (${cachedChunks.length} cached), startChunk=${startChunk}`);
+            console.log(`[process-file] Resuming from cached chunks (${cachedChunks.length}), startChunk=${startChunk}`);
             const chunks = cachedChunks.map(c => ({
-              content: JSON.stringify((c.extracted_json as any)?.rows || []),
+              content: (c.extracted_json as any)?.text || JSON.stringify((c.extracted_json as any)?.rows || []),
               index: c.chunk_index,
             }));
-            processingMetadata = { method: 'server_excel_parse_cached', format: ext, total_chunks: chunks.length };
+            processingMetadata = { method: 'server_excel_cached', format: ext, total_chunks: chunks.length };
             const r = await processChunksLimited(sb, chunks, file_name, fileUploadId, companyId, processingMetadata, startChunk);
             if (!r.allDone) {
               await sb.from("file_uploads").update({ status: "queued", processing_error: null, next_chunk_index: r.processedUpTo }).eq("id", fileUploadId);
@@ -497,97 +496,80 @@ serve(async (req) => {
                 headers: { ...corsHeaders, "Content-Type": "application/json" },
               });
             }
-            // Done — clean up raw cache
             await sb.from("file_extracted_data").delete().eq("file_upload_id", fileUploadId).eq("data_category", "_raw_cache");
             resultInfo = { category: r.category, summary: r.summary, totalRows: r.totalRows };
           } else {
-            // No cache found — fall through to re-download (shouldn't happen often)
             console.warn(`[process-file] No raw cache found for resume, will re-download`);
           }
         }
 
         if (!resultInfo!) {
-          // Full parse path
-          console.log(`[process-file] Parsing Excel server-side...`);
-          let wb: XLSX.WorkBook;
+          // Full parse — use CSV mode to minimize memory (avoid sheet_to_json which creates heavy objects)
+          console.log(`[process-file] Parsing Excel server-side (CSV mode)...`);
+          let csvText = '';
+          let totalRowEstimate = 0;
+          const sheetInfo: string[] = [];
           try {
-            wb = XLSX.read(bytes, { type: 'array' });
+            const wb = XLSX.read(bytes, { type: 'array', dense: true, cellStyles: false, cellNF: false, cellText: false });
+            for (const sheetName of wb.SheetNames) {
+              const sheet = wb.Sheets[sheetName];
+              if (!sheet) continue;
+              const csv = XLSX.utils.sheet_to_csv(sheet, { FS: ',', RS: '\n' });
+              const lines = csv.split('\n').filter((l: string) => l.trim());
+              const lineCount = Math.max(0, lines.length - 1);
+              if (lineCount > 0) {
+                sheetInfo.push(`${sheetName}(${lineCount})`);
+                csvText += `\n--- HOJA: ${sheetName} ---\n${csv}\n`;
+                totalRowEstimate += lineCount;
+              }
+              if (totalRowEstimate >= MAX_EXCEL_ROWS) break;
+            }
           } catch (xlsErr) {
             console.error(`[process-file] SheetJS parse error:`, xlsErr);
             throw new Error(`Error parsing Excel: ${xlsErr instanceof Error ? xlsErr.message : 'Unknown parse error'}`);
           }
-          const allRows: Record<string, unknown>[] = [];
-          const sheetInfo: string[] = [];
-          for (const name of wb.SheetNames) {
-            const rows = XLSX.utils.sheet_to_json(wb.Sheets[name], { defval: '' }) as Record<string, unknown>[];
-            if (rows.length > 0) {
-              sheetInfo.push(`${name}(${rows.length})`);
-              allRows.push(...rows);
-            }
-            if (allRows.length >= MAX_EXCEL_ROWS) break;
-          }
-          const totalOriginal = allRows.length;
-          let truncationWarning: string | null = null;
-          if (allRows.length > MAX_EXCEL_ROWS) {
-            allRows.length = MAX_EXCEL_ROWS;
-            truncationWarning = `Archivo truncado: ${totalOriginal} filas encontradas, se procesaron ${MAX_EXCEL_ROWS}. Considere dividir el archivo.`;
-            console.warn(`[process-file] ⚠️ ${truncationWarning}`);
-          }
-          console.log(`[process-file] Excel parsed: ${totalOriginal} rows (capped to ${allRows.length}) from sheets: ${sheetInfo.join(', ')}`);
-          processingMetadata = { method: 'server_excel_parse', format: ext, sheets: sheetInfo.join(', '), rows_total: totalOriginal, rows_processed: allRows.length };
 
-          if (allRows.length > CHUNK_ROWS) {
-            const rowChunks = chunkRows(allRows, CHUNK_ROWS);
+          console.log(`[process-file] Excel → CSV: ~${totalRowEstimate} rows, ${(csvText.length / 1024).toFixed(0)}KB from: ${sheetInfo.join(', ')}`);
+          processingMetadata = { method: 'server_excel_csv', format: ext, sheets: sheetInfo.join(', '), rows_total: totalRowEstimate };
+
+          if (csvText.length > CHUNK_CHARS) {
+            const textChunks = chunkText(csvText, CHUNK_CHARS);
             processingMetadata.chunked = true;
-            processingMetadata.total_chunks = rowChunks.length;
+            processingMetadata.total_chunks = textChunks.length;
 
-            // Cache raw chunks so we don't need to re-download on resume
-            console.log(`[process-file] Caching ${rowChunks.length} raw chunks for potential resume...`);
-            for (let ci = 0; ci < rowChunks.length; ci++) {
-              await sb.from("file_extracted_data").upsert({
-                file_upload_id: fileUploadId,
-                company_id: companyId,
-                data_category: "_raw_cache",
-                extracted_json: { rows: rowChunks[ci] },
-                chunk_index: ci,
-                row_count: rowChunks[ci].length,
-                summary: null,
-              }, { onConflict: 'file_upload_id,chunk_index' }).throwOnError().catch(() => {
-                // If upsert fails due to no unique constraint, use delete+insert
-              });
-            }
-            // Fallback: delete+insert for raw cache
+            // Cache text chunks for resume without re-download
+            console.log(`[process-file] Caching ${textChunks.length} text chunks...`);
             await sb.from("file_extracted_data").delete()
               .eq("file_upload_id", fileUploadId)
               .eq("data_category", "_raw_cache");
-            for (let ci = 0; ci < rowChunks.length; ci++) {
+            for (let ci = 0; ci < textChunks.length; ci++) {
               await sb.from("file_extracted_data").insert({
                 file_upload_id: fileUploadId,
                 company_id: companyId,
                 data_category: "_raw_cache",
-                extracted_json: { rows: rowChunks[ci] },
+                extracted_json: { text: textChunks[ci] },
                 chunk_index: ci,
-                row_count: rowChunks[ci].length,
+                row_count: 0,
               });
             }
 
-            // Update total_chunks on file record
-            await sb.from("file_uploads").update({ total_chunks: rowChunks.length }).eq("id", fileUploadId);
+            await sb.from("file_uploads").update({ total_chunks: textChunks.length }).eq("id", fileUploadId);
 
-            const chunks = rowChunks.map((rows, i) => ({ content: JSON.stringify(rows), index: i }));
+            const chunks = textChunks.map((t, i) => ({
+              content: `[Excel "${file_name}" - bloque ${i + 1}/${textChunks.length}, ~${totalRowEstimate} filas]\n\n${t}`,
+              index: i,
+            }));
             const r = await processChunksLimited(sb, chunks, file_name, fileUploadId, companyId, processingMetadata, startChunk);
             if (!r.allDone) {
               await sb.from("file_uploads").update({ status: "queued", processing_error: null, next_chunk_index: r.processedUpTo }).eq("id", fileUploadId);
-              return new Response(JSON.stringify({ success: true, partial: true, processedUpTo: r.processedUpTo, totalChunks: rowChunks.length }), {
+              return new Response(JSON.stringify({ success: true, partial: true, processedUpTo: r.processedUpTo, totalChunks: textChunks.length }), {
                 headers: { ...corsHeaders, "Content-Type": "application/json" },
               });
             }
-            // Done — clean up raw cache
             await sb.from("file_extracted_data").delete().eq("file_upload_id", fileUploadId).eq("data_category", "_raw_cache");
             resultInfo = { category: r.category, summary: r.summary, totalRows: r.totalRows };
           } else {
-            const content = JSON.stringify(allRows);
-            const result = await extractWithAI(content.substring(0, MAX_CONTENT_CHARS), file_name, undefined, undefined, processingMetadata);
+            const result = await extractWithAI(csvText.substring(0, MAX_CONTENT_CHARS), file_name, undefined, undefined, processingMetadata);
             await sb.from("file_extracted_data").delete().eq("file_upload_id", fileUploadId).eq("chunk_index", 0);
             await sb.from("file_extracted_data").insert({
               file_upload_id: fileUploadId, company_id: companyId,
@@ -596,8 +578,9 @@ serve(async (req) => {
             });
             resultInfo = { category: result.category, summary: result.summary, totalRows: result.rowCount };
           }
-          if (truncationWarning) {
-            await sb.from("file_uploads").update({ processing_error: truncationWarning }).eq("id", fileUploadId);
+
+          if (totalRowEstimate > MAX_EXCEL_ROWS) {
+            await sb.from("file_uploads").update({ processing_error: `Truncado: ~${totalRowEstimate} filas, procesadas hasta ${MAX_EXCEL_ROWS}` }).eq("id", fileUploadId);
           }
         }
 
