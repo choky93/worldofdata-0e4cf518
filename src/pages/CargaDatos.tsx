@@ -597,24 +597,22 @@ export default function CargaDatos() {
         await fetchFiles();
         
         try {
-          const { data: dlData, error: dlError } = await supabase.functions.invoke('r2-download', {
-            body: { storagePath: file.storage_path },
+          // Download file from R2 via edge function (returns raw binary)
+          const session = (await supabase.auth.getSession()).data.session;
+          const projectId = import.meta.env.VITE_SUPABASE_PROJECT_ID;
+          const downloadUrl = `https://${projectId}.supabase.co/functions/v1/r2-download`;
+          const dlResp = await fetch(downloadUrl, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${session?.access_token}`,
+              'apikey': import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+            },
+            body: JSON.stringify({ fileUploadId: file.id }),
           });
           
-          if (dlError || !dlData) throw new Error(dlError?.message || 'Error descargando archivo');
-          
-          // dlData could be ArrayBuffer or base64
-          let buffer: ArrayBuffer;
-          if (dlData instanceof ArrayBuffer) {
-            buffer = dlData;
-          } else if (dlData.data) {
-            const binary = atob(dlData.data);
-            const bytes = new Uint8Array(binary.length);
-            for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-            buffer = bytes.buffer as ArrayBuffer;
-          } else {
-            throw new Error('Formato de respuesta inesperado');
-          }
+          if (!dlResp.ok) throw new Error(`Error descargando [${dlResp.status}]`);
+          const buffer = await dlResp.arrayBuffer();
           
           toast.info(`Parseando "${file.file_name}" localmente...`);
           const wb = XLSX.read(buffer, { type: 'array', dense: true, cellStyles: false, cellNF: false, cellText: false });
