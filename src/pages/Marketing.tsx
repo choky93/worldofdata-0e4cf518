@@ -20,17 +20,19 @@ interface CampaignRow {
 
 function normalizeMarketing(rows: any[]): CampaignRow[] {
   return rows.map((r: any) => {
-    const spend = parseFloat(r.gasto || r.inversion || r.spend || r.costo || r.importe || 0) || 0;
-    const revenue = parseFloat(r.ingresos || r.revenue || r.ventas || r.retorno || 0) || 0;
-    const roas = spend > 0 ? (revenue > 0 ? revenue / spend : parseFloat(r.roas || 0) || 0) : parseFloat(r.roas || 0) || 0;
+    const spend = parseLocalNumber(r.gasto || r.inversion || r.spend || r.costo || r.importe || r.importe_gastado || r.importe_gastado_ars || 0);
+    const revenue = parseLocalNumber(r.ingresos || r.revenue || r.ventas || r.retorno || 0);
+    const roas = spend > 0 ? (revenue > 0 ? revenue / spend : parseLocalNumber(r.roas || r.roas_de_resultados || 0)) : parseLocalNumber(r.roas || r.roas_de_resultados || 0);
     return {
-      name: r.campaña || r.campana || r.nombre || r.name || r.campaign || 'Campaña',
+      name: r.campaña || r.campana || r.nombre || r.name || r.campaign || r.nombre_de_la_campana || 'Campaña',
       spend,
       revenue,
       roas: parseFloat(roas.toFixed(2)),
-      clicks: parseInt(r.clicks || r.clics || 0) || 0,
-      ctr: parseFloat(r.ctr || 0) || 0,
-      conversions: parseInt(r.conversiones || r.conversions || 0) || 0,
+      clicks: Math.round(parseLocalNumber(r.clicks || r.clics || 0)),
+      ctr: parseLocalNumber(r.ctr || 0),
+      conversions: Math.round(parseLocalNumber(r.conversiones || r.conversions || r.resultados || 0)),
+      reach: Math.round(parseLocalNumber(r.alcance || r.alcanc || r.reach || 0)),
+      impressions: Math.round(parseLocalNumber(r.impresiones || r.impresione || r.impressions || 0)),
     };
   });
 }
