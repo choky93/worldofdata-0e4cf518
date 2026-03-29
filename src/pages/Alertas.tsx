@@ -4,6 +4,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { useExtractedData } from '@/hooks/useExtractedData';
 import { formatDate } from '@/lib/formatters';
+import { findNumber, findString, FIELD_NAME, FIELD_STOCK_QTY, FIELD_STOCK_MIN, FIELD_DEBT } from '@/lib/field-utils';
 import { Package, Users, Wallet, TrendingUp, Check, Bell, ArrowRight, Upload, Loader2 } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip';
 import { Link } from 'react-router-dom';
@@ -22,12 +23,12 @@ function buildAlertsFromData(data: ReturnType<typeof useExtractedData>['data']):
   // Stock alerts
   const stockRows = data.stock || [];
   const lowStock = stockRows.filter((r: any) => {
-    const stock = parseInt(r.stock || r.cantidad || r.unidades || 0) || 0;
-    const min = parseInt(r.stock_minimo || r.min_stock || r.minimo || 0) || 0;
+    const stock = Math.round(findNumber(r, FIELD_STOCK_QTY));
+    const min = Math.round(findNumber(r, FIELD_STOCK_MIN));
     return min > 0 && stock < min;
   });
   if (lowStock.length > 0) {
-    const names = lowStock.slice(0, 3).map((r: any) => r.nombre || r.producto || r.name || 'producto').join(', ');
+    const names = lowStock.slice(0, 3).map((r: any) => findString(r, FIELD_NAME) || 'producto').join(', ');
     alerts.push({
       id: 'stock-low',
       type: 'stock',
@@ -41,12 +42,9 @@ function buildAlertsFromData(data: ReturnType<typeof useExtractedData>['data']):
 
   // Clientes: cobros pendientes
   const clientRows = data.clientes || [];
-  const withDebt = clientRows.filter((r: any) => {
-    const deuda = parseFloat(r.deuda || r.saldo || r.pendiente || r.deuda_pendiente || 0) || 0;
-    return deuda > 0;
-  });
+  const withDebt = clientRows.filter((r: any) => findNumber(r, FIELD_DEBT) > 0);
   if (withDebt.length > 0) {
-    const totalDeuda = withDebt.reduce((s: number, r: any) => s + (parseFloat(r.deuda || r.saldo || r.pendiente || 0) || 0), 0);
+    const totalDeuda = withDebt.reduce((s: number, r: any) => s + findNumber(r, FIELD_DEBT), 0);
     alerts.push({
       id: 'clientes-debt',
       type: 'clientes',
@@ -61,7 +59,7 @@ function buildAlertsFromData(data: ReturnType<typeof useExtractedData>['data']):
   // Gastos: pagos vencidos
   const gastosRows = data.gastos || [];
   const overdue = gastosRows.filter((r: any) => {
-    const status = (r.estado || r.status || '').toLowerCase();
+    const status = findString(r, ['estado', 'status']).toLowerCase();
     return status === 'vencido' || status === 'overdue';
   });
   if (overdue.length > 0) {

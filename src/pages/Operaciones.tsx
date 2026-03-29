@@ -3,6 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { formatCurrency, formatDate } from '@/lib/formatters';
+import { findNumber, findString, FIELD_AMOUNT, FIELD_NAME, FIELD_DATE, FIELD_CLIENT, FIELD_CATEGORY } from '@/lib/field-utils';
 import { useExtractedData } from '@/hooks/useExtractedData';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { FileBox, Upload, Loader2, Database } from 'lucide-react';
@@ -27,11 +28,11 @@ function normalizeOps(ventas: any[], gastos: any[]): OpRow[] {
     ops.push({
       id: `v-${i}`,
       type: 'sale',
-      description: r.descripcion || r.detalle || r.producto || r.concepto || 'Venta',
-      amount: parseFloat(r.monto || r.total || r.amount || r.valor || r.importe || 0) || 0,
-      date: r.fecha || r.date || '',
-      counterpart: r.cliente || r.nombre || r.client || '',
-      category: r.categoria || r.category || r.tipo || 'Ventas',
+      description: findString(r, FIELD_NAME) || 'Venta',
+      amount: findNumber(r, FIELD_AMOUNT),
+      date: findString(r, FIELD_DATE),
+      counterpart: findString(r, FIELD_CLIENT),
+      category: findString(r, FIELD_CATEGORY) || 'Ventas',
     });
   });
 
@@ -39,11 +40,11 @@ function normalizeOps(ventas: any[], gastos: any[]): OpRow[] {
     ops.push({
       id: `g-${i}`,
       type: 'purchase',
-      description: r.concepto || r.descripcion || r.detalle || r.nombre || 'Gasto',
-      amount: parseFloat(r.monto || r.total || r.amount || r.importe || 0) || 0,
-      date: r.fecha || r.vencimiento || r.date || '',
-      counterpart: r.proveedor || r.supplier || r.nombre || '',
-      category: r.categoria || r.category || r.tipo || 'Gastos',
+      description: findString(r, FIELD_NAME) || 'Gasto',
+      amount: findNumber(r, FIELD_AMOUNT),
+      date: findString(r, ['vencimiento', ...FIELD_DATE]),
+      counterpart: findString(r, ['proveedor', 'supplier', ...FIELD_CLIENT]),
+      category: findString(r, FIELD_CATEGORY) || 'Gastos',
     });
   });
 

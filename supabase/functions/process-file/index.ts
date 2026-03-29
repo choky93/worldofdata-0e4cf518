@@ -15,6 +15,7 @@ const CHUNK_CHARS = 12000;
 const MAX_CONTENT_CHARS = 15000;
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 const MAX_EXCEL_ROWS = 50000;
+const MAX_EXCEL_FILE_SIZE = 3 * 1024 * 1024; // 3MB — files larger than this are too risky for server-side Excel parsing
 const MAX_CHUNKS_PER_INVOCATION = 2; // Conservative: 2 chunks per run to avoid WORKER_LIMIT
 
 // ─── R2 Download ───────────────────────────────────────────────
@@ -473,6 +474,20 @@ serve(async (req) => {
         resultInfo = { category: result.category, summary: result.summary, totalRows: result.rowCount };
 
       } else if (['xls', 'xlsx'].includes(ext)) {
+        // ─── EXCEL: Guard against files too large for server-side parsing ─────
+        if (buffer.byteLength > MAX_EXCEL_FILE_SIZE && startChunk === 0) {
+          const sizeMB = (buffer.byteLength / 1024 / 1024).toFixed(1);
+          console.warn(`[process-file] Excel file too large for server parsing: ${sizeMB}MB > ${MAX_EXCEL_FILE_SIZE / 1024 / 1024}MB`);
+          const errorMsg = `Archivo Excel demasiado grande (${sizeMB} MB) para procesar en el servidor. Por favor, guardalo como .csv o reducí el tamaño del archivo y volvé a cargarlo.`;
+          await sb.from("file_uploads").update({
+            status: "error",
+            processing_error: errorMsg,
+          }).eq("id", fileUploadId);
+          return new Response(JSON.stringify({ success: false, error: errorMsg }), {
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+
         // ─── EXCEL: Check if we can resume from cached chunks ─────
         if (startChunk > 0) {
           const { data: cachedChunks } = await sb
@@ -510,7 +525,7 @@ serve(async (req) => {
           let totalRowEstimate = 0;
           const sheetInfo: string[] = [];
           try {
-            const wb = XLSX.read(bytes, { type: 'array', dense: true, cellStyles: false, cellNF: false, cellText: false });
+            const wb = XLSX.read(bytes, { type: 'array', dense: true, cellStyles: false, cellNF: false, cellText: false, sheetRows: MAX_EXCEL_ROWS });
             for (const sheetName of wb.SheetNames) {
               const sheet = wb.Sheets[sheetName];
               if (!sheet) continue;
@@ -525,8 +540,10 @@ serve(async (req) => {
               if (totalRowEstimate >= MAX_EXCEL_ROWS) break;
             }
           } catch (xlsErr) {
-            console.error(`[process-file] SheetJS parse error:`, xlsErr);
-            throw new Error(`Error parsing Excel: ${xlsErr instanceof Error ? xlsErr.message : 'Unknown parse error'}`);
+            const errMsg = xlsErr instanceof Error ? xlsErr.message : 'Unknown parse error';
+            console.error(`[process-file] SheetJS parse error:`, errMsg);
+            const sizeMB = (buffer.byteLength / 1024 / 1024).toFixed(1);
+            throw new Error(`No se pudo leer el archivo Excel (${sizeMB} MB). Intentá convertirlo a .csv o .xlsx antes de subirlo.`);
           }
 
           console.log(`[process-file] Excel → CSV: ~${totalRowEstimate} rows, ${(csvText.length / 1024).toFixed(0)}KB from: ${sheetInfo.join(', ')}`);

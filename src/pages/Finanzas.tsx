@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { formatCurrency, formatDate, parseLocalNumber } from '@/lib/formatters';
+import { formatCurrency, formatDate } from '@/lib/formatters';
+import { findNumber, findString, FIELD_AMOUNT, FIELD_NAME, FIELD_DATE } from '@/lib/field-utils';
 import { useExtractedData } from '@/hooks/useExtractedData';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -34,14 +35,14 @@ interface ExpenseRow {
 
 function normalizeExpenses(rows: any[]): ExpenseRow[] {
   return rows.map((r: any) => {
-    const statusRaw = (r.estado || r.status || '').toLowerCase();
+    const statusRaw = findString(r, ['estado', 'status']).toLowerCase();
     let status: 'paid' | 'pending' | 'overdue' = 'pending';
     if (statusRaw === 'pagado' || statusRaw === 'paid') status = 'paid';
     else if (statusRaw === 'vencido' || statusRaw === 'overdue') status = 'overdue';
     return {
-      name: r.concepto || r.nombre || r.descripcion || r.name || r.gasto || 'Gasto',
-      amount: parseLocalNumber(r.monto || r.importe || r.amount || r.total || 0),
-      dueDate: r.vencimiento || r.fecha_vencimiento || r.fecha || r.due_date || '',
+      name: findString(r, FIELD_NAME) || 'Gasto',
+      amount: findNumber(r, FIELD_AMOUNT),
+      dueDate: findString(r, ['vencimiento', 'fecha_vencimiento', 'due_date', ...FIELD_DATE]),
       status,
     };
   });
@@ -84,12 +85,9 @@ export default function Finanzas() {
   const realGastos = extractedData?.gastos || [];
   const realFacturas = extractedData?.facturas || [];
 
-  const totalVentasReal = realVentas.reduce((s: number, r: any) =>
-    s + parseLocalNumber(r.monto || r.total || r.amount || r.valor || r.importe || r.ganancia || r.monto_total || r.monto_venta || r.total_mensual_iva_inc || r.precio || 0), 0);
-  const totalGastosReal = realGastos.reduce((s: number, r: any) =>
-    s + parseLocalNumber(r.monto || r.total || r.amount || r.importe || 0), 0);
-  const totalFacturasReal = realFacturas.reduce((s: number, r: any) =>
-    s + parseLocalNumber(r.monto || r.total || r.amount || r.importe || 0), 0);
+  const totalVentasReal = realVentas.reduce((s: number, r: any) => s + findNumber(r, FIELD_AMOUNT), 0);
+  const totalGastosReal = realGastos.reduce((s: number, r: any) => s + findNumber(r, FIELD_AMOUNT), 0);
+  const totalFacturasReal = realFacturas.reduce((s: number, r: any) => s + findNumber(r, FIELD_AMOUNT), 0);
 
   const hasFinancialData = hasData && (realVentas.length > 0 || realGastos.length > 0 || realFacturas.length > 0);
   const expenses: ExpenseRow[] = hasData && realGastos.length > 0 ? normalizeExpenses(realGastos) : [];

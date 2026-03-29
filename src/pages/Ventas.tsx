@@ -1,5 +1,6 @@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { formatCurrency, formatDate, parseLocalNumber } from '@/lib/formatters';
+import { formatCurrency, formatDate } from '@/lib/formatters';
+import { findNumber, findString, FIELD_AMOUNT, FIELD_DATE, FIELD_CLIENT, FIELD_NAME } from '@/lib/field-utils';
 import { useExtractedData } from '@/hooks/useExtractedData';
 import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -11,7 +12,7 @@ import { Button } from '@/components/ui/button';
 function aggregateByDate(ventas: any[]): { day: string; value: number }[] {
   const map = new Map<string, number>();
   for (const r of ventas) {
-    const raw: string = r.fecha || r.date || '';
+    const raw = findString(r, FIELD_DATE);
     if (!raw) continue;
     let key = raw;
     const d = new Date(raw);
@@ -20,7 +21,7 @@ function aggregateByDate(ventas: any[]): { day: string; value: number }[] {
     } else if (/^\d{2}\/\d{2}\/\d{4}/.test(raw)) {
       key = raw.substring(0, 5);
     }
-    const amt = parseLocalNumber(r.monto || r.total || r.amount || r.valor || r.importe || r.ganancia || r.monto_total || r.monto_venta || r.total_mensual_iva_inc || r.precio || 0);
+    const amt = findNumber(r, FIELD_AMOUNT);
     map.set(key, (map.get(key) || 0) + amt);
   }
   return Array.from(map.entries()).slice(-30).map(([day, value]) => ({ day, value }));
@@ -29,7 +30,7 @@ function aggregateByDate(ventas: any[]): { day: string; value: number }[] {
 function aggregateByMonth(ventas: any[]): { month: string; value: number }[] {
   const map = new Map<string, number>();
   for (const r of ventas) {
-    const raw: string = r.fecha || r.date || r.mes || r.month || '';
+    const raw = findString(r, FIELD_DATE);
     if (!raw) continue;
     let key = '';
     const d = new Date(raw);
@@ -45,7 +46,7 @@ function aggregateByMonth(ventas: any[]): { month: string; value: number }[] {
       if (!isNaN(dt.getTime())) key = dt.toLocaleDateString('es-AR', { month: 'short', year: 'numeric' });
     }
     if (!key) continue;
-    const amt = parseLocalNumber(r.monto || r.total || r.amount || r.valor || r.importe || r.ganancia || r.monto_total || r.monto_venta || r.total_mensual_iva_inc || r.precio || 0);
+    const amt = findNumber(r, FIELD_AMOUNT);
     map.set(key, (map.get(key) || 0) + amt);
   }
   const parseKey = (s: string) => new Date(s.replace(/(\w+) (\d{4})/, '$1 1, $2')).getTime();
@@ -101,15 +102,13 @@ export default function Ventas() {
     );
   }
 
-  const salesTotal = realVentas.reduce((sum: number, r: any) => {
-    return sum + parseLocalNumber(r.monto || r.total || r.amount || r.valor || r.importe || r.ganancia || r.monto_total || r.monto_venta || r.total_mensual_iva_inc || r.precio || 0);
-  }, 0);
+  const salesTotal = realVentas.reduce((sum: number, r: any) => sum + findNumber(r, FIELD_AMOUNT), 0);
 
   const salesHistory = realVentas.slice(0, 50).map((r: any, i: number) => ({
-    date: r.fecha || r.date || '—',
-    client: r.cliente || r.client || r.nombre || '—',
-    product: r.producto || r.detalle || r.descripcion || r.product || r.categoria || r.rubro || '—',
-    amount: parseLocalNumber(r.monto || r.total || r.amount || r.valor || r.importe || r.ganancia || r.monto_total || r.monto_venta || r.total_mensual_iva_inc || r.precio || 0),
+    date: findString(r, FIELD_DATE) || '—',
+    client: findString(r, FIELD_CLIENT) || '—',
+    product: findString(r, FIELD_NAME) || '—',
+    amount: findNumber(r, FIELD_AMOUNT),
   }));
 
   const dailyChart = aggregateByDate(realVentas);

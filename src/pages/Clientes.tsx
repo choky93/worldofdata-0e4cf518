@@ -1,6 +1,7 @@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { formatCurrency, formatDate } from '@/lib/formatters';
+import { findNumber, findString, FIELD_CLIENT, FIELD_TOTAL_PURCHASES, FIELD_DEBT, FIELD_LAST_PURCHASE, FIELD_PURCHASE_COUNT } from '@/lib/field-utils';
 import { useExtractedData } from '@/hooks/useExtractedData';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip';
@@ -21,15 +22,15 @@ interface ClientRow {
 
 function normalizeClients(rawData: any[]): ClientRow[] {
   return rawData.map((r: any, i: number) => {
-    const totalPurchases = parseFloat(r.total_compras || r.total || r.monto_total || r.ventas_totales || r.compras_totales || 0) || 0;
-    const purchaseCount = parseInt(r.cantidad_compras || r.frecuencia || r.pedidos || r.cantidad_pedidos || 0) || 0;
-    const avgTicket = purchaseCount > 0 ? totalPurchases / purchaseCount : parseFloat(r.ticket_promedio || r.promedio || 0) || 0;
+    const totalPurchases = findNumber(r, FIELD_TOTAL_PURCHASES);
+    const purchaseCount = Math.round(findNumber(r, FIELD_PURCHASE_COUNT));
+    const avgTicket = purchaseCount > 0 ? totalPurchases / purchaseCount : findNumber(r, ['ticket_promedio', 'promedio']);
     return {
       id: r.id || String(i + 1),
-      name: r.cliente || r.nombre || r.name || r.razon_social || r.empresa || `Cliente ${i + 1}`,
+      name: findString(r, FIELD_CLIENT) || `Cliente ${i + 1}`,
       totalPurchases,
-      pendingPayment: parseFloat(r.deuda || r.saldo || r.pendiente || r.deuda_pendiente || r.cobro_pendiente || 0) || 0,
-      lastPurchase: r.ultima_compra || r.fecha_ultima || r.last_purchase || r.fecha || '',
+      pendingPayment: findNumber(r, FIELD_DEBT),
+      lastPurchase: findString(r, FIELD_LAST_PURCHASE),
       purchaseCount,
       avgTicket,
     };

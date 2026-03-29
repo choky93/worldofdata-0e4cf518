@@ -1,6 +1,7 @@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { formatCurrency } from '@/lib/formatters';
+import { findNumber, findString, FIELD_AMOUNT, FIELD_DATE } from '@/lib/field-utils';
 import { useExtractedData } from '@/hooks/useExtractedData';
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
 import { Tooltip as UITooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip';
@@ -12,28 +13,25 @@ function aggregateSalesByMonth(ventas: any[]): { month: string; value: number }[
   const map = new Map<string, number>();
 
   for (const r of ventas) {
-    const raw: string = r.fecha || r.date || r.mes || r.month || r.periodo || '';
+    const raw = findString(r, FIELD_DATE);
     if (!raw) continue;
 
     let key = '';
-    // Try ISO date
     const d = new Date(raw);
     if (!isNaN(d.getTime())) {
       key = d.toLocaleDateString('es-AR', { month: 'short', year: 'numeric' });
     } else if (/^\d{4}-\d{2}/.test(raw)) {
-      // YYYY-MM
       const [year, month] = raw.split('-');
       const dt = new Date(parseInt(year), parseInt(month) - 1, 1);
       key = dt.toLocaleDateString('es-AR', { month: 'short', year: 'numeric' });
     } else if (/^\d{2}\/\d{2}\/\d{4}/.test(raw)) {
-      // DD/MM/YYYY
       const [dd, mm, yyyy] = raw.split('/');
       const dt = new Date(parseInt(yyyy), parseInt(mm) - 1, parseInt(dd));
       if (!isNaN(dt.getTime())) key = dt.toLocaleDateString('es-AR', { month: 'short', year: 'numeric' });
     }
 
     if (!key) continue;
-    const amount = parseFloat(r.monto || r.total || r.amount || r.valor || r.importe || 0) || 0;
+    const amount = findNumber(r, FIELD_AMOUNT);
     map.set(key, (map.get(key) || 0) + amount);
   }
 

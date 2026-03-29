@@ -1,5 +1,6 @@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { formatCurrency, formatPercent } from '@/lib/formatters';
+import { findNumber, findString, FIELD_AMOUNT, FIELD_DATE, FIELD_STOCK_QTY } from '@/lib/field-utils';
 import { useExtractedData } from '@/hooks/useExtractedData';
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
 import { TrendingUp, TrendingDown, Minus, Upload, Loader2, BarChart3 } from 'lucide-react';
@@ -63,10 +64,10 @@ function MetricChart({ data, title, formatter, tooltip }: {
   );
 }
 
-function aggregateByMonth(rows: any[], valueFields: string[]): { month: string; value: number }[] {
+function aggregateByMonth(rows: any[], fieldKeywords: string[]): { month: string; value: number }[] {
   const map = new Map<string, number>();
   for (const r of rows) {
-    const raw: string = r.fecha || r.date || r.mes || r.month || r.periodo || '';
+    const raw = findString(r, FIELD_DATE);
     if (!raw) continue;
     let key = '';
     const d = new Date(raw);
@@ -82,7 +83,7 @@ function aggregateByMonth(rows: any[], valueFields: string[]): { month: string; 
       if (!isNaN(dt.getTime())) key = dt.toLocaleDateString('es-AR', { month: 'short', year: 'numeric' });
     }
     if (!key) continue;
-    const amount = valueFields.reduce((s, f) => s + (parseFloat(r[f] || 0) || 0), 0);
+    const amount = findNumber(r, fieldKeywords);
     map.set(key, (map.get(key) || 0) + amount);
   }
   const parseMonthKey = (s: string) => new Date(s.replace(/(\w+) (\d{4})/, '$1 1, $2')).getTime();
@@ -110,9 +111,9 @@ export default function Metricas() {
   const realGastos = extractedData?.gastos || [];
   const realStock = extractedData?.stock || [];
 
-  const salesEvolution = aggregateByMonth(realVentas, ['monto', 'total', 'amount', 'valor', 'importe']);
-  const gastosEvolution = aggregateByMonth(realGastos, ['monto', 'total', 'amount', 'importe']);
-  const stockEvolution = aggregateByMonth(realStock, ['valor', 'stock', 'cantidad', 'total']);
+  const salesEvolution = aggregateByMonth(realVentas, FIELD_AMOUNT);
+  const gastosEvolution = aggregateByMonth(realGastos, FIELD_AMOUNT);
+  const stockEvolution = aggregateByMonth(realStock, FIELD_STOCK_QTY);
 
   const hasCharts = salesEvolution.length >= 2;
   const hasAny = hasData && (realVentas.length > 0 || realGastos.length > 0 || realStock.length > 0);
@@ -145,10 +146,8 @@ export default function Metricas() {
 
   if (!hasCharts) {
     // Has data but not enough for time-series charts — show summary cards
-    const totalVentas = realVentas.reduce((s: number, r: any) =>
-      s + (parseFloat(r.monto || r.total || r.amount || r.valor || r.importe || 0) || 0), 0);
-    const totalGastos = realGastos.reduce((s: number, r: any) =>
-      s + (parseFloat(r.monto || r.total || r.amount || r.importe || 0) || 0), 0);
+    const totalVentas = realVentas.reduce((s: number, r: any) => s + findNumber(r, FIELD_AMOUNT), 0);
+    const totalGastos = realGastos.reduce((s: number, r: any) => s + findNumber(r, FIELD_AMOUNT), 0);
     const margen = totalVentas > 0 ? ((totalVentas - totalGastos) / totalVentas) * 100 : 0;
 
     return (

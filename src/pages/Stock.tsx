@@ -1,6 +1,7 @@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { formatCurrency, formatPercent } from '@/lib/formatters';
+import { findNumber, findString, FIELD_NAME, FIELD_STOCK_QTY, FIELD_STOCK_MIN, FIELD_STOCK_MAX, FIELD_PRICE, FIELD_COST } from '@/lib/field-utils';
 import { useExtractedData } from '@/hooks/useExtractedData';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip';
@@ -38,11 +39,11 @@ interface ProductRow {
 
 function normalizeProducts(rawData: any[]): ProductRow[] {
   return rawData.map((r: any, i: number) => {
-    const stock = parseInt(r.stock || r.cantidad || r.unidades || r.qty || 0) || 0;
-    const minStock = parseInt(r.stock_minimo || r.min_stock || r.minimo || 0) || 0;
-    const maxStock = parseInt(r.stock_maximo || r.max_stock || r.maximo || 0) || Math.max(stock * 2, 100);
-    const price = parseFloat(r.precio || r.price || r.precio_venta || 0) || 0;
-    const cost = parseFloat(r.costo || r.cost || r.precio_costo || 0) || 0;
+    const stock = Math.round(findNumber(r, FIELD_STOCK_QTY));
+    const minStock = Math.round(findNumber(r, FIELD_STOCK_MIN));
+    const maxStock = Math.round(findNumber(r, FIELD_STOCK_MAX)) || Math.max(stock * 2, 100);
+    const price = findNumber(r, FIELD_PRICE);
+    const cost = findNumber(r, FIELD_COST);
 
     let status: 'ok' | 'low' | 'overstock' = 'ok';
     if (minStock > 0 && stock < minStock) status = 'low';
@@ -50,15 +51,15 @@ function normalizeProducts(rawData: any[]): ProductRow[] {
 
     return {
       id: r.id || String(i + 1),
-      name: r.nombre || r.producto || r.name || r.descripcion || `Producto ${i + 1}`,
+      name: findString(r, FIELD_NAME) || `Producto ${i + 1}`,
       stock,
       minStock,
       maxStock,
       price,
       cost,
       status,
-      avgDailySales: parseFloat(r.venta_diaria || r.avg_daily_sales || 0) || 0,
-      supplierLeadDays: parseInt(r.lead_days || r.dias_proveedor || 0) || 10,
+      avgDailySales: findNumber(r, ['venta_diaria', 'avg_daily_sales']),
+      supplierLeadDays: Math.round(findNumber(r, ['lead_days', 'dias_proveedor'])) || 10,
     };
   });
 }

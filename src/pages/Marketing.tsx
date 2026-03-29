@@ -1,6 +1,7 @@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { formatCurrency, formatPercent, formatNumber, parseLocalNumber } from '@/lib/formatters';
+import { formatCurrency, formatPercent, formatNumber } from '@/lib/formatters';
 import { useExtractedData } from '@/hooks/useExtractedData';
+import { findNumber, findString, FIELD_CAMPAIGN_NAME, FIELD_SPEND, FIELD_REVENUE, FIELD_ROAS, FIELD_CLICKS, FIELD_CTR, FIELD_CONVERSIONS, FIELD_REACH, FIELD_IMPRESSIONS } from '@/lib/field-utils';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { TrendingUp, Upload, Database, Loader2, Megaphone } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip as RTooltip, ResponsiveContainer, CartesianGrid, Legend } from 'recharts';
@@ -22,19 +23,19 @@ interface CampaignRow {
 
 function normalizeMarketing(rows: any[]): CampaignRow[] {
   return rows.map((r: any) => {
-    const spend = parseLocalNumber(r.gasto || r.inversion || r.spend || r.costo || r.importe || r.importe_gastado || r.importe_gastado_ars || 0);
-    const revenue = parseLocalNumber(r.ingresos || r.revenue || r.ventas || r.retorno || 0);
-    const roas = spend > 0 ? (revenue > 0 ? revenue / spend : parseLocalNumber(r.roas || r.roas_de_resultados || 0)) : parseLocalNumber(r.roas || r.roas_de_resultados || 0);
+    const spend = findNumber(r, FIELD_SPEND);
+    const revenue = findNumber(r, FIELD_REVENUE);
+    const roas = spend > 0 ? (revenue > 0 ? revenue / spend : findNumber(r, FIELD_ROAS)) : findNumber(r, FIELD_ROAS);
     return {
-      name: r.campaña || r.campana || r.nombre || r.name || r.campaign || r.nombre_de_la_campana || 'Campaña',
+      name: findString(r, FIELD_CAMPAIGN_NAME) || 'Campaña',
       spend,
       revenue,
       roas: parseFloat(roas.toFixed(2)),
-      clicks: Math.round(parseLocalNumber(r.clicks || r.clics || 0)),
-      ctr: parseLocalNumber(r.ctr || 0),
-      conversions: Math.round(parseLocalNumber(r.conversiones || r.conversions || r.resultados || 0)),
-      reach: Math.round(parseLocalNumber(r.alcance || r.alcanc || r.reach || 0)),
-      impressions: Math.round(parseLocalNumber(r.impresiones || r.impresione || r.impressions || 0)),
+      clicks: Math.round(findNumber(r, FIELD_CLICKS)),
+      ctr: findNumber(r, FIELD_CTR),
+      conversions: Math.round(findNumber(r, FIELD_CONVERSIONS)),
+      reach: Math.round(findNumber(r, FIELD_REACH)),
+      impressions: Math.round(findNumber(r, FIELD_IMPRESSIONS)),
     };
   });
 }

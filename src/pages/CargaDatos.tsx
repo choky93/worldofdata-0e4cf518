@@ -54,6 +54,7 @@ const MAX_CONCURRENT_UPLOADS = 4;
 const PRESIGN_THRESHOLD = 20 * 1024 * 1024; // 20MB
 const MAX_FILE_SIZE = 100 * 1024 * 1024; // 100MB
 const EXCEL_CLIENT_PARSE_THRESHOLD = 500 * 1024; // 500KB — parse Excel client-side above this
+const MAX_PREPARSED_CSV_SIZE = 500 * 1024; // 500KB max CSV to send directly to edge function
 
 function detectFileType(name: string): string {
   const ext = name.split('.').pop()?.toLowerCase() || '';
@@ -467,7 +468,7 @@ export default function CargaDatos() {
           try {
             updateItem({ progress: 72 });
             const buffer = await item.file.arrayBuffer();
-            const wb = XLSX.read(buffer, { type: 'array', dense: true, cellStyles: false, cellNF: false, cellText: false });
+            const wb = XLSX.read(buffer, { type: 'array', dense: true, cellStyles: false, cellNF: false, cellText: false, sheetRows: 50000 });
             let csv = '';
             for (const sheetName of wb.SheetNames) {
               const sheet = wb.Sheets[sheetName];
@@ -477,6 +478,12 @@ export default function CargaDatos() {
               if (lines.length > 1) {
                 csv += `\n--- HOJA: ${sheetName} ---\n${sheetCSV}\n`;
               }
+              if (csv.length > MAX_PREPARSED_CSV_SIZE) break;
+            }
+            // Truncate if still too large — server will handle chunking
+            if (csv.length > MAX_PREPARSED_CSV_SIZE) {
+              csv = csv.substring(0, MAX_PREPARSED_CSV_SIZE);
+              console.log(`[CargaDatos] Truncated preParsed CSV to ${MAX_PREPARSED_CSV_SIZE / 1024}KB`);
             }
             preParsedCSV = csv;
             updateItem({ progress: 80 });
