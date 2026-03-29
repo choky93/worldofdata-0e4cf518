@@ -1,5 +1,5 @@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { formatCurrency, formatPercent, formatNumber } from '@/lib/formatters';
+import { formatCurrency, formatPercent, formatNumber, parseLocalNumber } from '@/lib/formatters';
 import { useExtractedData } from '@/hooks/useExtractedData';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { TrendingUp, Upload, Database, Loader2, Megaphone } from 'lucide-react';
