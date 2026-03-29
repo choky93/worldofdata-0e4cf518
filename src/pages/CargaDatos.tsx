@@ -256,6 +256,7 @@ export default function CargaDatos() {
   const [reprocessingId, setReprocessingId] = useState<string | null>(null);
   const [uploadQueue, setUploadQueue] = useState<UploadQueueItem[]>([]);
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const prevErrorIdsRef = useRef<Set<string>>(new Set());
   const [urlImportText, setUrlImportText] = useState('');
   const [isImportingUrls, setIsImportingUrls] = useState(false);
   const [showUrlImport, setShowUrlImport] = useState(false);
@@ -314,6 +315,18 @@ export default function CargaDatos() {
       const records = (data as FileRecord[]) || [];
       setFiles(records);
       setTotalCount(count || 0);
+
+      // Detect new errors and show toast
+      const currentErrorIds = new Set(records.filter(f => f.status === 'error').map(f => f.id));
+      for (const f of records) {
+        if (f.status === 'error' && !prevErrorIdsRef.current.has(f.id)) {
+          toast.error(`Error procesando "${f.file_name}"`, {
+            description: f.processing_error || 'Error desconocido durante el procesamiento',
+            duration: 8000,
+          });
+        }
+      }
+      prevErrorIdsRef.current = currentErrorIds;
 
       const processedIds = records.filter(f => f.status === 'processed').map(f => f.id);
       if (processedIds.length > 0) fetchExtractedData(processedIds);
@@ -758,7 +771,7 @@ export default function CargaDatos() {
                               {f.file_size ? ` · ${f.file_size > 1024 * 1024 ? `${(f.file_size / 1024 / 1024).toFixed(1)} MB` : `${(f.file_size / 1024).toFixed(0)} KB`}` : ''}
                             </p>
                             {f.status === 'error' && f.processing_error && (
-                              <p className="text-xs text-destructive mt-0.5 truncate">{f.processing_error}</p>
+                              <p className="text-xs text-destructive mt-0.5 whitespace-pre-wrap break-words">{f.processing_error}</p>
                             )}
                           </div>
                           <Badge className={`border-0 shrink-0 ${statusColor(f.status)}`}>

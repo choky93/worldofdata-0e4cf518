@@ -55,6 +55,22 @@ async function fetchCompanyContext(companyId: string): Promise<string> {
     .order("created_at", { ascending: false })
     .limit(8);
 
+  // Failed file uploads
+  const { data: failedFiles } = await sb
+    .from("file_uploads")
+    .select("file_name, file_type, processing_error, created_at")
+    .eq("company_id", companyId)
+    .eq("status", "error")
+    .order("created_at", { ascending: false })
+    .limit(10);
+
+  if (failedFiles?.length) {
+    parts.push("\n=== ARCHIVOS CON ERROR DE PROCESAMIENTO ===");
+    for (const f of failedFiles) {
+      parts.push(`- "${f.file_name}" (${f.file_type}): ${f.processing_error || "sin detalle"}`);
+    }
+  }
+
   if (extracted?.length) {
     parts.push(`\n=== DATOS REALES EXTRAÍDOS DE LOS ARCHIVOS DEL NEGOCIO ===`);
     let totalChars = 0;
