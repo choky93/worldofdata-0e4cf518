@@ -608,11 +608,10 @@ export default function CargaDatos() {
           if (dlData instanceof ArrayBuffer) {
             buffer = dlData;
           } else if (dlData.data) {
-            // base64 encoded
             const binary = atob(dlData.data);
-            buffer = new Uint8Array(binary.length);
-            for (let i = 0; i < binary.length; i++) (buffer as any)[i] = binary.charCodeAt(i);
-            buffer = (buffer as Uint8Array).buffer;
+            const bytes = new Uint8Array(binary.length);
+            for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+            buffer = bytes.buffer as ArrayBuffer;
           } else {
             throw new Error('Formato de respuesta inesperado');
           }
