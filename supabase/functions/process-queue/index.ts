@@ -60,7 +60,7 @@ serve(async (req) => {
     // ─── Step 2: Fetch queued files ────────────────────────────
     const { data: queuedFiles, error: fetchErr } = await sb
       .from("file_uploads")
-      .select("id, company_id, file_name, next_chunk_index")
+      .select("id, company_id, file_name, next_chunk_index, file_size, file_type, total_chunks")
       .eq("status", "queued")
       .order("priority", { ascending: false })
       .order("created_at", { ascending: true })
