@@ -458,11 +458,39 @@ export default function CargaDatos() {
 
         updateItem({ progress: 70 });
 
+        // For large Excel files, pre-parse client-side to avoid edge function memory limits
+        const ext = item.file.name.split('.').pop()?.toLowerCase() || '';
+        const isLargeExcel = ['xls', 'xlsx'].includes(ext) && item.file.size > EXCEL_CLIENT_PARSE_THRESHOLD;
+        let preParsedCSV: string | null = null;
+
+        if (isLargeExcel) {
+          try {
+            updateItem({ progress: 72 });
+            const buffer = await item.file.arrayBuffer();
+            const wb = XLSX.read(buffer, { type: 'array', dense: true, cellStyles: false, cellNF: false, cellText: false });
+            let csv = '';
+            for (const sheetName of wb.SheetNames) {
+              const sheet = wb.Sheets[sheetName];
+              if (!sheet) continue;
+              const sheetCSV = XLSX.utils.sheet_to_csv(sheet, { FS: ',', RS: '\n' });
+              const lines = sheetCSV.split('\n').filter(l => l.trim());
+              if (lines.length > 1) {
+                csv += `\n--- HOJA: ${sheetName} ---\n${sheetCSV}\n`;
+              }
+            }
+            preParsedCSV = csv;
+            updateItem({ progress: 80 });
+            console.log(`[CargaDatos] Pre-parsed Excel client-side: ${(csv.length / 1024).toFixed(0)}KB CSV`);
+          } catch (parseErr) {
+            console.warn('[CargaDatos] Client-side Excel parse failed, falling back to server:', parseErr);
+          }
+        }
+
         const { data: dbData, error: dbError } = await supabase.from('file_uploads').insert({
           file_name: item.file.name,
           file_type: detectFileType(item.file.name),
           file_size: item.file.size,
-          status: 'queued',
+          status: preParsedCSV ? 'processing' : 'queued',
           storage_path: storagePath,
           uploaded_by: user.id,
           company_id: profile.company_id!,
@@ -475,9 +503,30 @@ export default function CargaDatos() {
           return;
         }
 
-        // File is queued — the worker (process-queue) will handle processing
+        // If we pre-parsed, send directly to process-file
+        if (preParsedCSV && dbData?.id) {
+          updateItem({ progress: 85 });
+          try {
+            const { error: pfError } = await supabase.functions.invoke('process-file', {
+              body: {
+                fileUploadId: dbData.id,
+                companyId: profile.company_id!,
+                preParsedData: preParsedCSV,
+              },
+            });
+            if (pfError) {
+              // Mark as queued so server can retry
+              await supabase.from('file_uploads').update({ status: 'queued', processing_error: null }).eq('id', dbData.id);
+              console.warn('[CargaDatos] Direct process-file failed, queued for retry:', pfError);
+            }
+          } catch (invokeErr) {
+            await supabase.from('file_uploads').update({ status: 'queued', processing_error: null }).eq('id', dbData.id);
+            console.warn('[CargaDatos] process-file invoke failed, queued:', invokeErr);
+          }
+        }
+
         updateItem({ status: 'done', progress: 100 });
-        toast.success(`"${item.file.name}" en cola para procesar`);
+        toast.success(`"${item.file.name}" ${preParsedCSV ? 'procesando' : 'en cola para procesar'}`);
       } catch (err: any) {
         updateItem({ status: 'error', error: err.message });
       }
