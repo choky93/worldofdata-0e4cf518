@@ -444,6 +444,7 @@ serve(async (req) => {
             processingMetadata.method = 'large_scanned_pdf_limited';
           }
           const result = await extractWithAI(content, file_name, undefined, undefined, processingMetadata);
+          await sb.from("file_extracted_data").delete().eq("file_upload_id", fileUploadId).eq("chunk_index", 0);
           await sb.from("file_extracted_data").insert({
             file_upload_id: fileUploadId, company_id: companyId,
             data_category: result.category, extracted_json: result.data,
