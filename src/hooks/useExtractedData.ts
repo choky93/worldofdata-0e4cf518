@@ -35,7 +35,7 @@ export function useExtractedData() {
         .from('file_extracted_data')
         .select('data_category, extracted_json, row_count, summary, chunk_index, file_upload_id')
         .eq('company_id', profile.company_id)
-        .neq('data_category', '_raw_cache')
+        .not('data_category', 'in', '("_raw_cache","_classification")')
         .order('created_at', { ascending: false });
 
       if (error) throw error;
@@ -50,10 +50,12 @@ export function useExtractedData() {
           const cat = r.data_category as keyof AggregatedData;
           const json = r.extracted_json as any;
           const rows = json?.data || [];
+          // Skip empty/broken chunks
+          if (!Array.isArray(rows) || rows.length === 0) continue;
           if (agg[cat]) {
-            agg[cat].push(...(Array.isArray(rows) ? rows : []));
+            agg[cat].push(...rows);
           } else {
-            agg.otro.push(...(Array.isArray(rows) ? rows : []));
+            agg.otro.push(...rows);
           }
         }
         setHasData(true);

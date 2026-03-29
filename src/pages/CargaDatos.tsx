@@ -53,8 +53,7 @@ const PAGE_SIZE = 25;
 const MAX_CONCURRENT_UPLOADS = 4;
 const PRESIGN_THRESHOLD = 20 * 1024 * 1024; // 20MB
 const MAX_FILE_SIZE = 100 * 1024 * 1024; // 100MB
-const EXCEL_CLIENT_PARSE_THRESHOLD = 500 * 1024; // 500KB — parse Excel client-side above this
-const MAX_PREPARSED_CSV_SIZE = 500 * 1024; // 500KB max CSV to send directly to edge function
+const ROW_BATCH_SIZE = 500; // Rows per batch sent to backend
 
 function detectFileType(name: string): string {
   const ext = name.split('.').pop()?.toLowerCase() || '';
@@ -459,35 +458,36 @@ export default function CargaDatos() {
 
         updateItem({ progress: 70 });
 
-        // For large Excel files, pre-parse client-side to avoid edge function memory limits
+        // Parse Excel files client-side → send structured row batches
         const ext = item.file.name.split('.').pop()?.toLowerCase() || '';
-        const isLargeExcel = ['xls', 'xlsx'].includes(ext) && item.file.size > EXCEL_CLIENT_PARSE_THRESHOLD;
-        let preParsedCSV: string | null = null;
+        const isExcel = ['xls', 'xlsx'].includes(ext);
+        let parsedRows: Record<string, unknown>[] | null = null;
+        let parsedHeaders: string[] | null = null;
 
-        if (isLargeExcel) {
+        if (isExcel) {
           try {
             updateItem({ progress: 72 });
             const buffer = await item.file.arrayBuffer();
             const wb = XLSX.read(buffer, { type: 'array', dense: true, cellStyles: false, cellNF: false, cellText: false, sheetRows: 50000 });
-            let csv = '';
+            const allRows: Record<string, unknown>[] = [];
+            let headers: string[] = [];
             for (const sheetName of wb.SheetNames) {
               const sheet = wb.Sheets[sheetName];
               if (!sheet) continue;
-              const sheetCSV = XLSX.utils.sheet_to_csv(sheet, { FS: ',', RS: '\n' });
-              const lines = sheetCSV.split('\n').filter(l => l.trim());
-              if (lines.length > 1) {
-                csv += `\n--- HOJA: ${sheetName} ---\n${sheetCSV}\n`;
+              const sheetRows = XLSX.utils.sheet_to_json(sheet, { defval: '' }) as Record<string, unknown>[];
+              if (sheetRows.length > 0 && headers.length === 0) {
+                headers = Object.keys(sheetRows[0]);
               }
-              if (csv.length > MAX_PREPARSED_CSV_SIZE) break;
+              allRows.push(...sheetRows);
+              if (allRows.length >= 50000) break;
             }
-            // Truncate if still too large — server will handle chunking
-            if (csv.length > MAX_PREPARSED_CSV_SIZE) {
-              csv = csv.substring(0, MAX_PREPARSED_CSV_SIZE);
-              console.log(`[CargaDatos] Truncated preParsed CSV to ${MAX_PREPARSED_CSV_SIZE / 1024}KB`);
+            if (allRows.length > 50000) allRows.length = 50000;
+            if (allRows.length > 0) {
+              parsedRows = allRows;
+              parsedHeaders = headers;
             }
-            preParsedCSV = csv;
             updateItem({ progress: 80 });
-            console.log(`[CargaDatos] Pre-parsed Excel client-side: ${(csv.length / 1024).toFixed(0)}KB CSV`);
+            console.log(`[CargaDatos] Client-side parsed: ${allRows.length} rows, ${headers.length} cols`);
           } catch (parseErr) {
             console.warn('[CargaDatos] Client-side Excel parse failed, falling back to server:', parseErr);
           }
@@ -497,7 +497,7 @@ export default function CargaDatos() {
           file_name: item.file.name,
           file_type: detectFileType(item.file.name),
           file_size: item.file.size,
-          status: preParsedCSV ? 'processing' : 'queued',
+          status: parsedRows ? 'processing' : 'queued',
           storage_path: storagePath,
           uploaded_by: user.id,
           company_id: profile.company_id!,
@@ -510,30 +510,35 @@ export default function CargaDatos() {
           return;
         }
 
-        // If we pre-parsed, send directly to process-file
-        if (preParsedCSV && dbData?.id) {
+        // Send structured row batches to process-file
+        if (parsedRows && parsedHeaders && dbData?.id) {
           updateItem({ progress: 85 });
           try {
-            const { error: pfError } = await supabase.functions.invoke('process-file', {
-              body: {
-                fileUploadId: dbData.id,
-                companyId: profile.company_id!,
-                preParsedData: preParsedCSV,
-              },
-            });
-            if (pfError) {
-              // Mark as queued so server can retry
-              await supabase.from('file_uploads').update({ status: 'queued', processing_error: null }).eq('id', dbData.id);
-              console.warn('[CargaDatos] Direct process-file failed, queued for retry:', pfError);
+            const totalBatches = Math.ceil(parsedRows.length / ROW_BATCH_SIZE);
+            for (let bi = 0; bi < totalBatches; bi++) {
+              const batchRows = parsedRows.slice(bi * ROW_BATCH_SIZE, (bi + 1) * ROW_BATCH_SIZE);
+              const { error: pfError } = await supabase.functions.invoke('process-file', {
+                body: {
+                  fileUploadId: dbData.id,
+                  companyId: profile.company_id!,
+                  rowBatch: batchRows,
+                  headers: parsedHeaders,
+                  batchIndex: bi,
+                  totalBatches,
+                  totalRows: parsedRows.length,
+                },
+              });
+              if (pfError) throw pfError;
+              updateItem({ progress: 85 + Math.round((bi + 1) / totalBatches * 14) });
             }
-          } catch (invokeErr) {
+          } catch (invokeErr: any) {
             await supabase.from('file_uploads').update({ status: 'queued', processing_error: null }).eq('id', dbData.id);
-            console.warn('[CargaDatos] process-file invoke failed, queued:', invokeErr);
+            console.warn('[CargaDatos] Row batch upload failed, queued for server retry:', invokeErr);
           }
         }
 
         updateItem({ status: 'done', progress: 100 });
-        toast.success(`"${item.file.name}" ${preParsedCSV ? 'procesando' : 'en cola para procesar'}`);
+        toast.success(`"${item.file.name}" ${parsedRows ? 'procesando' : 'en cola para procesar'}`);
       } catch (err: any) {
         updateItem({ status: 'error', error: err.message });
       }
@@ -598,13 +603,11 @@ export default function CargaDatos() {
       const isExcel = ['xls', 'xlsx'].includes(ext);
       
       if (isExcel && file.storage_path) {
-        // For Excel files, download and parse client-side to avoid edge function memory limits
         toast.info(`Descargando "${file.file_name}" para reprocesar...`);
         await supabase.from('file_uploads').update({ status: 'processing', processing_error: null, processing_started_at: new Date().toISOString(), next_chunk_index: 0 }).eq('id', file.id);
         await fetchFiles();
         
         try {
-          // Download file from R2 via edge function (returns raw binary)
           const session = (await supabase.auth.getSession()).data.session;
           const projectId = import.meta.env.VITE_SUPABASE_PROJECT_ID;
           const downloadUrl = `https://${projectId}.supabase.co/functions/v1/r2-download`;
@@ -622,37 +625,46 @@ export default function CargaDatos() {
           const buffer = await dlResp.arrayBuffer();
           
           toast.info(`Parseando "${file.file_name}" localmente...`);
-          const wb = XLSX.read(buffer, { type: 'array', dense: true, cellStyles: false, cellNF: false, cellText: false });
-          let csv = '';
+          const wb = XLSX.read(buffer, { type: 'array', dense: true, cellStyles: false, cellNF: false, cellText: false, sheetRows: 50000 });
+          const allRows: Record<string, unknown>[] = [];
+          let headers: string[] = [];
           for (const sheetName of wb.SheetNames) {
             const sheet = wb.Sheets[sheetName];
             if (!sheet) continue;
-            const sheetCSV = XLSX.utils.sheet_to_csv(sheet, { FS: ',', RS: '\n' });
-            const lines = sheetCSV.split('\n').filter(l => l.trim());
-            if (lines.length > 1) {
-              csv += `\n--- HOJA: ${sheetName} ---\n${sheetCSV}\n`;
+            const sheetRows = XLSX.utils.sheet_to_json(sheet, { defval: '' }) as Record<string, unknown>[];
+            if (sheetRows.length > 0 && headers.length === 0) {
+              headers = Object.keys(sheetRows[0]);
             }
+            allRows.push(...sheetRows);
+            if (allRows.length >= 50000) break;
+          }
+          if (allRows.length > 50000) allRows.length = 50000;
+          
+          if (allRows.length === 0) throw new Error('No se encontraron filas en el archivo');
+          
+          console.log(`[CargaDatos] Reparse: ${allRows.length} rows, ${headers.length} cols`);
+          
+          // Send in batches
+          const totalBatches = Math.ceil(allRows.length / ROW_BATCH_SIZE);
+          for (let bi = 0; bi < totalBatches; bi++) {
+            const batchRows = allRows.slice(bi * ROW_BATCH_SIZE, (bi + 1) * ROW_BATCH_SIZE);
+            const { error: pfError } = await supabase.functions.invoke('process-file', {
+              body: {
+                fileUploadId: file.id,
+                companyId: profile.company_id!,
+                rowBatch: batchRows,
+                headers,
+                batchIndex: bi,
+                totalBatches,
+                totalRows: allRows.length,
+              },
+            });
+            if (pfError) throw pfError;
           }
           
-          console.log(`[CargaDatos] Client-side reparse: ${(csv.length / 1024).toFixed(0)}KB CSV`);
-          
-          const { error: pfError } = await supabase.functions.invoke('process-file', {
-            body: {
-              fileUploadId: file.id,
-              companyId: profile.company_id!,
-              preParsedData: csv,
-            },
-          });
-          
-          if (pfError) {
-            await supabase.from('file_uploads').update({ status: 'error', processing_error: pfError.message }).eq('id', file.id);
-            toast.error(`Error procesando: ${pfError.message}`);
-          } else {
-            toast.success(`"${file.file_name}" procesado correctamente`);
-          }
+          toast.success(`"${file.file_name}" procesado correctamente`);
         } catch (clientErr: any) {
           console.error('[CargaDatos] Client-side reprocess failed:', clientErr);
-          // Fallback: queue for server-side processing
           await supabase.from('file_uploads').update({ status: 'queued', processing_error: null, processing_started_at: null }).eq('id', file.id);
           toast.info(`"${file.file_name}" re-encolado (el parseo local falló)`);
         }
