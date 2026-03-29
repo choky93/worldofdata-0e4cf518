@@ -426,6 +426,7 @@ serve(async (req) => {
           } else {
             const content = `[PDF con ${pdfResult.pages} páginas, texto extraído]\n\n${fullText}`;
             const result = await extractWithAI(content, file_name, undefined, undefined, processingMetadata);
+            await sb.from("file_extracted_data").delete().eq("file_upload_id", fileUploadId).eq("chunk_index", 0);
             await sb.from("file_extracted_data").insert({
               file_upload_id: fileUploadId, company_id: companyId,
               data_category: result.category, extracted_json: result.data,
