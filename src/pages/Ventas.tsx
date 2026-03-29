@@ -20,7 +20,7 @@ function aggregateByDate(ventas: any[]): { day: string; value: number }[] {
     } else if (/^\d{2}\/\d{2}\/\d{4}/.test(raw)) {
       key = raw.substring(0, 5);
     }
-    const amt = parseLocalNumber(r.monto || r.total || r.amount || r.valor || r.importe || 0);
+    const amt = parseLocalNumber(r.monto || r.total || r.amount || r.valor || r.importe || r.ganancia || r.monto_total || r.monto_venta || r.total_mensual_iva_inc || r.precio || 0);
     map.set(key, (map.get(key) || 0) + amt);
   }
   return Array.from(map.entries()).slice(-30).map(([day, value]) => ({ day, value }));
