@@ -68,7 +68,18 @@ export default function Stock() {
   const realStock = extractedData?.stock || [];
 
   const useReal = hasData && realStock.length > 0;
-  const products: ProductRow[] = useReal ? normalizeProducts(realStock) : mockProducts;
+  const products: ProductRow[] = useReal ? normalizeProducts(realStock) : [];
+
+  if (!useReal) {
+    return (
+      <div className="flex flex-col items-center justify-center py-20 text-center space-y-4">
+        <Package className="h-12 w-12 text-muted-foreground" />
+        <h2 className="text-xl font-semibold">Sin datos de stock</h2>
+        <p className="text-muted-foreground max-w-md">Cargá un archivo con datos de inventario para ver el análisis completo.</p>
+        <Link to="/carga-datos" className="text-primary hover:underline text-sm">Ir a Carga de Datos →</Link>
+      </div>
+    );
+  }
 
   const totalValue = products.reduce((s, p) => s + p.stock * p.cost, 0);
   const lowStock = products.filter(p => p.status === 'low');
