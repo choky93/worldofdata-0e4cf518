@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX IF NOT EXISTS idx_unique_file_chunk ON file_extracted_data (file_upload_id, chunk_index);
