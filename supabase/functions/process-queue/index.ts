@@ -152,7 +152,7 @@ serve(async (req) => {
 
     for (let i = 0; i < settled.length; i++) {
       const result = settled[i];
-      const file = filesToProcess[i];
+      const file = allToProcess[i];
 
       if (result.status === "fulfilled") {
         results.push({ id: file.id, name: file.file_name, success: true });
