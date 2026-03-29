@@ -228,6 +228,7 @@ export type Database = {
           processing_started_at: string | null
           status: string | null
           storage_path: string | null
+          total_chunks: number | null
           uploaded_by: string | null
         }
         Insert: {
@@ -244,6 +245,7 @@ export type Database = {
           processing_started_at?: string | null
           status?: string | null
           storage_path?: string | null
+          total_chunks?: number | null
           uploaded_by?: string | null
         }
         Update: {
@@ -260,6 +262,7 @@ export type Database = {
           processing_started_at?: string | null
           status?: string | null
           storage_path?: string | null
+          total_chunks?: number | null
           uploaded_by?: string | null
         }
         Relationships: [
