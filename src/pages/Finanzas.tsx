@@ -40,7 +40,7 @@ function normalizeExpenses(rows: any[]): ExpenseRow[] {
     else if (statusRaw === 'vencido' || statusRaw === 'overdue') status = 'overdue';
     return {
       name: r.concepto || r.nombre || r.descripcion || r.name || r.gasto || 'Gasto',
-      amount: parseFloat(r.monto || r.importe || r.amount || r.total || 0) || 0,
+      amount: parseLocalNumber(r.monto || r.importe || r.amount || r.total || 0),
       dueDate: r.vencimiento || r.fecha_vencimiento || r.fecha || r.due_date || '',
       status,
     };
