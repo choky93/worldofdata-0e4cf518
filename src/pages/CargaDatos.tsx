@@ -771,7 +771,7 @@ export default function CargaDatos() {
                               {f.file_size ? ` · ${f.file_size > 1024 * 1024 ? `${(f.file_size / 1024 / 1024).toFixed(1)} MB` : `${(f.file_size / 1024).toFixed(0)} KB`}` : ''}
                             </p>
                             {f.status === 'error' && f.processing_error && (
-                              <p className="text-xs text-destructive mt-0.5 truncate">{f.processing_error}</p>
+                              <p className="text-xs text-destructive mt-0.5 whitespace-pre-wrap break-words">{f.processing_error}</p>
                             )}
                           </div>
                           <Badge className={`border-0 shrink-0 ${statusColor(f.status)}`}>
