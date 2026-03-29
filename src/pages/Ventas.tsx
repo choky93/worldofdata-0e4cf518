@@ -109,7 +109,7 @@ export default function Ventas() {
     date: r.fecha || r.date || '—',
     client: r.cliente || r.client || r.nombre || '—',
     product: r.producto || r.detalle || r.descripcion || r.product || '—',
-    amount: parseFloat(r.monto || r.total || r.amount || r.valor || r.importe || 0) || 0,
+    amount: parseLocalNumber(r.monto || r.total || r.amount || r.valor || r.importe || 0),
   }));
 
   const dailyChart = aggregateByDate(realVentas);

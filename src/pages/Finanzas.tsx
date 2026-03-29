@@ -85,11 +85,11 @@ export default function Finanzas() {
   const realFacturas = extractedData?.facturas || [];
 
   const totalVentasReal = realVentas.reduce((s: number, r: any) =>
-    s + (parseFloat(r.monto || r.total || r.amount || r.valor || r.importe || 0) || 0), 0);
+    s + parseLocalNumber(r.monto || r.total || r.amount || r.valor || r.importe || 0), 0);
   const totalGastosReal = realGastos.reduce((s: number, r: any) =>
-    s + (parseFloat(r.monto || r.total || r.amount || r.importe || 0) || 0), 0);
+    s + parseLocalNumber(r.monto || r.total || r.amount || r.importe || 0), 0);
   const totalFacturasReal = realFacturas.reduce((s: number, r: any) =>
-    s + (parseFloat(r.monto || r.total || r.amount || r.importe || 0) || 0), 0);
+    s + parseLocalNumber(r.monto || r.total || r.amount || r.importe || 0), 0);
 
   const hasFinancialData = hasData && (realVentas.length > 0 || realGastos.length > 0 || realFacturas.length > 0);
   const expenses: ExpenseRow[] = hasData && realGastos.length > 0 ? normalizeExpenses(realGastos) : [];
