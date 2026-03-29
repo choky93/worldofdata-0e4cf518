@@ -517,12 +517,16 @@ serve(async (req) => {
         } else {
           const content = JSON.stringify(allRows);
           const result = await extractWithAI(content.substring(0, MAX_CONTENT_CHARS), file_name, undefined, undefined, processingMetadata);
+          await sb.from("file_extracted_data").delete().eq("file_upload_id", fileUploadId).eq("chunk_index", 0);
           await sb.from("file_extracted_data").insert({
             file_upload_id: fileUploadId, company_id: companyId,
             data_category: result.category, extracted_json: result.data,
             summary: result.summary, row_count: result.rowCount, chunk_index: 0,
           });
           resultInfo = { category: result.category, summary: result.summary, totalRows: result.rowCount };
+        }
+        if (truncationWarning) {
+          await sb.from("file_uploads").update({ processing_error: truncationWarning }).eq("id", fileUploadId);
         }
 
       } else {
