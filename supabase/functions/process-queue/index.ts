@@ -103,10 +103,27 @@ serve(async (req) => {
     const filesToProcess = queuedFiles.filter(f => lockedIds.includes(f.id));
     console.log(`[process-queue] Locked ${filesToProcess.length} file(s) for processing`);
 
-    // ─── Step 4: Process all files in parallel ────────────────
+    // ─── Step 4: Separate heavy vs light files ────────────────
+    const heavyFiles = filesToProcess.filter(f => (f.file_size || 0) > HEAVY_FILE_THRESHOLD || (f.next_chunk_index || 0) > 0);
+    const lightFiles = filesToProcess.filter(f => !heavyFiles.includes(f));
+
+    // Process light files in parallel, heavy files sequentially (max 1 at a time)
+    const heavyToProcess = heavyFiles.slice(0, MAX_HEAVY_PARALLEL);
+    const heavyToRequeue = heavyFiles.slice(MAX_HEAVY_PARALLEL);
+
+    // Re-queue excess heavy files
+    for (const f of heavyToRequeue) {
+      await sb.from("file_uploads").update({ status: "queued", processing_started_at: null }).eq("id", f.id);
+    }
+
+    const allToProcess = [...lightFiles, ...heavyToProcess];
+    console.log(`[process-queue] Processing ${lightFiles.length} light + ${heavyToProcess.length} heavy file(s)${heavyToRequeue.length > 0 ? `, ${heavyToRequeue.length} heavy re-queued` : ''}`);
+
+    // ─── Step 5: Process files ────────────────────────────────
     const settled = await Promise.allSettled(
-      filesToProcess.map(async (file) => {
-        console.log(`[process-queue] Invoking process-file for "${file.file_name}" (${file.id})`);
+      allToProcess.map(async (file) => {
+        const isResume = (file.next_chunk_index || 0) > 0;
+        console.log(`[process-queue] Invoking process-file for "${file.file_name}" (${file.id})${isResume ? ` resuming from chunk ${file.next_chunk_index}` : ''}`);
         const processResp = await fetch(`${supabaseUrl}/functions/v1/process-file`, {
           method: "POST",
           headers: {
