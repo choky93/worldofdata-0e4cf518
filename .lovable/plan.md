@@ -1,58 +1,34 @@
 
 
-# Fix: Limpiar datos duplicados y re-encolar archivos con error
+# Fix: Preparar el sistema para cargas de datos grandes
 
 ## Problema
 
-Los cambios de código están bien aplicados pero hay **datos basura históricos** que contaminan los resultados. Un solo archivo tiene 1160 registros duplicados cuando debería tener 2.
+El pipeline actual funciona para archivos medianos pero tiene límites duros que truncan datos silenciosamente en archivos grandes. Un Excel de 50K filas pierde el 90% porque `MAX_EXCEL_ROWS = 5000`.
 
 ## Plan
 
-### 1. Migración SQL para limpiar duplicados
+### 1. Aumentar límites en `process-file/index.ts`
 
-Una migración que:
-- Elimine todos los `file_extracted_data` de archivos que están en estado `error` (datos parciales/corruptos)
-- Para archivos `processed`, elimine duplicados manteniendo solo el registro más reciente por `(file_upload_id, chunk_index)`
+- `MAX_EXCEL_ROWS`: 5,000 → 50,000
+- `MAX_CHUNKS_PER_INVOCATION`: 2 → 5 (reduce tiempo de procesamiento de 10+ min a ~4 min para archivos grandes)
+- `CHUNK_ROWS`: 500 → 1,000 (menos invocaciones de IA, cada chunk más grande)
 
-```sql
--- Borrar datos de archivos con error (datos parciales inútiles)
-DELETE FROM file_extracted_data 
-WHERE file_upload_id IN (SELECT id FROM file_uploads WHERE status = 'error');
+### 2. Agregar idempotencia a todos los INSERT paths
 
--- Borrar duplicados: mantener solo el más reciente por (file_upload_id, chunk_index)
-DELETE FROM file_extracted_data a
-USING file_extracted_data b
-WHERE a.file_upload_id = b.file_upload_id
-  AND a.chunk_index = b.chunk_index
-  AND a.created_at < b.created_at;
-```
+En los paths de archivos pequeños (no chunkeados) — líneas 322, 357, 369, 391, 425, 442, 461, 511, 523 — agregar un DELETE previo por `(file_upload_id, chunk_index=0)` antes de cada INSERT, igual que ya se hace en `processChunksLimited`. Esto previene duplicados en reintentos.
 
-### 2. Re-encolar archivos con error
+### 3. Agregar log de advertencia cuando se truncan datos
 
-```sql
-UPDATE file_uploads 
-SET status = 'queued', processing_error = NULL, next_chunk_index = 0
-WHERE status = 'error';
-```
+Si un Excel tiene más filas que el cap, registrar un warning en `processing_error` para que el usuario sepa que se truncaron datos, sin marcar el archivo como error.
 
-### 3. Agregar unique constraint para prevenir duplicados futuros a nivel DB
+### 4. Eliminar mock fallback de Stock.tsx (opcional, recomendado)
 
-```sql
-CREATE UNIQUE INDEX IF NOT EXISTS idx_unique_file_chunk 
-ON file_extracted_data (file_upload_id, chunk_index);
-```
-
-Esto hace que incluso si el DELETE falla, el INSERT con duplicado sea rechazado por la base de datos. Es la defensa definitiva.
-
-## Resultado
-
-- Se eliminan ~1400 registros basura
-- Los 4 archivos con error se re-encolan para procesamiento
-- Un unique index impide que esto vuelva a pasar
+Cambiar Stock.tsx para mostrar un empty state en lugar de datos mock cuando no hay datos reales. Esto elimina la última referencia a `mock-data.ts`.
 
 ## Detalle técnico
 
-- Una sola migración SQL con 3 operaciones
-- No requiere cambios de código (el código ya está correcto)
-- El unique index puede requerir cambiar el INSERT por un UPSERT en `process-file` para evitar errores de constraint violation — pero como ya hace DELETE antes, debería funcionar
+- Cambios solo en `supabase/functions/process-file/index.ts` (constantes + ~9 puntos de INSERT) y opcionalmente `src/pages/Stock.tsx`
+- No requiere migraciones SQL
+- Los nuevos límites (50K filas, 1000 por chunk, 5 chunks por invocación) cubren archivos de hasta ~50K filas en una sola pasada del pipeline
 
