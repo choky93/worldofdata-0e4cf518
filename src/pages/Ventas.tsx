@@ -102,8 +102,7 @@ export default function Ventas() {
   }
 
   const salesTotal = realVentas.reduce((sum: number, r: any) => {
-    const val = parseFloat(r.monto || r.total || r.amount || r.valor || r.importe || 0);
-    return sum + (isNaN(val) ? 0 : val);
+    return sum + parseLocalNumber(r.monto || r.total || r.amount || r.valor || r.importe || 0);
   }, 0);
 
   const salesHistory = realVentas.slice(0, 50).map((r: any, i: number) => ({
