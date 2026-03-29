@@ -53,6 +53,7 @@ const PAGE_SIZE = 25;
 const MAX_CONCURRENT_UPLOADS = 4;
 const PRESIGN_THRESHOLD = 20 * 1024 * 1024; // 20MB
 const MAX_FILE_SIZE = 100 * 1024 * 1024; // 100MB
+const EXCEL_CLIENT_PARSE_THRESHOLD = 500 * 1024; // 500KB — parse Excel client-side above this
 
 function detectFileType(name: string): string {
   const ext = name.split('.').pop()?.toLowerCase() || '';
