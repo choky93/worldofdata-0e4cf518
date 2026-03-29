@@ -10,12 +10,12 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-const CHUNK_ROWS = 500;
+const CHUNK_ROWS = 1000;
 const CHUNK_CHARS = 12000;
 const MAX_CONTENT_CHARS = 15000;
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
-const MAX_EXCEL_ROWS = 5000; // Cap to avoid memory limit in edge functions
-const MAX_CHUNKS_PER_INVOCATION = 2;
+const MAX_EXCEL_ROWS = 50000;
+const MAX_CHUNKS_PER_INVOCATION = 5;
 
 // ─── R2 Download ───────────────────────────────────────────────
 async function downloadFromR2(storagePath: string): Promise<ArrayBuffer> {
