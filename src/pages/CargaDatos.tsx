@@ -586,8 +586,77 @@ export default function CargaDatos() {
     setReprocessingId(file.id);
     try {
       await supabase.from('file_extracted_data').delete().eq('file_upload_id', file.id);
-      await supabase.from('file_uploads').update({ status: 'queued', processing_error: null, processing_started_at: null }).eq('id', file.id);
-      toast.success(`"${file.file_name}" re-encolado para procesar`);
+      
+      const ext = file.file_name.split('.').pop()?.toLowerCase() || '';
+      const isExcel = ['xls', 'xlsx'].includes(ext);
+      
+      if (isExcel && file.storage_path) {
+        // For Excel files, download and parse client-side to avoid edge function memory limits
+        toast.info(`Descargando "${file.file_name}" para reprocesar...`);
+        await supabase.from('file_uploads').update({ status: 'processing', processing_error: null, processing_started_at: new Date().toISOString(), next_chunk_index: 0 }).eq('id', file.id);
+        await fetchFiles();
+        
+        try {
+          const { data: dlData, error: dlError } = await supabase.functions.invoke('r2-download', {
+            body: { storagePath: file.storage_path },
+          });
+          
+          if (dlError || !dlData) throw new Error(dlError?.message || 'Error descargando archivo');
+          
+          // dlData could be ArrayBuffer or base64
+          let buffer: ArrayBuffer;
+          if (dlData instanceof ArrayBuffer) {
+            buffer = dlData;
+          } else if (dlData.data) {
+            // base64 encoded
+            const binary = atob(dlData.data);
+            buffer = new Uint8Array(binary.length);
+            for (let i = 0; i < binary.length; i++) (buffer as any)[i] = binary.charCodeAt(i);
+            buffer = (buffer as Uint8Array).buffer;
+          } else {
+            throw new Error('Formato de respuesta inesperado');
+          }
+          
+          toast.info(`Parseando "${file.file_name}" localmente...`);
+          const wb = XLSX.read(buffer, { type: 'array', dense: true, cellStyles: false, cellNF: false, cellText: false });
+          let csv = '';
+          for (const sheetName of wb.SheetNames) {
+            const sheet = wb.Sheets[sheetName];
+            if (!sheet) continue;
+            const sheetCSV = XLSX.utils.sheet_to_csv(sheet, { FS: ',', RS: '\n' });
+            const lines = sheetCSV.split('\n').filter(l => l.trim());
+            if (lines.length > 1) {
+              csv += `\n--- HOJA: ${sheetName} ---\n${sheetCSV}\n`;
+            }
+          }
+          
+          console.log(`[CargaDatos] Client-side reparse: ${(csv.length / 1024).toFixed(0)}KB CSV`);
+          
+          const { error: pfError } = await supabase.functions.invoke('process-file', {
+            body: {
+              fileUploadId: file.id,
+              companyId: profile.company_id!,
+              preParsedData: csv,
+            },
+          });
+          
+          if (pfError) {
+            await supabase.from('file_uploads').update({ status: 'error', processing_error: pfError.message }).eq('id', file.id);
+            toast.error(`Error procesando: ${pfError.message}`);
+          } else {
+            toast.success(`"${file.file_name}" procesado correctamente`);
+          }
+        } catch (clientErr: any) {
+          console.error('[CargaDatos] Client-side reprocess failed:', clientErr);
+          // Fallback: queue for server-side processing
+          await supabase.from('file_uploads').update({ status: 'queued', processing_error: null, processing_started_at: null }).eq('id', file.id);
+          toast.info(`"${file.file_name}" re-encolado (el parseo local falló)`);
+        }
+      } else {
+        await supabase.from('file_uploads').update({ status: 'queued', processing_error: null, processing_started_at: null }).eq('id', file.id);
+        toast.success(`"${file.file_name}" re-encolado para procesar`);
+      }
+      
       await fetchFiles();
     } catch (err: any) {
       toast.error('Error: ' + err.message);
