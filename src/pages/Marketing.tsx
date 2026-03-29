@@ -87,6 +87,8 @@ export default function Marketing() {
   const globalRoas = totalSpend > 0 ? totalRevenue / totalSpend : 0;
   const totalClicks = campaigns.reduce((s, c) => s + c.clicks, 0);
   const totalConversions = campaigns.reduce((s, c) => s + c.conversions, 0);
+  const totalReach = campaigns.reduce((s, c) => s + c.reach, 0);
+  const totalImpressions = campaigns.reduce((s, c) => s + c.impressions, 0);
 
   const chartData = campaigns.map(c => ({
     name: c.name.length > 14 ? c.name.slice(0, 14) + '…' : c.name,
