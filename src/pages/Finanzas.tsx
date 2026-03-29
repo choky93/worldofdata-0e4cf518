@@ -85,7 +85,7 @@ export default function Finanzas() {
   const realFacturas = extractedData?.facturas || [];
 
   const totalVentasReal = realVentas.reduce((s: number, r: any) =>
-    s + parseLocalNumber(r.monto || r.total || r.amount || r.valor || r.importe || 0), 0);
+    s + parseLocalNumber(r.monto || r.total || r.amount || r.valor || r.importe || r.ganancia || r.monto_total || r.monto_venta || r.total_mensual_iva_inc || r.precio || 0), 0);
   const totalGastosReal = realGastos.reduce((s: number, r: any) =>
     s + parseLocalNumber(r.monto || r.total || r.amount || r.importe || 0), 0);
   const totalFacturasReal = realFacturas.reduce((s: number, r: any) =>

@@ -108,8 +108,8 @@ export default function Ventas() {
   const salesHistory = realVentas.slice(0, 50).map((r: any, i: number) => ({
     date: r.fecha || r.date || '—',
     client: r.cliente || r.client || r.nombre || '—',
-    product: r.producto || r.detalle || r.descripcion || r.product || '—',
-    amount: parseLocalNumber(r.monto || r.total || r.amount || r.valor || r.importe || 0),
+    product: r.producto || r.detalle || r.descripcion || r.product || r.categoria || r.rubro || '—',
+    amount: parseLocalNumber(r.monto || r.total || r.amount || r.valor || r.importe || r.ganancia || r.monto_total || r.monto_venta || r.total_mensual_iva_inc || r.precio || 0),
   }));
 
   const dailyChart = aggregateByDate(realVentas);
