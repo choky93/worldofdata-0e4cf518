@@ -256,6 +256,7 @@ export default function CargaDatos() {
   const [reprocessingId, setReprocessingId] = useState<string | null>(null);
   const [uploadQueue, setUploadQueue] = useState<UploadQueueItem[]>([]);
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const prevErrorIdsRef = useRef<Set<string>>(new Set());
   const [urlImportText, setUrlImportText] = useState('');
   const [isImportingUrls, setIsImportingUrls] = useState(false);
   const [showUrlImport, setShowUrlImport] = useState(false);
