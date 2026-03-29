@@ -777,7 +777,9 @@ export default function CargaDatos() {
                             )}
                           </div>
                           <Badge className={`border-0 shrink-0 ${statusColor(f.status)}`}>
-                            {statusLabel(f.status)}
+                            {f.status === 'processing' && f.next_chunk_index && f.total_chunks
+                              ? `Bloque ${f.next_chunk_index}/${f.total_chunks}`
+                              : statusLabel(f.status)}
                           </Badge>
                           {(f.status === 'queued') && (
                             <>
