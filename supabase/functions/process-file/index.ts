@@ -473,60 +473,132 @@ serve(async (req) => {
         resultInfo = { category: result.category, summary: result.summary, totalRows: result.rowCount };
 
       } else if (['xls', 'xlsx'].includes(ext)) {
-        console.log(`[process-file] Parsing Excel server-side...`);
-        let wb: XLSX.WorkBook;
-        try {
-          wb = XLSX.read(bytes, { type: 'array' });
-        } catch (xlsErr) {
-          console.error(`[process-file] SheetJS parse error:`, xlsErr);
-          throw new Error(`Error parsing Excel: ${xlsErr instanceof Error ? xlsErr.message : 'Unknown parse error'}`);
-        }
-        const allRows: Record<string, unknown>[] = [];
-        const sheetInfo: string[] = [];
-        for (const name of wb.SheetNames) {
-          const rows = XLSX.utils.sheet_to_json(wb.Sheets[name], { defval: '' }) as Record<string, unknown>[];
-          if (rows.length > 0) {
-            sheetInfo.push(`${name}(${rows.length})`);
-            allRows.push(...rows);
-          }
-          if (allRows.length >= MAX_EXCEL_ROWS) break; // Cap to avoid memory overflow
-        }
-        const totalOriginal = allRows.length;
-        let truncationWarning: string | null = null;
-        if (allRows.length > MAX_EXCEL_ROWS) {
-          allRows.length = MAX_EXCEL_ROWS;
-          truncationWarning = `Archivo truncado: ${totalOriginal} filas encontradas, se procesaron ${MAX_EXCEL_ROWS}. Considere dividir el archivo.`;
-          console.warn(`[process-file] ⚠️ ${truncationWarning}`);
-        }
-        console.log(`[process-file] Excel parsed: ${totalOriginal} rows (capped to ${allRows.length}) from sheets: ${sheetInfo.join(', ')}`);
-        processingMetadata = { method: 'server_excel_parse', format: ext, sheets: sheetInfo.join(', '), rows_total: totalOriginal, rows_processed: allRows.length };
+        // ─── EXCEL: Check if we can resume from cached chunks ─────
+        if (startChunk > 0) {
+          // We already parsed this file before. Check if raw cache exists.
+          const { data: cachedChunks } = await sb
+            .from("file_extracted_data")
+            .select("chunk_index, extracted_json")
+            .eq("file_upload_id", fileUploadId)
+            .eq("data_category", "_raw_cache")
+            .order("chunk_index", { ascending: true });
 
-        if (allRows.length > CHUNK_ROWS) {
-          const rowChunks = chunkRows(allRows, CHUNK_ROWS);
-          processingMetadata.chunked = true;
-          processingMetadata.total_chunks = rowChunks.length;
-          const chunks = rowChunks.map((rows, i) => ({ content: JSON.stringify(rows), index: i }));
-          const r = await processChunksLimited(sb, chunks, file_name, fileUploadId, companyId, processingMetadata, startChunk);
-          if (!r.allDone) {
-            await sb.from("file_uploads").update({ status: "queued", processing_error: null, next_chunk_index: r.processedUpTo }).eq("id", fileUploadId);
-            return new Response(JSON.stringify({ success: true, partial: true, processedUpTo: r.processedUpTo }), {
-              headers: { ...corsHeaders, "Content-Type": "application/json" },
-            });
+          if (cachedChunks && cachedChunks.length > 0) {
+            console.log(`[process-file] Resuming from cached raw chunks (${cachedChunks.length} cached), startChunk=${startChunk}`);
+            const chunks = cachedChunks.map(c => ({
+              content: JSON.stringify((c.extracted_json as any)?.rows || []),
+              index: c.chunk_index,
+            }));
+            processingMetadata = { method: 'server_excel_parse_cached', format: ext, total_chunks: chunks.length };
+            const r = await processChunksLimited(sb, chunks, file_name, fileUploadId, companyId, processingMetadata, startChunk);
+            if (!r.allDone) {
+              await sb.from("file_uploads").update({ status: "queued", processing_error: null, next_chunk_index: r.processedUpTo }).eq("id", fileUploadId);
+              return new Response(JSON.stringify({ success: true, partial: true, processedUpTo: r.processedUpTo, totalChunks: chunks.length }), {
+                headers: { ...corsHeaders, "Content-Type": "application/json" },
+              });
+            }
+            // Done — clean up raw cache
+            await sb.from("file_extracted_data").delete().eq("file_upload_id", fileUploadId).eq("data_category", "_raw_cache");
+            resultInfo = { category: r.category, summary: r.summary, totalRows: r.totalRows };
+          } else {
+            // No cache found — fall through to re-download (shouldn't happen often)
+            console.warn(`[process-file] No raw cache found for resume, will re-download`);
           }
-          resultInfo = { category: r.category, summary: r.summary, totalRows: r.totalRows };
-        } else {
-          const content = JSON.stringify(allRows);
-          const result = await extractWithAI(content.substring(0, MAX_CONTENT_CHARS), file_name, undefined, undefined, processingMetadata);
-          await sb.from("file_extracted_data").delete().eq("file_upload_id", fileUploadId).eq("chunk_index", 0);
-          await sb.from("file_extracted_data").insert({
-            file_upload_id: fileUploadId, company_id: companyId,
-            data_category: result.category, extracted_json: result.data,
-            summary: result.summary, row_count: result.rowCount, chunk_index: 0,
-          });
-          resultInfo = { category: result.category, summary: result.summary, totalRows: result.rowCount };
         }
-        if (truncationWarning) {
-          await sb.from("file_uploads").update({ processing_error: truncationWarning }).eq("id", fileUploadId);
+
+        if (!resultInfo!) {
+          // Full parse path
+          console.log(`[process-file] Parsing Excel server-side...`);
+          let wb: XLSX.WorkBook;
+          try {
+            wb = XLSX.read(bytes, { type: 'array' });
+          } catch (xlsErr) {
+            console.error(`[process-file] SheetJS parse error:`, xlsErr);
+            throw new Error(`Error parsing Excel: ${xlsErr instanceof Error ? xlsErr.message : 'Unknown parse error'}`);
+          }
+          const allRows: Record<string, unknown>[] = [];
+          const sheetInfo: string[] = [];
+          for (const name of wb.SheetNames) {
+            const rows = XLSX.utils.sheet_to_json(wb.Sheets[name], { defval: '' }) as Record<string, unknown>[];
+            if (rows.length > 0) {
+              sheetInfo.push(`${name}(${rows.length})`);
+              allRows.push(...rows);
+            }
+            if (allRows.length >= MAX_EXCEL_ROWS) break;
+          }
+          const totalOriginal = allRows.length;
+          let truncationWarning: string | null = null;
+          if (allRows.length > MAX_EXCEL_ROWS) {
+            allRows.length = MAX_EXCEL_ROWS;
+            truncationWarning = `Archivo truncado: ${totalOriginal} filas encontradas, se procesaron ${MAX_EXCEL_ROWS}. Considere dividir el archivo.`;
+            console.warn(`[process-file] ⚠️ ${truncationWarning}`);
+          }
+          console.log(`[process-file] Excel parsed: ${totalOriginal} rows (capped to ${allRows.length}) from sheets: ${sheetInfo.join(', ')}`);
+          processingMetadata = { method: 'server_excel_parse', format: ext, sheets: sheetInfo.join(', '), rows_total: totalOriginal, rows_processed: allRows.length };
+
+          if (allRows.length > CHUNK_ROWS) {
+            const rowChunks = chunkRows(allRows, CHUNK_ROWS);
+            processingMetadata.chunked = true;
+            processingMetadata.total_chunks = rowChunks.length;
+
+            // Cache raw chunks so we don't need to re-download on resume
+            console.log(`[process-file] Caching ${rowChunks.length} raw chunks for potential resume...`);
+            for (let ci = 0; ci < rowChunks.length; ci++) {
+              await sb.from("file_extracted_data").upsert({
+                file_upload_id: fileUploadId,
+                company_id: companyId,
+                data_category: "_raw_cache",
+                extracted_json: { rows: rowChunks[ci] },
+                chunk_index: ci,
+                row_count: rowChunks[ci].length,
+                summary: null,
+              }, { onConflict: 'file_upload_id,chunk_index' }).throwOnError().catch(() => {
+                // If upsert fails due to no unique constraint, use delete+insert
+              });
+            }
+            // Fallback: delete+insert for raw cache
+            await sb.from("file_extracted_data").delete()
+              .eq("file_upload_id", fileUploadId)
+              .eq("data_category", "_raw_cache");
+            for (let ci = 0; ci < rowChunks.length; ci++) {
+              await sb.from("file_extracted_data").insert({
+                file_upload_id: fileUploadId,
+                company_id: companyId,
+                data_category: "_raw_cache",
+                extracted_json: { rows: rowChunks[ci] },
+                chunk_index: ci,
+                row_count: rowChunks[ci].length,
+              });
+            }
+
+            // Update total_chunks on file record
+            await sb.from("file_uploads").update({ total_chunks: rowChunks.length }).eq("id", fileUploadId);
+
+            const chunks = rowChunks.map((rows, i) => ({ content: JSON.stringify(rows), index: i }));
+            const r = await processChunksLimited(sb, chunks, file_name, fileUploadId, companyId, processingMetadata, startChunk);
+            if (!r.allDone) {
+              await sb.from("file_uploads").update({ status: "queued", processing_error: null, next_chunk_index: r.processedUpTo }).eq("id", fileUploadId);
+              return new Response(JSON.stringify({ success: true, partial: true, processedUpTo: r.processedUpTo, totalChunks: rowChunks.length }), {
+                headers: { ...corsHeaders, "Content-Type": "application/json" },
+              });
+            }
+            // Done — clean up raw cache
+            await sb.from("file_extracted_data").delete().eq("file_upload_id", fileUploadId).eq("data_category", "_raw_cache");
+            resultInfo = { category: r.category, summary: r.summary, totalRows: r.totalRows };
+          } else {
+            const content = JSON.stringify(allRows);
+            const result = await extractWithAI(content.substring(0, MAX_CONTENT_CHARS), file_name, undefined, undefined, processingMetadata);
+            await sb.from("file_extracted_data").delete().eq("file_upload_id", fileUploadId).eq("chunk_index", 0);
+            await sb.from("file_extracted_data").insert({
+              file_upload_id: fileUploadId, company_id: companyId,
+              data_category: result.category, extracted_json: result.data,
+              summary: result.summary, row_count: result.rowCount, chunk_index: 0,
+            });
+            resultInfo = { category: result.category, summary: result.summary, totalRows: result.rowCount };
+          }
+          if (truncationWarning) {
+            await sb.from("file_uploads").update({ processing_error: truncationWarning }).eq("id", fileUploadId);
+          }
         }
 
       } else {
