@@ -35,6 +35,7 @@ export function useExtractedData() {
         .from('file_extracted_data')
         .select('data_category, extracted_json, row_count, summary, chunk_index, file_upload_id')
         .eq('company_id', profile.company_id)
+        .neq('data_category', '_raw_cache')
         .order('created_at', { ascending: false });
 
       if (error) throw error;

@@ -1,0 +1,1 @@
+ALTER TABLE file_uploads ADD COLUMN IF NOT EXISTS total_chunks integer DEFAULT NULL;

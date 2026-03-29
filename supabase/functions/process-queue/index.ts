@@ -8,6 +8,8 @@ const corsHeaders = {
 };
 
 const BATCH_SIZE = 5;
+const HEAVY_FILE_THRESHOLD = 1 * 1024 * 1024; // 1MB — files above this are "heavy"
+const MAX_HEAVY_PARALLEL = 1; // Only 1 heavy file at a time
 const STUCK_THRESHOLD_MINUTES = 10;
 
 serve(async (req) => {
@@ -58,7 +60,7 @@ serve(async (req) => {
     // ─── Step 2: Fetch queued files ────────────────────────────
     const { data: queuedFiles, error: fetchErr } = await sb
       .from("file_uploads")
-      .select("id, company_id, file_name, next_chunk_index")
+      .select("id, company_id, file_name, next_chunk_index, file_size, file_type, total_chunks")
       .eq("status", "queued")
       .order("priority", { ascending: false })
       .order("created_at", { ascending: true })
@@ -101,10 +103,27 @@ serve(async (req) => {
     const filesToProcess = queuedFiles.filter(f => lockedIds.includes(f.id));
     console.log(`[process-queue] Locked ${filesToProcess.length} file(s) for processing`);
 
-    // ─── Step 4: Process all files in parallel ────────────────
+    // ─── Step 4: Separate heavy vs light files ────────────────
+    const heavyFiles = filesToProcess.filter(f => (f.file_size || 0) > HEAVY_FILE_THRESHOLD || (f.next_chunk_index || 0) > 0);
+    const lightFiles = filesToProcess.filter(f => !heavyFiles.includes(f));
+
+    // Process light files in parallel, heavy files sequentially (max 1 at a time)
+    const heavyToProcess = heavyFiles.slice(0, MAX_HEAVY_PARALLEL);
+    const heavyToRequeue = heavyFiles.slice(MAX_HEAVY_PARALLEL);
+
+    // Re-queue excess heavy files
+    for (const f of heavyToRequeue) {
+      await sb.from("file_uploads").update({ status: "queued", processing_started_at: null }).eq("id", f.id);
+    }
+
+    const allToProcess = [...lightFiles, ...heavyToProcess];
+    console.log(`[process-queue] Processing ${lightFiles.length} light + ${heavyToProcess.length} heavy file(s)${heavyToRequeue.length > 0 ? `, ${heavyToRequeue.length} heavy re-queued` : ''}`);
+
+    // ─── Step 5: Process files ────────────────────────────────
     const settled = await Promise.allSettled(
-      filesToProcess.map(async (file) => {
-        console.log(`[process-queue] Invoking process-file for "${file.file_name}" (${file.id})`);
+      allToProcess.map(async (file) => {
+        const isResume = (file.next_chunk_index || 0) > 0;
+        console.log(`[process-queue] Invoking process-file for "${file.file_name}" (${file.id})${isResume ? ` resuming from chunk ${file.next_chunk_index}` : ''}`);
         const processResp = await fetch(`${supabaseUrl}/functions/v1/process-file`, {
           method: "POST",
           headers: {
@@ -133,7 +152,7 @@ serve(async (req) => {
 
     for (let i = 0; i < settled.length; i++) {
       const result = settled[i];
-      const file = filesToProcess[i];
+      const file = allToProcess[i];
 
       if (result.status === "fulfilled") {
         results.push({ id: file.id, name: file.file_name, success: true });

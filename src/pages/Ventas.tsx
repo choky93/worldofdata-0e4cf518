@@ -1,5 +1,5 @@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { formatCurrency, formatDate } from '@/lib/formatters';
+import { formatCurrency, formatDate, parseLocalNumber } from '@/lib/formatters';
 import { useExtractedData } from '@/hooks/useExtractedData';
 import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -20,7 +20,7 @@ function aggregateByDate(ventas: any[]): { day: string; value: number }[] {
     } else if (/^\d{2}\/\d{2}\/\d{4}/.test(raw)) {
       key = raw.substring(0, 5);
     }
-    const amt = parseFloat(r.monto || r.total || r.amount || r.valor || r.importe || 0) || 0;
+    const amt = parseLocalNumber(r.monto || r.total || r.amount || r.valor || r.importe || 0);
     map.set(key, (map.get(key) || 0) + amt);
   }
   return Array.from(map.entries()).slice(-30).map(([day, value]) => ({ day, value }));
@@ -45,7 +45,7 @@ function aggregateByMonth(ventas: any[]): { month: string; value: number }[] {
       if (!isNaN(dt.getTime())) key = dt.toLocaleDateString('es-AR', { month: 'short', year: 'numeric' });
     }
     if (!key) continue;
-    const amt = parseFloat(r.monto || r.total || r.amount || r.valor || r.importe || 0) || 0;
+    const amt = parseLocalNumber(r.monto || r.total || r.amount || r.valor || r.importe || 0);
     map.set(key, (map.get(key) || 0) + amt);
   }
   const parseKey = (s: string) => new Date(s.replace(/(\w+) (\d{4})/, '$1 1, $2')).getTime();
@@ -102,15 +102,14 @@ export default function Ventas() {
   }
 
   const salesTotal = realVentas.reduce((sum: number, r: any) => {
-    const val = parseFloat(r.monto || r.total || r.amount || r.valor || r.importe || 0);
-    return sum + (isNaN(val) ? 0 : val);
+    return sum + parseLocalNumber(r.monto || r.total || r.amount || r.valor || r.importe || 0);
   }, 0);
 
   const salesHistory = realVentas.slice(0, 50).map((r: any, i: number) => ({
     date: r.fecha || r.date || '—',
     client: r.cliente || r.client || r.nombre || '—',
     product: r.producto || r.detalle || r.descripcion || r.product || '—',
-    amount: parseFloat(r.monto || r.total || r.amount || r.valor || r.importe || 0) || 0,
+    amount: parseLocalNumber(r.monto || r.total || r.amount || r.valor || r.importe || 0),
   }));
 
   const dailyChart = aggregateByDate(realVentas);

@@ -4,7 +4,7 @@ import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/contexts/AuthContext';
-import { formatCurrency, getGreeting } from '@/lib/formatters';
+import { formatCurrency, getGreeting, parseLocalNumber } from '@/lib/formatters';
 import { useExtractedData } from '@/hooks/useExtractedData';
 import {
   TrendingUp, AlertTriangle, DollarSign, Package, Users,
@@ -115,22 +115,22 @@ export default function Dashboard() {
 
   const salesTotal = hasData && realVentas.length > 0
     ? realVentas.reduce((sum: number, r: any) => {
-        const val = parseFloat(r.monto || r.total || r.amount || r.valor || r.importe || 0);
-        return sum + (isNaN(val) ? 0 : val);
+        const val = parseLocalNumber(r.monto || r.total || r.amount || r.valor || r.importe || 0);
+        return sum + val;
       }, 0)
     : null;
 
   const gastosTotal = hasData && realGastos.length > 0
     ? realGastos.reduce((sum: number, r: any) => {
-        const val = parseFloat(r.monto || r.total || r.amount || r.importe || 0);
-        return sum + (isNaN(val) ? 0 : val);
+        const val = parseLocalNumber(r.monto || r.total || r.amount || r.importe || 0);
+        return sum + val;
       }, 0)
     : null;
 
   const marketingSpend = hasData && realMarketing.length > 0
     ? realMarketing.reduce((sum: number, r: any) => {
-        const val = parseFloat(r.gasto || r.inversion || r.spend || r.costo || r.importe || 0);
-        return sum + (isNaN(val) ? 0 : val);
+        const val = parseLocalNumber(r.gasto || r.inversion || r.spend || r.costo || r.importe || r.importe_gastado || r.importe_gastado_ars || 0);
+        return sum + val;
       }, 0)
     : null;
 
@@ -179,7 +179,7 @@ export default function Dashboard() {
       if (!isNaN(d.getTime())) {
         key = d.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit' });
       }
-      const amt = parseFloat(r.monto || r.total || r.amount || r.valor || r.importe || 0) || 0;
+      const amt = parseLocalNumber(r.monto || r.total || r.amount || r.valor || r.importe || 0);
       map.set(key, (map.get(key) || 0) + amt);
     }
     return Array.from(map.entries())

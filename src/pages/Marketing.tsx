@@ -1,5 +1,5 @@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { formatCurrency, formatPercent, formatNumber } from '@/lib/formatters';
+import { formatCurrency, formatPercent, formatNumber, parseLocalNumber } from '@/lib/formatters';
 import { useExtractedData } from '@/hooks/useExtractedData';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { TrendingUp, Upload, Database, Loader2, Megaphone } from 'lucide-react';
@@ -16,21 +16,25 @@ interface CampaignRow {
   clicks: number;
   ctr: number;
   conversions: number;
+  reach: number;
+  impressions: number;
 }
 
 function normalizeMarketing(rows: any[]): CampaignRow[] {
   return rows.map((r: any) => {
-    const spend = parseFloat(r.gasto || r.inversion || r.spend || r.costo || r.importe || 0) || 0;
-    const revenue = parseFloat(r.ingresos || r.revenue || r.ventas || r.retorno || 0) || 0;
-    const roas = spend > 0 ? (revenue > 0 ? revenue / spend : parseFloat(r.roas || 0) || 0) : parseFloat(r.roas || 0) || 0;
+    const spend = parseLocalNumber(r.gasto || r.inversion || r.spend || r.costo || r.importe || r.importe_gastado || r.importe_gastado_ars || 0);
+    const revenue = parseLocalNumber(r.ingresos || r.revenue || r.ventas || r.retorno || 0);
+    const roas = spend > 0 ? (revenue > 0 ? revenue / spend : parseLocalNumber(r.roas || r.roas_de_resultados || 0)) : parseLocalNumber(r.roas || r.roas_de_resultados || 0);
     return {
-      name: r.campaña || r.campana || r.nombre || r.name || r.campaign || 'Campaña',
+      name: r.campaña || r.campana || r.nombre || r.name || r.campaign || r.nombre_de_la_campana || 'Campaña',
       spend,
       revenue,
       roas: parseFloat(roas.toFixed(2)),
-      clicks: parseInt(r.clicks || r.clics || 0) || 0,
-      ctr: parseFloat(r.ctr || 0) || 0,
-      conversions: parseInt(r.conversiones || r.conversions || 0) || 0,
+      clicks: Math.round(parseLocalNumber(r.clicks || r.clics || 0)),
+      ctr: parseLocalNumber(r.ctr || 0),
+      conversions: Math.round(parseLocalNumber(r.conversiones || r.conversions || r.resultados || 0)),
+      reach: Math.round(parseLocalNumber(r.alcance || r.alcanc || r.reach || 0)),
+      impressions: Math.round(parseLocalNumber(r.impresiones || r.impresione || r.impressions || 0)),
     };
   });
 }
@@ -83,6 +87,8 @@ export default function Marketing() {
   const globalRoas = totalSpend > 0 ? totalRevenue / totalSpend : 0;
   const totalClicks = campaigns.reduce((s, c) => s + c.clicks, 0);
   const totalConversions = campaigns.reduce((s, c) => s + c.conversions, 0);
+  const totalReach = campaigns.reduce((s, c) => s + c.reach, 0);
+  const totalImpressions = campaigns.reduce((s, c) => s + c.impressions, 0);
 
   const chartData = campaigns.map(c => ({
     name: c.name.length > 14 ? c.name.slice(0, 14) + '…' : c.name,
@@ -101,7 +107,7 @@ export default function Marketing() {
           </div>
         </div>
 
-        <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 md:grid-cols-4">
+        <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5">
           <Card><CardContent className="pt-6">
             <p className="text-sm text-muted-foreground">Gasto total</p>
             <p className="text-3xl font-bold tabular-nums">{formatCurrency(totalSpend)}</p>
@@ -119,12 +125,16 @@ export default function Marketing() {
             </p>
           </CardContent></Card>
           <Card><CardContent className="pt-6">
-            <p className="text-sm text-muted-foreground">Clicks totales</p>
-            <p className="text-3xl font-bold tabular-nums">{totalClicks > 0 ? formatNumber(totalClicks) : '—'}</p>
+            <p className="text-sm text-muted-foreground">Conversiones</p>
+            <p className="text-3xl font-bold tabular-nums">{totalConversions > 0 ? formatNumber(totalConversions) : '—'}</p>
           </CardContent></Card>
           <Card><CardContent className="pt-6">
-            <p className="text-sm text-muted-foreground">Conversiones</p>
-            <p className="text-3xl font-bold tabular-nums">{totalConversions > 0 ? totalConversions : '—'}</p>
+            <p className="text-sm text-muted-foreground">Alcance</p>
+            <p className="text-3xl font-bold tabular-nums">{totalReach > 0 ? formatNumber(totalReach) : '—'}</p>
+          </CardContent></Card>
+          <Card><CardContent className="pt-6">
+            <p className="text-sm text-muted-foreground">Impresiones</p>
+            <p className="text-3xl font-bold tabular-nums">{totalImpressions > 0 ? formatNumber(totalImpressions) : '—'}</p>
           </CardContent></Card>
         </div>
 
@@ -158,8 +168,10 @@ export default function Marketing() {
                 <TableHead className="text-right">Gasto</TableHead>
                 {totalRevenue > 0 && <TableHead className="text-right">Ingresos</TableHead>}
                 {globalRoas > 0 && <TableHead className="text-right">ROAS</TableHead>}
-                {totalClicks > 0 && <TableHead className="text-right">Clicks</TableHead>}
                 {totalConversions > 0 && <TableHead className="text-right">Conversiones</TableHead>}
+                {totalReach > 0 && <TableHead className="text-right">Alcance</TableHead>}
+                {totalImpressions > 0 && <TableHead className="text-right">Impresiones</TableHead>}
+                {totalClicks > 0 && <TableHead className="text-right">Clicks</TableHead>}
               </TableRow></TableHeader>
               <TableBody>
                 {campaigns.map((c, i) => (
@@ -168,8 +180,10 @@ export default function Marketing() {
                     <TableCell className="text-right tabular-nums">{formatCurrency(c.spend)}</TableCell>
                     {totalRevenue > 0 && <TableCell className="text-right tabular-nums">{formatCurrency(c.revenue)}</TableCell>}
                     {globalRoas > 0 && <TableCell className="text-right font-bold tabular-nums">{c.roas > 0 ? `${c.roas}x` : '—'}</TableCell>}
-                    {totalClicks > 0 && <TableCell className="text-right tabular-nums">{c.clicks > 0 ? formatNumber(c.clicks) : '—'}</TableCell>}
                     {totalConversions > 0 && <TableCell className="text-right tabular-nums">{c.conversions || '—'}</TableCell>}
+                    {totalReach > 0 && <TableCell className="text-right tabular-nums">{c.reach > 0 ? formatNumber(c.reach) : '—'}</TableCell>}
+                    {totalImpressions > 0 && <TableCell className="text-right tabular-nums">{c.impressions > 0 ? formatNumber(c.impressions) : '—'}</TableCell>}
+                    {totalClicks > 0 && <TableCell className="text-right tabular-nums">{c.clicks > 0 ? formatNumber(c.clicks) : '—'}</TableCell>}
                   </TableRow>
                 ))}
               </TableBody>

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { formatCurrency, formatDate } from '@/lib/formatters';
+import { formatCurrency, formatDate, parseLocalNumber } from '@/lib/formatters';
 import { useExtractedData } from '@/hooks/useExtractedData';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -40,7 +40,7 @@ function normalizeExpenses(rows: any[]): ExpenseRow[] {
     else if (statusRaw === 'vencido' || statusRaw === 'overdue') status = 'overdue';
     return {
       name: r.concepto || r.nombre || r.descripcion || r.name || r.gasto || 'Gasto',
-      amount: parseFloat(r.monto || r.importe || r.amount || r.total || 0) || 0,
+      amount: parseLocalNumber(r.monto || r.importe || r.amount || r.total || 0),
       dueDate: r.vencimiento || r.fecha_vencimiento || r.fecha || r.due_date || '',
       status,
     };
@@ -85,11 +85,11 @@ export default function Finanzas() {
   const realFacturas = extractedData?.facturas || [];
 
   const totalVentasReal = realVentas.reduce((s: number, r: any) =>
-    s + (parseFloat(r.monto || r.total || r.amount || r.valor || r.importe || 0) || 0), 0);
+    s + parseLocalNumber(r.monto || r.total || r.amount || r.valor || r.importe || 0), 0);
   const totalGastosReal = realGastos.reduce((s: number, r: any) =>
-    s + (parseFloat(r.monto || r.total || r.amount || r.importe || 0) || 0), 0);
+    s + parseLocalNumber(r.monto || r.total || r.amount || r.importe || 0), 0);
   const totalFacturasReal = realFacturas.reduce((s: number, r: any) =>
-    s + (parseFloat(r.monto || r.total || r.amount || r.importe || 0) || 0), 0);
+    s + parseLocalNumber(r.monto || r.total || r.amount || r.importe || 0), 0);
 
   const hasFinancialData = hasData && (realVentas.length > 0 || realGastos.length > 0 || realFacturas.length > 0);
   const expenses: ExpenseRow[] = hasData && realGastos.length > 0 ? normalizeExpenses(realGastos) : [];
