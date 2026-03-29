@@ -115,7 +115,7 @@ export default function Dashboard() {
 
   const salesTotal = hasData && realVentas.length > 0
     ? realVentas.reduce((sum: number, r: any) => {
-        const val = parseLocalNumber(r.monto || r.total || r.amount || r.valor || r.importe || 0);
+        const val = parseLocalNumber(r.monto || r.total || r.amount || r.valor || r.importe || r.ganancia || r.monto_total || r.monto_venta || r.total_mensual_iva_inc || r.precio || 0);
         return sum + val;
       }, 0)
     : null;
