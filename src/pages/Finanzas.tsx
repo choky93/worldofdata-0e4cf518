@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { formatCurrency, formatDate } from '@/lib/formatters';
+import { formatCurrency, formatDate, parseLocalNumber } from '@/lib/formatters';
 import { useExtractedData } from '@/hooks/useExtractedData';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
