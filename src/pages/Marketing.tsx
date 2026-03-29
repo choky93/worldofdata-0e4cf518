@@ -107,7 +107,7 @@ export default function Marketing() {
           </div>
         </div>
 
-        <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 md:grid-cols-4">
+        <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5">
           <Card><CardContent className="pt-6">
             <p className="text-sm text-muted-foreground">Gasto total</p>
             <p className="text-3xl font-bold tabular-nums">{formatCurrency(totalSpend)}</p>
@@ -125,12 +125,16 @@ export default function Marketing() {
             </p>
           </CardContent></Card>
           <Card><CardContent className="pt-6">
-            <p className="text-sm text-muted-foreground">Clicks totales</p>
-            <p className="text-3xl font-bold tabular-nums">{totalClicks > 0 ? formatNumber(totalClicks) : '—'}</p>
+            <p className="text-sm text-muted-foreground">Conversiones</p>
+            <p className="text-3xl font-bold tabular-nums">{totalConversions > 0 ? formatNumber(totalConversions) : '—'}</p>
           </CardContent></Card>
           <Card><CardContent className="pt-6">
-            <p className="text-sm text-muted-foreground">Conversiones</p>
-            <p className="text-3xl font-bold tabular-nums">{totalConversions > 0 ? totalConversions : '—'}</p>
+            <p className="text-sm text-muted-foreground">Alcance</p>
+            <p className="text-3xl font-bold tabular-nums">{totalReach > 0 ? formatNumber(totalReach) : '—'}</p>
+          </CardContent></Card>
+          <Card><CardContent className="pt-6">
+            <p className="text-sm text-muted-foreground">Impresiones</p>
+            <p className="text-3xl font-bold tabular-nums">{totalImpressions > 0 ? formatNumber(totalImpressions) : '—'}</p>
           </CardContent></Card>
         </div>
 
