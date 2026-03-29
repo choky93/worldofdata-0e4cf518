@@ -1,13 +1,58 @@
+import { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { Button } from '@/components/ui/button';
+import { Switch } from '@/components/ui/switch';
+import { Label } from '@/components/ui/label';
 import { useAuth } from '@/contexts/AuthContext';
+import { supabase } from '@/integrations/supabase/client';
 import { Link } from 'react-router-dom';
 import { Settings, ArrowRight } from 'lucide-react';
+import { toast } from 'sonner';
+
+interface SectionToggle {
+  label: string;
+  description: string;
+  field: string;
+  getValue: (s: NonNullable<ReturnType<typeof useAuth>['companySettings']>) => boolean;
+}
+
+const sections: SectionToggle[] = [
+  { label: 'Stock', description: 'Gestión de inventario y productos', field: 'has_stock', getValue: (s) => s.has_stock ?? false },
+  { label: 'Marketing', description: 'Campañas de Meta Ads y Google Ads', field: 'uses_meta_ads', getValue: (s) => (s.uses_meta_ads || s.uses_google_ads) ?? false },
+  { label: 'Logística', description: 'Seguimiento de envíos y entregas', field: 'has_logistics', getValue: (s) => s.has_logistics ?? false },
+];
 
 export default function Configuracion() {
-  const { companyName, companySettings } = useAuth();
+  const { companyName, companySettings, profile, refreshProfile } = useAuth();
   const completion = companySettings?.onboarding_completion_pct ?? 0;
+  const [updating, setUpdating] = useState<string | null>(null);
+
+  const handleToggle = async (section: SectionToggle, checked: boolean) => {
+    if (!profile?.company_id) return;
+    setUpdating(section.field);
+
+    const updateData: Record<string, boolean> = {};
+    if (section.field === 'uses_meta_ads') {
+      updateData.uses_meta_ads = checked;
+      if (!checked) updateData.uses_google_ads = false;
+    } else {
+      updateData[section.field] = checked;
+    }
+
+    const { error } = await supabase
+      .from('company_settings')
+      .update(updateData)
+      .eq('company_id', profile.company_id);
+
+    if (error) {
+      toast.error('Error al actualizar la sección');
+    } else {
+      toast.success(`${section.label} ${checked ? 'activada' : 'desactivada'}`);
+      await refreshProfile();
+    }
+    setUpdating(null);
+  };
 
   return (
     <div className="space-y-6 max-w-3xl">
@@ -37,24 +82,28 @@ export default function Configuracion() {
 
       <Card>
         <CardHeader><CardTitle className="text-sm text-muted-foreground">Secciones visibles</CardTitle></CardHeader>
-        <CardContent className="space-y-2 text-sm">
-          <Row label="Stock" active={companySettings?.has_stock ?? true} />
-          <Row label="Marketing" active={(companySettings?.uses_meta_ads || companySettings?.uses_google_ads) ?? true} />
-          <Row label="Logística" active={companySettings?.has_logistics ?? false} />
-          <p className="text-xs text-muted-foreground pt-2">Estas secciones se configuran según tus respuestas del onboarding.</p>
+        <CardContent className="space-y-4">
+          {sections.map((section) => {
+            const isActive = companySettings ? section.getValue(companySettings) : false;
+            const isLoading = updating === section.field;
+            return (
+              <div key={section.field} className="flex items-center justify-between py-2">
+                <div className="space-y-0.5">
+                  <Label htmlFor={section.field} className="text-sm font-medium">{section.label}</Label>
+                  <p className="text-xs text-muted-foreground">{section.description}</p>
+                </div>
+                <Switch
+                  id={section.field}
+                  checked={isActive}
+                  disabled={isLoading || !companySettings}
+                  onCheckedChange={(checked) => handleToggle(section, checked)}
+                />
+              </div>
+            );
+          })}
+          <p className="text-xs text-muted-foreground pt-2">Activá o desactivá secciones del menú.</p>
         </CardContent>
       </Card>
-    </div>
-  );
-}
-
-function Row({ label, active }: { label: string; active: boolean }) {
-  return (
-    <div className="flex justify-between py-1">
-      <span>{label}</span>
-      <span className={active ? 'text-success font-medium' : 'text-muted-foreground'}>
-        {active ? 'Visible' : 'Oculta'}
-      </span>
     </div>
   );
 }
