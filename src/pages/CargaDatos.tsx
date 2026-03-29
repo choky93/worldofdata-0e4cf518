@@ -26,6 +26,8 @@ interface FileRecord {
   file_hash?: string | null;
   processing_error?: string | null;
   processing_started_at?: string | null;
+  next_chunk_index?: number | null;
+  total_chunks?: number | null;
 }
 
 interface ExtractedData {
