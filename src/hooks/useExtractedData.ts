@@ -50,10 +50,12 @@ export function useExtractedData() {
           const cat = r.data_category as keyof AggregatedData;
           const json = r.extracted_json as any;
           const rows = json?.data || [];
+          // Skip empty/broken chunks
+          if (!Array.isArray(rows) || rows.length === 0) continue;
           if (agg[cat]) {
-            agg[cat].push(...(Array.isArray(rows) ? rows : []));
+            agg[cat].push(...rows);
           } else {
-            agg.otro.push(...(Array.isArray(rows) ? rows : []));
+            agg.otro.push(...rows);
           }
         }
         setHasData(true);
