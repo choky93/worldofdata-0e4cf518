@@ -102,7 +102,7 @@ export default function Ventas() {
   }
 
   const salesTotal = realVentas.reduce((sum: number, r: any) => {
-    return sum + parseLocalNumber(r.monto || r.total || r.amount || r.valor || r.importe || 0);
+    return sum + parseLocalNumber(r.monto || r.total || r.amount || r.valor || r.importe || r.ganancia || r.monto_total || r.monto_venta || r.total_mensual_iva_inc || r.precio || 0);
   }, 0);
 
   const salesHistory = realVentas.slice(0, 50).map((r: any, i: number) => ({
