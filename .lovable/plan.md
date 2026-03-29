@@ -1,99 +1,53 @@
 
-# Solución para destrabar de verdad la carga de archivos
 
-## Qué confirmé al revisar el sistema
+# Corregir datos del cliente: aliases de ventas + reprocesar archivos fallidos
 
-Sí, el problema es real y ya se ve claro dónde está:
+## Problemas confirmados
 
-1. **Los archivos grandes de Excel siguen chocando contra límites de cómputo del backend**
-   - Hay errores reales `546 WORKER_LIMIT` y `504`.
-   - Hoy `process-queue` dispara varios archivos en paralelo y `process-file` vuelve a **descargar y parsear el Excel completo en cada reintento**, aunque ya vaya por el bloque 20/39. Eso desperdicia CPU/memoria y explica por qué quedan en `processing` o fallan a mitad de camino.
+1. **Ventas muestra $0** porque el código busca `monto/total/amount/valor/importe` pero los datos reales del cliente tienen campos como `ganancia`, `monto_total`, `monto_venta`, `total_mensual_iva_inc`, `precio`
+2. **2 archivos en error**: "Informe Ganancia de productos vendidos.xlsx" (WORKER_LIMIT) e "Imforme ganancia de marcas .xls" (504 timeout)
+3. **Chunks vacíos**: Algunos bloques de archivos grandes fallaron en la IA y quedaron con 0 filas
 
-2. **Hay datos procesados que sí existen en la base, pero no se reflejan bien en la UI**
-   - Revisé datos de marketing ya extraídos.
-   - La UI espera campos como `gasto` o `importe`, pero los archivos reales traen cosas como `importe_gastado_ars`.
-   - Además vienen números con formato local (`1.717.146,04`) y hoy se parsean mal, por eso pueden aparecer métricas en `$0` aunque el archivo esté procesado.
+## Plan
 
-3. **Hay archivos “a mitad de camino”**
-   - Vi archivos con `next_chunk_index = 20` y bloques ya guardados, o sea: no están vacíos, pero tampoco terminaron.
-   - El sistema necesita mostrar mejor ese progreso y terminarlo de forma más segura.
+### 1. Ampliar aliases de campos en Ventas.tsx
 
-## Plan de corrección
+Agregar `ganancia`, `monto_total`, `monto_venta`, `total_mensual_iva_inc`, `precio` a la lista de campos que se buscan para calcular el monto. Esto es lo que hace que todo se vea en $0 — es el fix más crítico.
 
-### 1. Hacer robusto el procesamiento de archivos pesados
-**Archivos:** `supabase/functions/process-file/index.ts`, `supabase/functions/process-queue/index.ts`
+Campos a agregar en el cálculo de `salesTotal` y en `salesHistory`:
+- `ganancia` (viene de "productos más vendidos" y "ganancia de marcas")
+- `monto_total` / `monto_venta` (viene de "rubro más vendido")
+- `total_mensual_iva_inc` (viene de "ventas mensuales")
+- `precio` (viene de algunos registros de productos)
 
-- Bajar la presión del worker para archivos pesados:
-  - procesar menos bloques por invocación para Excel grandes
-  - evitar paralelizar varios Excels grandes al mismo tiempo
-- Diferenciar archivos “livianos” vs “pesados” y hacer que la cola trate los pesados de forma más conservadora
-- Mejorar el manejo de estados para que un archivo no quede colgado en `processing` por una ejecución que murió por recursos
+También agregar `categoria` como campo extra visible en la tabla.
 
-### 2. Evitar reparsear el Excel completo en cada reanudación
-**Backend + migración nueva**
+### 2. Aplicar lo mismo en Dashboard.tsx y Finanzas.tsx
 
-- Persistir el resultado del parseo inicial en bloques reutilizables
-- En vez de reabrir y reprocesar el `.xls/.xlsx` completo cada vez, reanudar desde el bloque ya preparado
-- Esto ataca el problema principal de CPU/memoria y hace mucho más estable el flujo para clientes grandes
+Dashboard y Finanzas también calculan totales de ventas — necesitan los mismos aliases para no mostrar $0.
 
-## 3. Corregir la interpretación de números y campos reales
-**Archivos:** `src/pages/Marketing.tsx`, `src/pages/Dashboard.tsx`, `src/pages/Ventas.tsx`, `src/pages/Finanzas.tsx`, util compartida nueva o `src/lib/formatters.ts`
+### 3. Hacer más robusto el procesamiento de archivos grandes
 
-- Crear un parser numérico robusto para formatos tipo:
-  - `1.717.146,04`
-  - `$ 961.199,79`
-  - `84.30389878`
-- Ampliar aliases de columnas reales detectadas por IA, por ejemplo en marketing:
-  - `importe_gastado`
-  - `importe_gastado_ars`
-  - `resultados`
-  - `alcance`
-  - `impresiones`
-- Unificar esto en una utilidad compartida para que no falle distinto en cada pantalla
+En `process-file/index.ts`:
+- Reducir `ROWS_PER_CHUNK` de 1000 a 500 para archivos >1MB (menos presión por invocación de IA)
+- Reducir `MAX_CHUNKS_PER_RUN` de 5 a 3 para archivos pesados
+- Esto evita el WORKER_LIMIT y los 504 que matan los archivos de 33K filas
 
-### 4. Mostrar progreso real y no ambiguo en Carga de Datos
-**Archivo:** `src/pages/CargaDatos.tsx`
+### 4. Agregar botón "Reintentar" para archivos con error
 
-- Mostrar progreso por bloques cuando el archivo es grande:
-  - ejemplo: `Procesando bloque 20 de 39`
-- Mostrar si ya hay datos parciales extraídos
-- Diferenciar mejor:
-  - en cola
-  - procesando
-  - parcialmente procesado
-  - error recuperable
-- Así el usuario entiende si está avanzando de verdad o si quedó trabado
+En `CargaDatos.tsx`, para archivos en estado `error`, mostrar un botón que resetee el archivo a `queued` para que el worker lo vuelva a intentar con los nuevos límites más conservadores.
 
-### 5. Validación final con los casos que hoy fallan
-**Prueba objetivo**
+## Archivos a modificar
 
-Voy a validar específicamente con el tipo de archivos que hoy están dando problemas:
-- `Informe Ganancia de productos vendidos.xlsx`
-- `Informe Rubro mas vendido...`
-- `informe productos mas vendidos...`
-- reportes de marketing como los de la captura
+- `src/pages/Ventas.tsx` — aliases de campos
+- `src/pages/Dashboard.tsx` — aliases de campos
+- `src/pages/Finanzas.tsx` — aliases de campos
+- `supabase/functions/process-file/index.ts` — chunks más chicos para archivos pesados
+- `src/pages/CargaDatos.tsx` — botón reintentar
 
 ## Resultado esperado
 
-Después de estos cambios, el sistema debería:
+- Ventas deja de mostrar $0 y refleja los ~$37.9M de ganancia real del cliente
+- Los 2 archivos fallidos se pueden reintentar y van a procesar sin explotar
+- Dashboard y Finanzas también muestran las métricas correctas
 
-- dejar de romperse con archivos Excel grandes por reparseo innecesario
-- terminar los archivos pesados por bloques de forma estable
-- reflejar correctamente los datos cargados en Dashboard y Marketing
-- mostrar al usuario progreso real y errores claros
-- evitar que queden archivos eternamente en `processing`
-
-## Detalle técnico
-
-### Archivos a tocar
-- `supabase/functions/process-file/index.ts`
-- `supabase/functions/process-queue/index.ts`
-- migración nueva para persistencia de bloques/preproceso
-- `src/pages/CargaDatos.tsx`
-- `src/pages/Marketing.tsx`
-- `src/pages/Dashboard.tsx`
-- posiblemente `src/pages/Ventas.tsx` y `src/pages/Finanzas.tsx`
-- utilidad compartida para parseo numérico
-
-### Cambio clave
-El cambio más importante no es “subir límites” otra vez, sino **cambiar la arquitectura de reanudación** para que un archivo grande no vuelva a empezar el trabajo caro en cada vuelta del worker.
