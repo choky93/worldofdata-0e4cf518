@@ -546,11 +546,13 @@ export default function CargaDatos() {
             }
             if (allRows.length > 50000) allRows.length = 50000;
             if (allRows.length > 0) {
-              parsedRows = allRows;
-              parsedHeaders = headers;
+              // Fix broken headers (title rows before real data)
+              const fixed = fixBrokenHeaders(allRows);
+              parsedRows = fixed.rows;
+              parsedHeaders = fixed.headers;
             }
             updateItem({ progress: 80 });
-            console.log(`[CargaDatos] Client-side parsed: ${allRows.length} rows, ${headers.length} cols`);
+            console.log(`[CargaDatos] Client-side parsed: ${parsedRows?.length ?? 0} rows, ${parsedHeaders?.length ?? 0} cols`);
           } catch (parseErr) {
             console.warn('[CargaDatos] Client-side Excel parse failed, falling back to server:', parseErr);
           }
