@@ -692,6 +692,20 @@ export default function CargaDatos() {
               }
               updateItem({ progress: 85 + Math.round((bi + 1) / totalBatches * 14) });
             }
+
+            // Health check: verify saved row count matches sent rows
+            const { data: savedChunks } = await supabase
+              .from('file_extracted_data')
+              .select('row_count')
+              .eq('file_upload_id', dbData.id)
+              .not('data_category', 'in', '("_raw_cache","_classification")');
+            const savedTotal = savedChunks?.reduce((sum, c) => sum + (c.row_count || 0), 0) || 0;
+            if (savedTotal < parsedRows.length * 0.95) {
+              console.warn(`[CargaDatos] Health check: saved ${savedTotal} vs sent ${parsedRows.length} rows`);
+              await supabase.from('file_uploads').update({
+                processing_error: `Advertencia: se guardaron ${savedTotal} de ${parsedRows.length} filas`,
+              }).eq('id', dbData.id);
+            }
           } catch (invokeErr: any) {
             await supabase.from('file_uploads').update({ status: 'queued', processing_error: null }).eq('id', dbData.id);
             console.warn('[CargaDatos] Row batch upload failed, queued for server retry:', invokeErr);
