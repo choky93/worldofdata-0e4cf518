@@ -460,15 +460,19 @@ serve(async (req) => {
         }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
       } else {
-        // Subsequent batch: retrieve classification
-        const { data: classData } = await sb.from("file_extracted_data")
-          .select("extracted_json")
-          .eq("file_upload_id", fileUploadId)
-          .eq("data_category", "_classification")
-          .single();
+        // Subsequent batch: use explicit category from client, or fall back to DB lookup
+        let category = explicitCategory || "";
+        let summary = "";
 
-        const category = (classData?.extracted_json as any)?.category || "otro";
-        const summary = (classData?.extracted_json as any)?.summary || "";
+        if (!category) {
+          const { data: classData } = await sb.from("file_extracted_data")
+            .select("extracted_json")
+            .eq("file_upload_id", fileUploadId)
+            .eq("data_category", "_classification")
+            .single();
+          category = (classData?.extracted_json as any)?.category || "otro";
+          summary = (classData?.extracted_json as any)?.summary || "";
+        }
 
         await storeRowBatch(sb, rowBatch, headers, category,
           `Lote ${batchIndex + 1}/${totalBatches}`, fileUploadId, companyId, batchIndex);

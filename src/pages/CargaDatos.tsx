@@ -713,13 +713,19 @@ export default function CargaDatos() {
           
           if (allRows.length === 0) throw new Error('No se encontraron filas en el archivo');
           
-          console.log(`[CargaDatos] Reparse: ${allRows.length} rows, ${headers.length} cols`);
+          // Fix broken headers (title rows before real data)
+          const fixed = fixBrokenHeaders(allRows);
+          const fixedRows = fixed.rows;
+          headers = fixed.headers;
           
-          // Send in batches
-          const totalBatches = Math.ceil(allRows.length / ROW_BATCH_SIZE);
+          console.log(`[CargaDatos] Reparse: ${fixedRows.length} rows, ${headers.length} cols`);
+          
+          // Send in batches with category propagation
+          const totalBatches = Math.ceil(fixedRows.length / ROW_BATCH_SIZE);
+          let resolvedCategory: string | undefined;
           for (let bi = 0; bi < totalBatches; bi++) {
-            const batchRows = allRows.slice(bi * ROW_BATCH_SIZE, (bi + 1) * ROW_BATCH_SIZE);
-            const { error: pfError } = await supabase.functions.invoke('process-file', {
+            const batchRows = fixedRows.slice(bi * ROW_BATCH_SIZE, (bi + 1) * ROW_BATCH_SIZE);
+            const { data: pfData, error: pfError } = await supabase.functions.invoke('process-file', {
               body: {
                 fileUploadId: file.id,
                 companyId: profile.company_id!,
@@ -727,10 +733,14 @@ export default function CargaDatos() {
                 headers,
                 batchIndex: bi,
                 totalBatches,
-                totalRows: allRows.length,
+                totalRows: fixedRows.length,
+                ...(bi > 0 && resolvedCategory ? { category: resolvedCategory } : {}),
               },
             });
             if (pfError) throw pfError;
+            if (bi === 0 && pfData?.category) {
+              resolvedCategory = pfData.category;
+            }
           }
           
           toast.success(`"${file.file_name}" procesado correctamente`);
