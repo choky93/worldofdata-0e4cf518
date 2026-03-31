@@ -583,11 +583,14 @@ serve(async (req) => {
     // ─── CSV/TXT: Deterministic row processing ──────────────
     if (['csv', 'txt'].includes(ext)) {
       const text = new TextDecoder().decode(buffer);
-      const allRows = parseCSV(text);
+      let allRows = parseCSV(text);
       console.log(`[process-file] CSV parsed: ${allRows.length} rows`);
 
+      // Apply fixBrokenHeaders to CSV too
       if (allRows.length > 0) {
-        const parsedHeaders = Object.keys(allRows[0]);
+        const fixed = fixBrokenHeaders(allRows);
+        allRows = fixed.rows;
+        const parsedHeaders = fixed.headers.length > 0 ? fixed.headers : Object.keys(allRows[0]);
         resultInfo = await processTabularData(sb, allRows, parsedHeaders, file_name, fileUploadId, companyId);
       } else {
         // Empty CSV — use AI on raw text
