@@ -77,6 +77,47 @@ function parseCSVWithDelimiter(text: string, delimiter: string): string[][] {
   return rows.filter(r => r.some(v => v.trim() !== ''));
 }
 
+// ─── Fix Broken Headers (server-side) ─────────────────────────
+function fixBrokenHeaders(rows: Record<string, unknown>[]): { rows: Record<string, unknown>[]; headers: string[] } {
+  if (rows.length === 0) return { rows, headers: [] };
+  const originalHeaders = Object.keys(rows[0]);
+  const emptyCount = originalHeaders.filter(h => h.startsWith('__EMPTY') || h.trim() === '').length;
+  if (emptyCount / originalHeaders.length < 0.5) {
+    // Filter completely empty rows
+    const filtered = rows.filter(row => Object.values(row).some(v => String(v ?? '').trim() !== ''));
+    return { rows: filtered, headers: originalHeaders };
+  }
+  console.log(`[process-file] Broken headers detected (${emptyCount}/${originalHeaders.length}). Searching for real header row...`);
+  const searchLimit = Math.min(10, rows.length);
+  let bestRowIdx = -1;
+  let bestScore = 0;
+  for (let i = 0; i < searchLimit; i++) {
+    const row = rows[i];
+    const values = Object.values(row).map(v => String(v ?? '').trim()).filter(v => v !== '');
+    const textValues = values.filter(v => isNaN(Number(v.replace(/[.,]/g, ''))));
+    if (textValues.length > bestScore) {
+      bestScore = textValues.length;
+      bestRowIdx = i;
+    }
+  }
+  if (bestRowIdx < 0 || bestScore < 2) {
+    return { rows, headers: originalHeaders };
+  }
+  const headerRow = rows[bestRowIdx];
+  const newHeaders = originalHeaders.map(oldKey => {
+    const val = String(headerRow[oldKey] ?? '').trim();
+    return val || oldKey;
+  });
+  const dataRows = rows.slice(bestRowIdx + 1);
+  const remapped = dataRows.map(row => {
+    const newRow: Record<string, unknown> = {};
+    originalHeaders.forEach((oldKey, j) => { newRow[newHeaders[j]] = row[oldKey]; });
+    return newRow;
+  }).filter(row => Object.values(row).some(v => String(v ?? '').trim() !== ''));
+  console.log(`[process-file] Fixed headers at row ${bestRowIdx}: ${newHeaders.join(', ')} → ${remapped.length} rows`);
+  return { rows: remapped, headers: newHeaders };
+}
+
 // ─── Helpers ───────────────────────────────────────────────────
 function uint8ToBase64(bytes: Uint8Array): string {
   const chunks: string[] = [];
