@@ -1,67 +1,89 @@
 
 
-# Plan: Corregir distribución de datos extraídos
+# Plan: Blindar el pipeline de ingesta para cualquier cliente y cualquier archivo
 
-## Diagnóstico concreto
+## Diagnóstico real — Todos los flancos abiertos que encontré
 
-Revisé la base de datos del cliente y encontré **dos problemas reales**:
+Revisé todo el pipeline de punta a punta. Hay **6 problemas concretos** que explican por qué los datos no siempre se reflejan bien y por qué no podés confiar en que "funcione para cualquier cliente":
 
-### Problema 1: Headers rotos (`__EMPTY`)
-Los archivos Excel del cliente tienen filas de título antes de los datos reales. Por ejemplo:
-- Fila 1: `"Informe detallado - Ganancias."` (título)
-- Fila 2: `Identificador | Fecha | Producto | Cantidad | Ganancia` (headers reales)
-- Fila 3+: datos
+### 1. CSV no se parsea en el navegador
+Los archivos Excel sí se parsean client-side (determinístico, bien). Pero los CSV van directo al servidor sin parseo previo. Si un CSV es grande, pasa por la misma ruta vieja del servidor que puede fallar.
 
-SheetJS toma la fila 1 como headers, generando columnas `__EMPTY`, `__EMPTY_1`, etc. Resultado: el sistema no puede leer fecha, producto, ganancia, etc.
+### 2. `fixBrokenHeaders` no se aplica en el servidor
+La función que detecta filas de título rotas (`__EMPTY`) solo existe en el frontend. Si un archivo Excel se procesa en el servidor (porque el parseo client-side falló, o porque llega por URL import, o por la cola), **los headers quedan rotos**.
 
-**Impacto:** 136,378 filas quedaron como categoría `otro` con columnas ilegibles. No aparecen en Ventas, Stock, ni ningún módulo.
+### 3. Límite de 1000 filas en la consulta de datos
+`useExtractedData` hace un `SELECT` sin `.limit()`, que en la API de la base de datos tiene un límite por defecto de **1000 registros**. Si un cliente tiene 50 archivos procesados con 3 batches cada uno = 150 chunks, está bien. Pero si tiene muchos archivos, los últimos chunks no se cargan y las métricas quedan incompletas **en silencio**.
 
-### Problema 2: Clasificación que no se propaga entre batches
-Batch 0 se clasifica correctamente como `ventas`, pero los batches 1-66 caen a `otro`. Esto pasa porque los batches se envían en paralelo desde el navegador y los posteriores no encuentran el registro `_classification` a tiempo (race condition).
+### 4. No hay validación de que las filas tengan datos útiles
+El sistema guarda filas tal cual vienen de SheetJS. Si una fila tiene todos los valores vacíos (filas en blanco dentro del Excel), se guarda igual. Después `findNumber` devuelve 0 para esas filas y infla los conteos.
 
-**Evidencia directa:**
-- `Informe Ganancia de productos vendidos.xlsx`: batch 0 = `ventas`, batches 1-66 = `otro`
-- `informe productos mas vendidos .xls`: mismo patrón
-- Solo 2,026 filas aparecen como `ventas` de un total de ~138,000
+### 5. Archivos multi-hoja se mezclan sin control
+Si un Excel tiene 3 hojas (ej: "Ventas Enero", "Ventas Febrero", "Resumen"), todas las filas se concatenan en un solo array. El clasificador AI ve solo las primeras 10 filas (de la primera hoja). Si la última hoja tiene estructura distinta, se guarda con headers que no le corresponden.
 
-## Soluciones
+### 6. La categoría `otro` no se muestra en ningún módulo
+Si la IA clasifica mal (o no puede clasificar), los datos quedan en `otro`. Pero ningún módulo (Dashboard, Ventas, Finanzas, etc.) consume la categoría `otro`. Esos datos desaparecen para el usuario sin aviso.
 
-### 1. Detección inteligente de headers en Excel
-Antes de enviar las filas, detectar si la primera fila es un título (no headers reales) y buscar la fila correcta de headers.
+## Soluciones — archivo por archivo
 
-Lógica:
-- Si más del 50% de las columnas se llaman `__EMPTY*`, buscar en las primeras 10 filas una que tenga más columnas con texto real
-- Usar esa fila como header y descartar las anteriores
-- Re-mapear las filas restantes con los headers correctos
+### A. `src/pages/CargaDatos.tsx` — Parseo client-side para CSV + limpieza de filas vacías
 
-**Archivo:** `src/pages/CargaDatos.tsx` (en el bloque de parseo client-side)
+**Qué cambia:**
+- Parsear CSV en el navegador igual que Excel (usando `Papa Parse` o parseo manual simple)
+- Aplicar `fixBrokenHeaders` también a CSV
+- Filtrar filas completamente vacías antes de enviar batches
+- Mejorar manejo de archivos multi-hoja: procesar cada hoja como archivo independiente si tienen headers distintos
 
-### 2. Envío secuencial de batches (no paralelo)
-El código actual ya envía batches en un `for` loop secuencial, pero la race condition puede ocurrir si el `INSERT` de `_classification` no se confirma antes del siguiente batch. Solución: el batch 0 ya devuelve `category` en la respuesta — usar ese valor para los batches siguientes sin depender del lookup en la DB.
+### B. `supabase/functions/process-file/index.ts` — `fixBrokenHeaders` server-side
 
-**Archivo:** `src/pages/CargaDatos.tsx` (en el loop de envío de batches)
+**Qué cambia:**
+- Mover la lógica de `fixBrokenHeaders` al servidor también (para el Path C: archivos procesados server-side)
+- Aplicarla a Excel Y CSV procesados en servidor
+- Filtrar filas vacías antes de guardar
 
-### 3. Migración de datos existentes
-Los archivos ya cargados tienen headers rotos. Opciones:
-- El usuario los reprocesa (botón ya existe)
-- O ejecutamos una corrección automática que re-categorice chunks `otro` que pertenecen a archivos cuyo batch 0 es `ventas`
+### C. `src/hooks/useExtractedData.ts` — Paginación completa
 
-**Archivo:** Migración SQL simple para re-categorizar los chunks huérfanos
+**Qué cambia:**
+- Usar paginación para traer TODOS los chunks, no solo los primeros 1000
+- Loop de `range(0, 999)`, `range(1000, 1999)`, etc. hasta que no haya más
+- Esto garantiza que un cliente con cientos de archivos vea todos sus datos
 
-### 4. Aplicar mismo fix al `handleReprocess`
-El reprocessing también parsea Excel — necesita la misma lógica de detección de headers.
+### D. `src/pages/CargaDatos.tsx` — Manejo inteligente de multi-hoja
+
+**Qué cambia:**
+- Detectar si las hojas tienen headers diferentes
+- Si son diferentes: clasificar y enviar cada hoja por separado (como si fueran archivos distintos pero bajo el mismo `file_upload_id`)
+- Si son iguales: concatenar como ahora
+
+### E. Visibilidad de datos sin clasificar
+
+**Qué cambia:**
+- Si hay datos en categoría `otro`, mostrar un aviso en Dashboard: "Hay X filas que no pudieron clasificarse automáticamente"
+- Agregar una sección en Carga de Datos que muestre qué archivos quedaron como `otro` con opción de reclasificar manualmente
+
+### F. Validación post-ingesta (health check)
+
+**Qué cambia:**
+- Después de guardar todos los batches, verificar que la suma de `row_count` de los chunks coincida con el total de filas enviadas
+- Si no coincide, marcar como `partial` en vez de `processed`
+- Mostrar en la UI cuántas filas se guardaron vs cuántas se esperaban
 
 ## Archivos a modificar
 
-| Archivo | Cambio |
+| Archivo | Cambios |
 |---|---|
-| `src/pages/CargaDatos.tsx` | Detección de headers reales en parseo Excel + pasar `category` del batch 0 a los siguientes |
-| `supabase/functions/process-file/index.ts` | Aceptar `category` como parámetro opcional para batches > 0 (evita lookup) |
-| Migración SQL | Re-categorizar chunks `otro` de archivos que ya tienen batch 0 con categoría correcta |
+| `src/pages/CargaDatos.tsx` | Parseo client-side de CSV, limpieza filas vacías, multi-hoja inteligente |
+| `supabase/functions/process-file/index.ts` | `fixBrokenHeaders` server-side, filtrado filas vacías |
+| `src/hooks/useExtractedData.ts` | Paginación completa para traer todos los chunks |
+| `src/pages/Dashboard.tsx` | Aviso si hay datos en categoría `otro` |
 
 ## Resultado esperado
 
-- Las 136,378 filas que hoy están en `otro` pasan a `ventas` (o la categoría correcta)
-- Dashboard, Ventas, Finanzas muestran los datos reales del cliente
-- Nuevas cargas detectan headers correctamente sin importar si el Excel tiene filas de título
+- Un cliente sube 30 archivos mezclados → todos se parsean, clasifican y distribuyen correctamente
+- CSV, XLS, XLSX: todos pasan por parseo estructurado (no por IA)
+- Headers rotos se corrigen automáticamente en cualquier ruta (client o server)
+- Filas vacías no contaminan las métricas
+- Multi-hoja se maneja sin perder datos
+- Si algo no se pudo clasificar, el usuario lo sabe y puede actuar
+- No hay límite silencioso de 1000 chunks que esconda datos
 
