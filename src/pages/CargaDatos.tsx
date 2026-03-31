@@ -580,9 +580,10 @@ export default function CargaDatos() {
           updateItem({ progress: 85 });
           try {
             const totalBatches = Math.ceil(parsedRows.length / ROW_BATCH_SIZE);
+            let resolvedCategory: string | undefined;
             for (let bi = 0; bi < totalBatches; bi++) {
               const batchRows = parsedRows.slice(bi * ROW_BATCH_SIZE, (bi + 1) * ROW_BATCH_SIZE);
-              const { error: pfError } = await supabase.functions.invoke('process-file', {
+              const { data: pfData, error: pfError } = await supabase.functions.invoke('process-file', {
                 body: {
                   fileUploadId: dbData.id,
                   companyId: profile.company_id!,
@@ -591,9 +592,14 @@ export default function CargaDatos() {
                   batchIndex: bi,
                   totalBatches,
                   totalRows: parsedRows.length,
+                  ...(bi > 0 && resolvedCategory ? { category: resolvedCategory } : {}),
                 },
               });
               if (pfError) throw pfError;
+              // Capture category from batch 0 response
+              if (bi === 0 && pfData?.category) {
+                resolvedCategory = pfData.category;
+              }
               updateItem({ progress: 85 + Math.round((bi + 1) / totalBatches * 14) });
             }
           } catch (invokeErr: any) {
