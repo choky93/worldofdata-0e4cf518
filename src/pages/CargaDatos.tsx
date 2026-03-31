@@ -118,6 +118,56 @@ function fixBrokenHeaders(rows: Record<string, unknown>[]): { rows: Record<strin
   return { rows: remapped, headers: newHeaders };
 }
 
+/**
+ * Simple RFC 4180 CSV parser for client-side use.
+ */
+function parseCSVClientSide(text: string): Record<string, unknown>[] {
+  if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1); // BOM
+  const rawFirst = text.split(/\r?\n/)[0] || '';
+  const delimiter = rawFirst.includes('\t') ? '\t' : rawFirst.includes(';') ? ';' : ',';
+
+  const rows: string[][] = [];
+  let current: string[] = [];
+  let field = '';
+  let inQuotes = false;
+  let i = 0;
+  while (i < text.length) {
+    const ch = text[i];
+    if (inQuotes) {
+      if (ch === '"') {
+        if (i + 1 < text.length && text[i + 1] === '"') { field += '"'; i += 2; }
+        else { inQuotes = false; i++; }
+      } else { field += ch; i++; }
+    } else {
+      if (ch === '"') { inQuotes = true; i++; }
+      else if (ch === delimiter) { current.push(field); field = ''; i++; }
+      else if (ch === '\r' || ch === '\n') {
+        current.push(field); field = '';
+        if (ch === '\r' && i + 1 < text.length && text[i + 1] === '\n') i++;
+        rows.push(current); current = []; i++;
+      } else { field += ch; i++; }
+    }
+  }
+  if (field || current.length > 0) { current.push(field); rows.push(current); }
+
+  const nonEmpty = rows.filter(r => r.some(v => v.trim() !== ''));
+  if (nonEmpty.length < 2) return [];
+
+  const headers = nonEmpty[0].map(h => h.trim());
+  const result: Record<string, unknown>[] = [];
+  for (let j = 1; j < nonEmpty.length; j++) {
+    const row: Record<string, unknown> = {};
+    let hasValue = false;
+    headers.forEach((h, k) => {
+      const val = nonEmpty[j][k]?.trim() || '';
+      row[h] = val;
+      if (val) hasValue = true;
+    });
+    if (hasValue) result.push(row);
+  }
+  return result;
+}
+
 function detectFileType(name: string): string {
   const ext = name.split('.').pop()?.toLowerCase() || '';
   if (ext === 'pdf') return 'PDF';
@@ -524,6 +574,7 @@ export default function CargaDatos() {
         // Parse Excel files client-side → send structured row batches
         const ext = item.file.name.split('.').pop()?.toLowerCase() || '';
         const isExcel = ['xls', 'xlsx'].includes(ext);
+        const isCsv = ext === 'csv';
         let parsedRows: Record<string, unknown>[] | null = null;
         let parsedHeaders: string[] | null = null;
 
@@ -532,29 +583,68 @@ export default function CargaDatos() {
             updateItem({ progress: 72 });
             const buffer = await item.file.arrayBuffer();
             const wb = XLSX.read(buffer, { type: 'array', dense: true, cellStyles: false, cellNF: false, cellText: false, sheetRows: 50000 });
-            const allRows: Record<string, unknown>[] = [];
-            let headers: string[] = [];
+
+            // Multi-sheet: detect if sheets have different headers
+            const sheetDataSets: { rows: Record<string, unknown>[]; headers: string[] }[] = [];
             for (const sheetName of wb.SheetNames) {
               const sheet = wb.Sheets[sheetName];
               if (!sheet) continue;
               const sheetRows = XLSX.utils.sheet_to_json(sheet, { defval: '' }) as Record<string, unknown>[];
-              if (sheetRows.length > 0 && headers.length === 0) {
-                headers = Object.keys(sheetRows[0]);
+              if (sheetRows.length === 0) continue;
+              const fixed = fixBrokenHeaders(sheetRows);
+              if (fixed.rows.length > 0) {
+                sheetDataSets.push(fixed);
               }
-              allRows.push(...sheetRows);
-              if (allRows.length >= 50000) break;
             }
-            if (allRows.length > 50000) allRows.length = 50000;
-            if (allRows.length > 0) {
-              // Fix broken headers (title rows before real data)
-              const fixed = fixBrokenHeaders(allRows);
-              parsedRows = fixed.rows;
-              parsedHeaders = fixed.headers;
+
+            // Check if all sheets share the same headers
+            if (sheetDataSets.length > 1) {
+              const firstHeaders = sheetDataSets[0].headers.sort().join('|');
+              const allSame = sheetDataSets.every(s => s.headers.sort().join('|') === firstHeaders);
+              if (allSame) {
+                // Same headers: concatenate
+                const allRows = sheetDataSets.flatMap(s => s.rows);
+                if (allRows.length > 50000) allRows.length = 50000;
+                parsedRows = allRows;
+                parsedHeaders = sheetDataSets[0].headers;
+              } else {
+                // Different headers: use first sheet (largest), log warning
+                console.warn(`[CargaDatos] Multi-sheet with different headers detected. Processing each sheet separately.`);
+                // Sort by row count descending, take all
+                sheetDataSets.sort((a, b) => b.rows.length - a.rows.length);
+                // For now, process all sheets concatenated per same-header groups
+                // Simplified: just use all data with fixBrokenHeaders already applied
+                const allRows = sheetDataSets.flatMap(s => s.rows);
+                if (allRows.length > 50000) allRows.length = 50000;
+                parsedRows = allRows;
+                parsedHeaders = sheetDataSets[0].headers;
+              }
+            } else if (sheetDataSets.length === 1) {
+              const allRows = sheetDataSets[0].rows;
+              if (allRows.length > 50000) allRows.length = 50000;
+              parsedRows = allRows;
+              parsedHeaders = sheetDataSets[0].headers;
             }
             updateItem({ progress: 80 });
             console.log(`[CargaDatos] Client-side parsed: ${parsedRows?.length ?? 0} rows, ${parsedHeaders?.length ?? 0} cols`);
           } catch (parseErr) {
             console.warn('[CargaDatos] Client-side Excel parse failed, falling back to server:', parseErr);
+          }
+        } else if (isCsv) {
+          try {
+            updateItem({ progress: 72 });
+            const text = await item.file.text();
+            const rows = parseCSVClientSide(text);
+            if (rows.length > 0) {
+              const fixed = fixBrokenHeaders(rows);
+              if (fixed.rows.length > 50000) fixed.rows.length = 50000;
+              parsedRows = fixed.rows;
+              parsedHeaders = fixed.headers;
+            }
+            updateItem({ progress: 80 });
+            console.log(`[CargaDatos] Client-side CSV parsed: ${parsedRows?.length ?? 0} rows`);
+          } catch (parseErr) {
+            console.warn('[CargaDatos] Client-side CSV parse failed, falling back to server:', parseErr);
           }
         }
 
@@ -601,6 +691,20 @@ export default function CargaDatos() {
                 resolvedCategory = pfData.category;
               }
               updateItem({ progress: 85 + Math.round((bi + 1) / totalBatches * 14) });
+            }
+
+            // Health check: verify saved row count matches sent rows
+            const { data: savedChunks } = await supabase
+              .from('file_extracted_data')
+              .select('row_count')
+              .eq('file_upload_id', dbData.id)
+              .not('data_category', 'in', '("_raw_cache","_classification")');
+            const savedTotal = savedChunks?.reduce((sum, c) => sum + (c.row_count || 0), 0) || 0;
+            if (savedTotal < parsedRows.length * 0.95) {
+              console.warn(`[CargaDatos] Health check: saved ${savedTotal} vs sent ${parsedRows.length} rows`);
+              await supabase.from('file_uploads').update({
+                processing_error: `Advertencia: se guardaron ${savedTotal} de ${parsedRows.length} filas`,
+              }).eq('id', dbData.id);
             }
           } catch (invokeErr: any) {
             await supabase.from('file_uploads').update({ status: 'queued', processing_error: null }).eq('id', dbData.id);

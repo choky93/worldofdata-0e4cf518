@@ -31,14 +31,26 @@ export function useExtractedData() {
   const fetchData = useCallback(async () => {
     if (!profile?.company_id) return;
     try {
-      const { data: records, error } = await supabase
-        .from('file_extracted_data')
-        .select('data_category, extracted_json, row_count, summary, chunk_index, file_upload_id')
-        .eq('company_id', profile.company_id)
-        .not('data_category', 'in', '("_raw_cache","_classification")')
-        .order('created_at', { ascending: false });
+      // Paginate to fetch ALL chunks (API default limit is 1000)
+      const PAGE = 1000;
+      let allRecords: ExtractedRecord[] = [];
+      let from = 0;
+      while (true) {
+        const { data: page, error } = await supabase
+          .from('file_extracted_data')
+          .select('data_category, extracted_json, row_count, summary, chunk_index, file_upload_id')
+          .eq('company_id', profile.company_id)
+          .not('data_category', 'in', '("_raw_cache","_classification")')
+          .order('created_at', { ascending: false })
+          .range(from, from + PAGE - 1);
 
-      if (error) throw error;
+        if (error) throw error;
+        if (!page || page.length === 0) break;
+        allRecords.push(...(page as ExtractedRecord[]));
+        if (page.length < PAGE) break;
+        from += PAGE;
+      }
+      const records = allRecords;
 
       const agg: AggregatedData = {
         ventas: [], gastos: [], stock: [], clientes: [],
