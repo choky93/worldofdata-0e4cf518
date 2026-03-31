@@ -194,6 +194,15 @@ export default function Dashboard() {
         {/* Data source banner */}
         <Stagger index={1}>
           <DataSourceBanner hasData={hasData} loading={dataLoading} />
+          {realOtro.length > 0 && (
+            <div className="rounded-lg px-4 py-2.5 text-xs flex items-center gap-2 bg-warning/10 text-warning border border-warning/20">
+              <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+              <span>
+                Hay <strong>{realOtro.length}</strong> filas que no pudieron clasificarse automáticamente. 
+                <Link to="/carga-datos" className="underline font-medium ml-1">Revisá en Carga de datos</Link> para reprocesarlas.
+              </span>
+            </div>
+          )}
         </Stagger>
 
         {/* Ticker */}
