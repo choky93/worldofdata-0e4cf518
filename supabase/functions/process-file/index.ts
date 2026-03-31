@@ -658,7 +658,8 @@ serve(async (req) => {
           if (allRows.length > MAX_EXCEL_ROWS) allRows.length = MAX_EXCEL_ROWS;
 
           if (allRows.length > 0) {
-            resultInfo = await processTabularData(sb, allRows, headers, file_name, fileUploadId, companyId);
+            const fixed = fixBrokenHeaders(allRows);
+            resultInfo = await processTabularData(sb, fixed.rows, fixed.headers.length > 0 ? fixed.headers : headers, file_name, fileUploadId, companyId);
           } else {
             // Empty Excel — try AI extraction on CSV text
             const csv = XLSX.utils.sheet_to_csv(wb.Sheets[wb.SheetNames[0]], { FS: ',', RS: '\n' });
