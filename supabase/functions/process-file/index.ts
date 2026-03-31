@@ -391,6 +391,7 @@ serve(async (req) => {
     const batchIndex = body.batchIndex as number | undefined;
     const totalBatches = body.totalBatches as number | undefined;
     const totalRows = body.totalRows as number | undefined;
+    const explicitCategory = body.category as string | undefined; // passed from client for batches > 0
 
     // ─── LEGACY: preParsedData (CSV text from old client code) ─
     const preParsedData = body.preParsedData;
