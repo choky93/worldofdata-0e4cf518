@@ -118,6 +118,56 @@ function fixBrokenHeaders(rows: Record<string, unknown>[]): { rows: Record<strin
   return { rows: remapped, headers: newHeaders };
 }
 
+/**
+ * Simple RFC 4180 CSV parser for client-side use.
+ */
+function parseCSVClientSide(text: string): Record<string, unknown>[] {
+  if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1); // BOM
+  const rawFirst = text.split(/\r?\n/)[0] || '';
+  const delimiter = rawFirst.includes('\t') ? '\t' : rawFirst.includes(';') ? ';' : ',';
+
+  const rows: string[][] = [];
+  let current: string[] = [];
+  let field = '';
+  let inQuotes = false;
+  let i = 0;
+  while (i < text.length) {
+    const ch = text[i];
+    if (inQuotes) {
+      if (ch === '"') {
+        if (i + 1 < text.length && text[i + 1] === '"') { field += '"'; i += 2; }
+        else { inQuotes = false; i++; }
+      } else { field += ch; i++; }
+    } else {
+      if (ch === '"') { inQuotes = true; i++; }
+      else if (ch === delimiter) { current.push(field); field = ''; i++; }
+      else if (ch === '\r' || ch === '\n') {
+        current.push(field); field = '';
+        if (ch === '\r' && i + 1 < text.length && text[i + 1] === '\n') i++;
+        rows.push(current); current = []; i++;
+      } else { field += ch; i++; }
+    }
+  }
+  if (field || current.length > 0) { current.push(field); rows.push(current); }
+
+  const nonEmpty = rows.filter(r => r.some(v => v.trim() !== ''));
+  if (nonEmpty.length < 2) return [];
+
+  const headers = nonEmpty[0].map(h => h.trim());
+  const result: Record<string, unknown>[] = [];
+  for (let j = 1; j < nonEmpty.length; j++) {
+    const row: Record<string, unknown> = {};
+    let hasValue = false;
+    headers.forEach((h, k) => {
+      const val = nonEmpty[j][k]?.trim() || '';
+      row[h] = val;
+      if (val) hasValue = true;
+    });
+    if (hasValue) result.push(row);
+  }
+  return result;
+}
+
 function detectFileType(name: string): string {
   const ext = name.split('.').pop()?.toLowerCase() || '';
   if (ext === 'pdf') return 'PDF';
