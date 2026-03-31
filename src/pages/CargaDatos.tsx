@@ -55,6 +55,69 @@ const PRESIGN_THRESHOLD = 20 * 1024 * 1024; // 20MB
 const MAX_FILE_SIZE = 100 * 1024 * 1024; // 100MB
 const ROW_BATCH_SIZE = 500; // Rows per batch sent to backend
 
+/**
+ * Detect and skip title rows in Excel data parsed by SheetJS.
+ * If >50% of columns are __EMPTY*, search first rows for real headers.
+ */
+function fixBrokenHeaders(rows: Record<string, unknown>[]): { rows: Record<string, unknown>[]; headers: string[] } {
+  if (rows.length === 0) return { rows, headers: [] };
+
+  const originalHeaders = Object.keys(rows[0]);
+  const emptyCount = originalHeaders.filter(h => h.startsWith('__EMPTY') || h.trim() === '').length;
+
+  // If headers look fine, return as-is
+  if (emptyCount / originalHeaders.length < 0.5) {
+    return { rows, headers: originalHeaders };
+  }
+
+  console.log(`[CargaDatos] Broken headers detected (${emptyCount}/${originalHeaders.length} are __EMPTY). Searching for real header row...`);
+
+  // Search in first 10 rows for a row with more real text values
+  const searchLimit = Math.min(10, rows.length);
+  let bestRowIdx = -1;
+  let bestScore = 0;
+
+  for (let i = 0; i < searchLimit; i++) {
+    const row = rows[i];
+    const values = Object.values(row).map(v => String(v ?? '').trim()).filter(v => v !== '');
+    // A good header row has many non-empty string values that aren't just numbers
+    const textValues = values.filter(v => isNaN(Number(v.replace(/[.,]/g, ''))));
+    if (textValues.length > bestScore) {
+      bestScore = textValues.length;
+      bestRowIdx = i;
+    }
+  }
+
+  if (bestRowIdx < 0 || bestScore < 2) {
+    console.log('[CargaDatos] Could not find real header row, using original');
+    return { rows, headers: originalHeaders };
+  }
+
+  // Use values from bestRowIdx as new headers
+  const headerRow = rows[bestRowIdx];
+  const newHeaders = originalHeaders.map(oldKey => {
+    const val = String(headerRow[oldKey] ?? '').trim();
+    return val || oldKey; // Keep __EMPTY if no replacement found
+  });
+
+  console.log(`[CargaDatos] Found real headers at row ${bestRowIdx}: ${newHeaders.join(', ')}`);
+
+  // Remap remaining rows with new headers
+  const dataRows = rows.slice(bestRowIdx + 1);
+  const remapped = dataRows.map(row => {
+    const newRow: Record<string, unknown> = {};
+    originalHeaders.forEach((oldKey, j) => {
+      newRow[newHeaders[j]] = row[oldKey];
+    });
+    return newRow;
+  }).filter(row => {
+    // Filter out completely empty rows
+    return Object.values(row).some(v => String(v ?? '').trim() !== '');
+  });
+
+  return { rows: remapped, headers: newHeaders };
+}
+
 function detectFileType(name: string): string {
   const ext = name.split('.').pop()?.toLowerCase() || '';
   if (ext === 'pdf') return 'PDF';
@@ -483,11 +546,13 @@ export default function CargaDatos() {
             }
             if (allRows.length > 50000) allRows.length = 50000;
             if (allRows.length > 0) {
-              parsedRows = allRows;
-              parsedHeaders = headers;
+              // Fix broken headers (title rows before real data)
+              const fixed = fixBrokenHeaders(allRows);
+              parsedRows = fixed.rows;
+              parsedHeaders = fixed.headers;
             }
             updateItem({ progress: 80 });
-            console.log(`[CargaDatos] Client-side parsed: ${allRows.length} rows, ${headers.length} cols`);
+            console.log(`[CargaDatos] Client-side parsed: ${parsedRows?.length ?? 0} rows, ${parsedHeaders?.length ?? 0} cols`);
           } catch (parseErr) {
             console.warn('[CargaDatos] Client-side Excel parse failed, falling back to server:', parseErr);
           }
@@ -515,9 +580,10 @@ export default function CargaDatos() {
           updateItem({ progress: 85 });
           try {
             const totalBatches = Math.ceil(parsedRows.length / ROW_BATCH_SIZE);
+            let resolvedCategory: string | undefined;
             for (let bi = 0; bi < totalBatches; bi++) {
               const batchRows = parsedRows.slice(bi * ROW_BATCH_SIZE, (bi + 1) * ROW_BATCH_SIZE);
-              const { error: pfError } = await supabase.functions.invoke('process-file', {
+              const { data: pfData, error: pfError } = await supabase.functions.invoke('process-file', {
                 body: {
                   fileUploadId: dbData.id,
                   companyId: profile.company_id!,
@@ -526,9 +592,14 @@ export default function CargaDatos() {
                   batchIndex: bi,
                   totalBatches,
                   totalRows: parsedRows.length,
+                  ...(bi > 0 && resolvedCategory ? { category: resolvedCategory } : {}),
                 },
               });
               if (pfError) throw pfError;
+              // Capture category from batch 0 response
+              if (bi === 0 && pfData?.category) {
+                resolvedCategory = pfData.category;
+              }
               updateItem({ progress: 85 + Math.round((bi + 1) / totalBatches * 14) });
             }
           } catch (invokeErr: any) {
@@ -642,13 +713,19 @@ export default function CargaDatos() {
           
           if (allRows.length === 0) throw new Error('No se encontraron filas en el archivo');
           
-          console.log(`[CargaDatos] Reparse: ${allRows.length} rows, ${headers.length} cols`);
+          // Fix broken headers (title rows before real data)
+          const fixed = fixBrokenHeaders(allRows);
+          const fixedRows = fixed.rows;
+          headers = fixed.headers;
           
-          // Send in batches
-          const totalBatches = Math.ceil(allRows.length / ROW_BATCH_SIZE);
+          console.log(`[CargaDatos] Reparse: ${fixedRows.length} rows, ${headers.length} cols`);
+          
+          // Send in batches with category propagation
+          const totalBatches = Math.ceil(fixedRows.length / ROW_BATCH_SIZE);
+          let resolvedCategory: string | undefined;
           for (let bi = 0; bi < totalBatches; bi++) {
-            const batchRows = allRows.slice(bi * ROW_BATCH_SIZE, (bi + 1) * ROW_BATCH_SIZE);
-            const { error: pfError } = await supabase.functions.invoke('process-file', {
+            const batchRows = fixedRows.slice(bi * ROW_BATCH_SIZE, (bi + 1) * ROW_BATCH_SIZE);
+            const { data: pfData, error: pfError } = await supabase.functions.invoke('process-file', {
               body: {
                 fileUploadId: file.id,
                 companyId: profile.company_id!,
@@ -656,10 +733,14 @@ export default function CargaDatos() {
                 headers,
                 batchIndex: bi,
                 totalBatches,
-                totalRows: allRows.length,
+                totalRows: fixedRows.length,
+                ...(bi > 0 && resolvedCategory ? { category: resolvedCategory } : {}),
               },
             });
             if (pfError) throw pfError;
+            if (bi === 0 && pfData?.category) {
+              resolvedCategory = pfData.category;
+            }
           }
           
           toast.success(`"${file.file_name}" procesado correctamente`);
