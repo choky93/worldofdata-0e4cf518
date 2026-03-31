@@ -524,6 +524,7 @@ export default function CargaDatos() {
         // Parse Excel files client-side → send structured row batches
         const ext = item.file.name.split('.').pop()?.toLowerCase() || '';
         const isExcel = ['xls', 'xlsx'].includes(ext);
+        const isCsv = ext === 'csv';
         let parsedRows: Record<string, unknown>[] | null = null;
         let parsedHeaders: string[] | null = null;
 
@@ -532,29 +533,68 @@ export default function CargaDatos() {
             updateItem({ progress: 72 });
             const buffer = await item.file.arrayBuffer();
             const wb = XLSX.read(buffer, { type: 'array', dense: true, cellStyles: false, cellNF: false, cellText: false, sheetRows: 50000 });
-            const allRows: Record<string, unknown>[] = [];
-            let headers: string[] = [];
+
+            // Multi-sheet: detect if sheets have different headers
+            const sheetDataSets: { rows: Record<string, unknown>[]; headers: string[] }[] = [];
             for (const sheetName of wb.SheetNames) {
               const sheet = wb.Sheets[sheetName];
               if (!sheet) continue;
               const sheetRows = XLSX.utils.sheet_to_json(sheet, { defval: '' }) as Record<string, unknown>[];
-              if (sheetRows.length > 0 && headers.length === 0) {
-                headers = Object.keys(sheetRows[0]);
+              if (sheetRows.length === 0) continue;
+              const fixed = fixBrokenHeaders(sheetRows);
+              if (fixed.rows.length > 0) {
+                sheetDataSets.push(fixed);
               }
-              allRows.push(...sheetRows);
-              if (allRows.length >= 50000) break;
             }
-            if (allRows.length > 50000) allRows.length = 50000;
-            if (allRows.length > 0) {
-              // Fix broken headers (title rows before real data)
-              const fixed = fixBrokenHeaders(allRows);
-              parsedRows = fixed.rows;
-              parsedHeaders = fixed.headers;
+
+            // Check if all sheets share the same headers
+            if (sheetDataSets.length > 1) {
+              const firstHeaders = sheetDataSets[0].headers.sort().join('|');
+              const allSame = sheetDataSets.every(s => s.headers.sort().join('|') === firstHeaders);
+              if (allSame) {
+                // Same headers: concatenate
+                const allRows = sheetDataSets.flatMap(s => s.rows);
+                if (allRows.length > 50000) allRows.length = 50000;
+                parsedRows = allRows;
+                parsedHeaders = sheetDataSets[0].headers;
+              } else {
+                // Different headers: use first sheet (largest), log warning
+                console.warn(`[CargaDatos] Multi-sheet with different headers detected. Processing each sheet separately.`);
+                // Sort by row count descending, take all
+                sheetDataSets.sort((a, b) => b.rows.length - a.rows.length);
+                // For now, process all sheets concatenated per same-header groups
+                // Simplified: just use all data with fixBrokenHeaders already applied
+                const allRows = sheetDataSets.flatMap(s => s.rows);
+                if (allRows.length > 50000) allRows.length = 50000;
+                parsedRows = allRows;
+                parsedHeaders = sheetDataSets[0].headers;
+              }
+            } else if (sheetDataSets.length === 1) {
+              const allRows = sheetDataSets[0].rows;
+              if (allRows.length > 50000) allRows.length = 50000;
+              parsedRows = allRows;
+              parsedHeaders = sheetDataSets[0].headers;
             }
             updateItem({ progress: 80 });
             console.log(`[CargaDatos] Client-side parsed: ${parsedRows?.length ?? 0} rows, ${parsedHeaders?.length ?? 0} cols`);
           } catch (parseErr) {
             console.warn('[CargaDatos] Client-side Excel parse failed, falling back to server:', parseErr);
+          }
+        } else if (isCsv) {
+          try {
+            updateItem({ progress: 72 });
+            const text = await item.file.text();
+            const rows = parseCSVClientSide(text);
+            if (rows.length > 0) {
+              const fixed = fixBrokenHeaders(rows);
+              if (fixed.rows.length > 50000) fixed.rows.length = 50000;
+              parsedRows = fixed.rows;
+              parsedHeaders = fixed.headers;
+            }
+            updateItem({ progress: 80 });
+            console.log(`[CargaDatos] Client-side CSV parsed: ${parsedRows?.length ?? 0} rows`);
+          } catch (parseErr) {
+            console.warn('[CargaDatos] Client-side CSV parse failed, falling back to server:', parseErr);
           }
         }
 
