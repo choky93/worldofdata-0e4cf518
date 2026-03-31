@@ -113,6 +113,7 @@ export default function Dashboard() {
   const realGastos = extractedData?.gastos || [];
   const realClientes = extractedData?.clientes || [];
   const realMarketing = extractedData?.marketing || [];
+  const realOtro = extractedData?.otro || [];
 
   const salesTotal = hasData && realVentas.length > 0
     ? realVentas.reduce((sum: number, r: any) => sum + findNumber(r, FIELD_AMOUNT), 0)
