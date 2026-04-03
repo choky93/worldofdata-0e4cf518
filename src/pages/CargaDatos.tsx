@@ -1123,8 +1123,8 @@ export default function CargaDatos() {
                               {f.created_at ? formatDate(f.created_at) : '—'}
                               {f.file_size ? ` · ${f.file_size > 1024 * 1024 ? `${(f.file_size / 1024 / 1024).toFixed(1)} MB` : `${(f.file_size / 1024).toFixed(0)} KB`}` : ''}
                             </p>
-                            {f.status === 'error' && f.processing_error && (
-                              <p className="text-xs text-destructive mt-0.5 whitespace-pre-wrap break-words">{f.processing_error}</p>
+                            {(f.status === 'error' || f.status === 'review') && f.processing_error && (
+                              <p className={`text-xs mt-0.5 whitespace-pre-wrap break-words ${f.status === 'review' ? 'text-warning' : 'text-destructive'}`}>{f.processing_error}</p>
                             )}
                           </div>
                           <Badge className={`border-0 shrink-0 ${statusColor(f.status)}`}>
