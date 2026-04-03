@@ -108,17 +108,17 @@ export default function Ventas() {
     );
   }
 
-  const salesTotal = realVentas.reduce((sum: number, r: any) => sum + findNumber(r, FIELD_AMOUNT), 0);
+  const salesTotal = realVentas.reduce((sum: number, r: any) => sum + findNumber(r, FIELD_AMOUNT, m?.amount), 0);
 
   const salesHistory = realVentas.slice(0, 50).map((r: any, i: number) => ({
-    date: findString(r, FIELD_DATE) || '—',
-    client: findString(r, FIELD_CLIENT) || '—',
-    product: findString(r, FIELD_NAME) || '—',
-    amount: findNumber(r, FIELD_AMOUNT),
+    date: findString(r, FIELD_DATE, m?.date) || '—',
+    client: findString(r, FIELD_CLIENT, m?.client) || '—',
+    product: findString(r, FIELD_NAME, m?.name) || '—',
+    amount: findNumber(r, FIELD_AMOUNT, m?.amount),
   }));
 
-  const dailyChart = aggregateByDate(realVentas);
-  const monthlyChart = aggregateByMonth(realVentas);
+  const dailyChart = aggregateByDate(realVentas, m);
+  const monthlyChart = aggregateByMonth(realVentas, m);
   const estimated = Math.round(salesTotal * 1.2);
 
   return (
