@@ -63,7 +63,7 @@ function buildAlertsFromData(data: ReturnType<typeof useExtractedData>['data'], 
   // Gastos: pagos vencidos
   const gastosRows = data.gastos || [];
   const overdue = gastosRows.filter((r: any) => {
-    const status = findString(r, ['estado', 'status']).toLowerCase();
+    const status = findString(r, ['estado', 'status'], mG?.status).toLowerCase();
     return status === 'vencido' || status === 'overdue';
   });
   if (overdue.length > 0) {
