@@ -127,6 +127,10 @@ function norm(s: string): string {
   return s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]/g, '');
 }
 
+function excelSerialToISO(serial: number): string {
+  return new Date((serial - 25569) * 86400000).toISOString().split('T')[0];
+}
+
 function convertSerialDates(rows: Record<string, unknown>[], headers: string[]): void {
   const dateHeaders = headers.filter(h => DATE_KW.some(kw => norm(h).includes(kw)));
   if (dateHeaders.length === 0) return;
@@ -134,7 +138,12 @@ function convertSerialDates(rows: Record<string, unknown>[], headers: string[]):
     for (const h of dateHeaders) {
       const val = row[h];
       if (typeof val === 'number' && val > 1 && val < 200000) {
-        row[h] = new Date((val - 25569) * 86400000).toISOString().split('T')[0];
+        row[h] = excelSerialToISO(val);
+      } else if (typeof val === 'string') {
+        const num = parseFloat(val);
+        if (!isNaN(num) && num > 25569 && num < 200000 && /^\d+(\.\d+)?$/.test(val.trim())) {
+          row[h] = excelSerialToISO(num);
+        }
       }
     }
   }
