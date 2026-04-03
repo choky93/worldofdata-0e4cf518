@@ -856,13 +856,15 @@ export default function CargaDatos() {
           const fixedRows = fixed.rows;
           headers = fixed.headers;
           
-          console.log(`[CargaDatos] Reparse: ${fixedRows.length} rows, ${headers.length} cols`);
+          // Clean data: convert serial dates + filter summary rows
+          const cleanedRows = cleanParsedRows(fixedRows, headers);
+          console.log(`[CargaDatos] Reparse: ${cleanedRows.length} rows (cleaned from ${fixedRows.length}), ${headers.length} cols`);
           
           // Send in batches with category propagation
-          const totalBatches = Math.ceil(fixedRows.length / ROW_BATCH_SIZE);
+          const totalBatches = Math.ceil(cleanedRows.length / ROW_BATCH_SIZE);
           let resolvedCategory: string | undefined;
           for (let bi = 0; bi < totalBatches; bi++) {
-            const batchRows = fixedRows.slice(bi * ROW_BATCH_SIZE, (bi + 1) * ROW_BATCH_SIZE);
+            const batchRows = cleanedRows.slice(bi * ROW_BATCH_SIZE, (bi + 1) * ROW_BATCH_SIZE);
             const { data: pfData, error: pfError } = await supabase.functions.invoke('process-file', {
               body: {
                 fileUploadId: file.id,
