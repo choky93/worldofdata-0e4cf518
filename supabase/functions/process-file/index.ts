@@ -923,12 +923,15 @@ serve(async (req) => {
       }
 
       const result = await extractWithAI(content, file_name, imageBase64, imageMime, processingMetadata);
-      await sb.from("file_extracted_data").delete().eq("file_upload_id", fileUploadId);
-      await sb.from("file_extracted_data").insert({
-        file_upload_id: fileUploadId, company_id: companyId,
-        data_category: result.category, extracted_json: result.data,
-        summary: result.summary, row_count: result.rowCount, chunk_index: 0,
-      });
+      { const { error: d } = await sb.from("file_extracted_data").delete().eq("file_upload_id", fileUploadId);
+        if (d) console.error('[process-file] DELETE error:', d.message);
+        const { error: e } = await sb.from("file_extracted_data").insert({
+          file_upload_id: fileUploadId, company_id: companyId,
+          data_category: result.category, extracted_json: result.data,
+          summary: result.summary, row_count: result.rowCount, chunk_index: 0,
+        });
+        if (e) console.error('[process-file] ❌ INSERT FAILED:', e.message);
+        else console.log('[process-file] ✅ Stored AI extraction at chunk_index=0'); }
       resultInfo = { category: result.category, summary: result.summary, totalRows: result.rowCount };
 
     // ─── PDF ────────────────────────────────────────────────
@@ -1003,12 +1006,15 @@ serve(async (req) => {
         content = `[Archivo desconocido: ${ext}. Nombre: "${file_name}". ${(buffer.byteLength / 1024).toFixed(0)} KB]`;
       }
       const result = await extractWithAI(content, file_name);
-      await sb.from("file_extracted_data").delete().eq("file_upload_id", fileUploadId);
-      await sb.from("file_extracted_data").insert({
-        file_upload_id: fileUploadId, company_id: companyId,
-        data_category: result.category, extracted_json: result.data,
-        summary: result.summary, row_count: result.rowCount, chunk_index: 0,
-      });
+      { const { error: d } = await sb.from("file_extracted_data").delete().eq("file_upload_id", fileUploadId);
+        if (d) console.error('[process-file] DELETE error:', d.message);
+        const { error: e } = await sb.from("file_extracted_data").insert({
+          file_upload_id: fileUploadId, company_id: companyId,
+          data_category: result.category, extracted_json: result.data,
+          summary: result.summary, row_count: result.rowCount, chunk_index: 0,
+        });
+        if (e) console.error('[process-file] ❌ INSERT FAILED:', e.message);
+        else console.log('[process-file] ✅ Stored AI extraction at chunk_index=0'); }
       resultInfo = { category: result.category, summary: result.summary, totalRows: result.rowCount };
     }
 
