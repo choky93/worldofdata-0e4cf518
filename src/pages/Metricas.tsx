@@ -144,8 +144,8 @@ export default function Metricas() {
 
   if (!hasCharts) {
     // Has data but not enough for time-series charts — show summary cards
-    const totalVentas = realVentas.reduce((s: number, r: any) => s + findNumber(r, FIELD_AMOUNT), 0);
-    const totalGastos = realGastos.reduce((s: number, r: any) => s + findNumber(r, FIELD_AMOUNT), 0);
+    const totalVentas = realVentas.reduce((s: number, r: any) => s + findNumber(r, FIELD_AMOUNT, mV?.amount), 0);
+    const totalGastos = realGastos.reduce((s: number, r: any) => s + findNumber(r, FIELD_AMOUNT, mG?.amount), 0);
     const margen = totalVentas > 0 ? ((totalVentas - totalGastos) / totalVentas) * 100 : 0;
 
     return (

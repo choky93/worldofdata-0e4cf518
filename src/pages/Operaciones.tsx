@@ -110,7 +110,7 @@ export default function Operaciones() {
     );
   }
 
-  const allOps = normalizeOps(realVentas, realGastos);
+  const allOps = normalizeOps(realVentas, realGastos, mappings.ventas, mappings.gastos);
   const filtered = filter === 'all' ? allOps : allOps.filter(op => op.type === filter);
   const totalSales = allOps.filter(op => op.type === 'sale').reduce((s, op) => s + op.amount, 0);
   const totalPurchases = allOps.filter(op => op.type === 'purchase').reduce((s, op) => s + op.amount, 0);
