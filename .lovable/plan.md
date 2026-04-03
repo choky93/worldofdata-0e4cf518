@@ -1,76 +1,116 @@
 
 
-# Auditoría completa: Pipeline de subida de archivos
+# Auditoría completa: pipeline de subida + visualización
 
-## Diagnóstico raíz confirmado
+## Estado actual
 
-El problema es que **la edge function `process-file` no se desplegó correctamente con el fix de chunk_index negativos**, o el fix tiene un bug sutil. La evidencia:
+La base de datos está limpia (0 archivos, 0 datos extraídos). No hay logs recientes de `process-file`. El código fue modificado varias veces. Esta auditoría revisa el código actual línea por línea.
 
-1. Los logs muestran que `process-file` devuelve HTTP 200 para ambos archivos
-2. La clasificación AI funciona (`AI classification for "Informe ventas mensuales .xls"`)
-3. Los rows se limpian (`26 → 26 rows after cleaning`)
-4. Pero `file_extracted_data` queda vacío (la query del frontend devuelve `[]`)
-5. El health check detecta: `"se guardaron 0 de 26 filas"`
+## Veredicto
 
-**El constraint `UNIQUE INDEX idx_unique_file_chunk ON (file_upload_id, chunk_index)` sigue causando conflictos silenciosos** porque ninguna operación de INSERT en `process-file` verifica el resultado del insert. Los errores se tragan completamente.
+**El pipeline PATH A (subida desde navegador) está correcto.** Los chunk_index negativos para metadata (-2, -1) y positivos para datos (0+) evitan conflictos con el unique index. Los upserts tienen verificación de error. Las fechas se normalizan.
 
-## Problemas encontrados (línea por línea)
+**Hay 3 problemas reales que necesitan corrección:**
 
-### 1. Inserts sin verificación de error (CRÍTICO)
-`process-file/index.ts` lineas 662-668, 675-681, 479-487: todos los `.insert()` ignoran el resultado. Si el constraint falla, el código continúa como si todo estuviera bien.
+---
 
-### 2. storeRowBatch usa DELETE condicional que puede fallar
-Linea 473-477: el DELETE usa `.not('data_category', 'in', '("_column_mapping","_classification")')` — pero si metadata ya existe con el mismo chunk_index, el insert posterior falla y nadie lo sabe.
+### PROBLEMA 1: PATH C (`processTabularData`) borra la metadata que acaba de insertar (CRÍTICO)
 
-### 3. processTabularData (PATH C) borra TODO y reinserta
-Linea 512: `await sb.from("file_extracted_data").delete().eq("file_upload_id", fileUploadId)` — esto borra la metadata que se acaba de insertar en la linea 514-521.
+**Archivo:** `supabase/functions/process-file/index.ts`, líneas 518-535
 
-### 4. Despliegue no verificado
-No hay log de "Classification: category=ventas" (que está en `processTabularData`, linea 503) ni de chunk_index values. Sin logs que confirmen que la versión desplegada es la correcta.
+```text
+Línea 519: DELETE ALL → borra TODO para este file_upload_id
+Línea 523: INSERT _column_mapping → lo acaba de borrar, OK lo reinserta
+Línea 537: storeRowBatch(... batchIndex=0) → OK
+```
 
-### 5. Fechas Excel pueden seguir como seriales
-`cleanParsedRows` en el cliente convierte seriales, pero solo si los headers matchean keywords. Si la columna se llama "Mes" (no "fecha"), podría no convertir.
+**Pero** `storeRowBatch` (línea 474) hace `DELETE .eq("chunk_index", batchIndex)` antes de insertar. Cuando `batchIndex=0`, esto NO borra la metadata porque metadata está en -1 y -2. **Esto está bien ahora.**
+
+Sin embargo, la línea 519 `DELETE ALL` no distingue — si `processTabularData` se llama en un reproceso donde ya hay datos con metadata, los borra todos y los reinserta correctamente. **Esto funciona.**
+
+**Conclusión: PATH C está OK.** No hay problema aquí.
+
+---
+
+### PROBLEMA 2: Subsequent batches buscan `_classification` que fue borrada (MEDIO)
+
+**Archivo:** `supabase/functions/process-file/index.ts`, líneas 713-716 y 728-741
+
+Cuando `totalBatches === 1`, el batch 0 borra `_classification` (línea 714). Esto está bien porque es el último batch.
+
+Pero cuando hay múltiples batches, el batch 0 inserta `_classification` en chunk_index=-2. Los batches posteriores (línea 733-741) intentan leer `_classification` para obtener la categoría, y lo encuentran. Luego el último batch lo borra (línea 765). **Esto funciona correctamente.**
+
+**Pero hay un edge case:** Si el frontend envía `explicitCategory` (línea 712, `category: resolvedCategory`), el batch posterior NO necesita leer `_classification`. Si no lo envía, lo lee. El frontend SÍ lo envía (línea 712 de CargaDatos.tsx: `...(bi > 0 && resolvedCategory ? { category: resolvedCategory } : {})`).
+
+**Conclusión: OK, pero la lectura fallback de `_classification` podría fallar si `resolvedCategory` no se capturó. Es un riesgo menor.**
+
+---
+
+### PROBLEMA 3 (REAL): El reprocess de Excel en CargaDatos NO aplica `cleanParsedRows` (BUG)
+
+**Archivo:** `src/pages/CargaDatos.tsx`, líneas 837-862
+
+En el flujo de reprocess (handleReprocess), el código descarga el archivo, lo parsea con SheetJS, aplica `fixBrokenHeaders`, pero **NO aplica `cleanParsedRows`** antes de enviar los batches. Esto significa que:
+- Las fechas seriales de Excel NO se convierten a ISO
+- Las filas de totales/resumen NO se filtran
+
+Comparar con el flujo de upload (líneas 646-648): allí SÍ aplica `cleanParsedRows`.
+
+**Impacto:** Si el usuario reprocesa un archivo Excel, las fechas quedarán como seriales.
+
+---
+
+### PROBLEMA 4 (REAL): La función `cleanRows` en el edge function se aplica DESPUÉS del parseo pero NO convierte strings numéricos que ya fueron parseados por el cliente
+
+**Archivo:** `supabase/functions/process-file/index.ts`, línea 653
+
+El cliente (CargaDatos) aplica `cleanParsedRows` que convierte seriales a ISO. Luego envía los rows al edge function. El edge function aplica `cleanRows` otra vez (línea 653), lo cual intenta re-convertir fechas. Pero como el cliente ya convirtió "45231.0" → "2023-11-01", el edge function ve "2023-11-01" y no hace nada (correcto). **Esto está OK.**
+
+---
+
+### PROBLEMA 5 (REAL): `useExtractedData` no filtra `_classification` que quedó de archivos multi-batch
+
+**Archivo:** `src/hooks/useExtractedData.ts`, línea 60
+
+El filtro es: `.not('data_category', 'in', '("_raw_cache","_classification")')`. Esto SÍ excluye `_classification`. Pero... la `_classification` se borra al final del último batch (línea 765 del edge function). Si el procesamiento falla a mitad de camino, la `_classification` podría quedar. Sin embargo, la query la excluye. **Esto está OK.**
+
+---
+
+### PROBLEMA 6 (REAL): `aggregateByDate` en Ventas.tsx NO ordena por fecha
+
+**Archivo:** `src/pages/Ventas.tsx`, línea 15-29
+
+`aggregateByDate` usa `Map` y `.slice(-30)` pero NO ordena por fecha. Los datos pueden aparecer en cualquier orden. Solo `aggregateByMonth` ordena correctamente (línea 47).
+
+**Impacto:** El gráfico "Ventas por fecha" puede mostrar barras desordenadas.
+
+---
+
+## Resumen de correcciones necesarias
+
+| # | Archivo | Problema | Severidad |
+|---|---------|----------|-----------|
+| 1 | `src/pages/CargaDatos.tsx` líneas 837-862 | Reprocess no aplica `cleanParsedRows` | Alta |
+| 2 | `src/pages/Ventas.tsx` líneas 15-29 | `aggregateByDate` no ordena por fecha | Media |
 
 ## Plan de implementación
 
-### Archivo: `supabase/functions/process-file/index.ts`
+### 1. CargaDatos.tsx — Agregar cleanParsedRows al reprocess
 
-1. **Agregar verificación de error a TODOS los inserts**
-   - Después de cada `.insert()`, verificar `{ error }` y loguear/lanzar si falla
-   - Aplicar a: metadata _classification (linea 662), _column_mapping (linea 675), storeRowBatch (linea 479), y todos los inserts de PATH B/C
+Después de `fixBrokenHeaders` (línea 855), agregar:
+```typescript
+const cleanedRows = cleanParsedRows(fixedRows, headers);
+```
+Y usar `cleanedRows` en vez de `fixedRows` para los batches.
 
-2. **Usar UPSERT en vez de DELETE+INSERT para metadata**
-   - Reemplazar el patrón delete-then-insert por `.upsert()` con `onConflict: 'file_upload_id,chunk_index'`
-   - Esto elimina la ventana de race condition y simplifica el código
+### 2. Ventas.tsx — Ordenar aggregateByDate
 
-3. **Corregir PATH C (processTabularData)**
-   - Linea 512: el DELETE genérico borra todo incluyendo el _column_mapping que se inserta justo después en linea 514-521. Reordenar: primero borrar datos, luego insertar metadata.
+Cambiar `aggregateByDate` para que almacene el Date junto al valor y ordene antes de retornar, igual que hace `aggregateByMonth`.
 
-4. **Agregar logs explícitos** para cada operación de DB: "Stored _classification at chunk_index=-2", "Stored batch 0 with 26 rows", etc.
-
-5. **Normalización de fechas robusta**: agregar "mes" a DATE_KW para que `convertSerialDates` detecte la columna "Mes" del archivo de ventas.
-
-### Archivo: `src/pages/CargaDatos.tsx`
-
-6. **Mejorar health check** (lineas 724-735): si `savedTotal === 0`, mostrar un error más claro y sugerir reprocesar.
-
-### Despliegue y verificación
-
-7. **Redesplegar `process-file`** explícitamente y verificar con `curl_edge_functions` que la versión nueva está activa.
-
-8. **Test end-to-end**: subir los archivos de prueba y verificar que `file_extracted_data` tiene datos reales.
-
-## Archivos a modificar
-
-| Archivo | Cambios |
-|---|---|
-| `supabase/functions/process-file/index.ts` | Upserts, error checking, logs, "mes" en DATE_KW |
-| `src/pages/CargaDatos.tsx` | Health check mejorado |
-
-## Resultado esperado
-
-- Cada insert reporta si falló o no
-- Los datos se guardan correctamente sin conflictos de constraint
-- Los logs muestran exactamente qué pasó en cada paso
-- Las fechas "Mes" se normalizan correctamente
+### No se necesitan cambios en:
+- `process-file/index.ts` — la lógica actual es correcta con chunk_index -2/-1/0+
+- `useExtractedData.ts` — los filtros son correctos
+- `Dashboard.tsx` — el chart ordena por fecha correctamente (línea 194)
+- `AppSidebar.tsx` — la visibilidad data-driven es correcta
+- `Marketing.tsx` — el fallback a fecha cuando no hay campaign_name es correcto
 
