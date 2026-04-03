@@ -894,12 +894,15 @@ serve(async (req) => {
             const wb = XLSX.read(bytes, { type: 'array' });
             const csv = XLSX.utils.sheet_to_csv(wb.Sheets[wb.SheetNames[0]], { FS: ',', RS: '\n' });
             const result = await extractWithAI(csv.substring(0, MAX_CONTENT_CHARS), file_name);
-            await sb.from("file_extracted_data").delete().eq("file_upload_id", fileUploadId);
-            await sb.from("file_extracted_data").insert({
-              file_upload_id: fileUploadId, company_id: companyId,
-              data_category: result.category, extracted_json: result.data,
-              summary: result.summary, row_count: result.rowCount, chunk_index: 0,
-            });
+            { const { error: d } = await sb.from("file_extracted_data").delete().eq("file_upload_id", fileUploadId);
+              if (d) console.error('[process-file] DELETE error:', d.message);
+              const { error: e } = await sb.from("file_extracted_data").insert({
+                file_upload_id: fileUploadId, company_id: companyId,
+                data_category: result.category, extracted_json: result.data,
+                summary: result.summary, row_count: result.rowCount, chunk_index: 0,
+              });
+              if (e) console.error('[process-file] ❌ INSERT FAILED:', e.message);
+              else console.log('[process-file] ✅ Stored AI extraction at chunk_index=0'); }
             resultInfo = { category: result.category, summary: result.summary, totalRows: result.rowCount };
           }
         } catch (xlsErr) {
