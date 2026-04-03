@@ -1,109 +1,180 @@
 
 
-# Auditoría completa: Pipeline de subida + visualización
+# Auditoría completa: Sidebar ↔ Secciones ↔ Métricas cruzadas
 
-## Verificación de datos en base
+## Verificación de rutas
 
-Confirmado en la DB que los datos existen correctamente:
-- **Ventas**: 26 filas, `data_category: ventas`, `chunk_index: 0`, fechas ISO normalizadas (`2023-11-01`)
-- **Marketing**: 6 filas, `data_category: marketing`, `chunk_index: 0`
-- **Column mappings**: 2 registros `_column_mapping` con `chunk_index: -1` (uno para ventas, uno para marketing)
-- **Classification**: ya borrados correctamente (no quedan residuos)
+Todas las 13 rutas del sidebar (`adminItems`) tienen su correspondiente `<Route>` en `App.tsx` y su página importada. No hay discrepancias.
 
-Los chunk_index -2/-1/0 funcionan correctamente. Los logs del edge function confirman: `✅ Stored _classification at chunk_index=-2`, `✅ Stored _column_mapping at chunk_index=-1`.
+| Sidebar | Ruta | Página | ✓ |
+|---------|------|--------|---|
+| Dashboard | /dashboard | Dashboard.tsx | OK |
+| Ventas | /ventas | Ventas.tsx | OK |
+| Finanzas | /finanzas | Finanzas.tsx | OK |
+| Stock | /stock | Stock.tsx | OK |
+| Clientes | /clientes | Clientes.tsx | OK |
+| Forecast | /forecast | Forecast.tsx | OK |
+| Alertas | /alertas | Alertas.tsx | OK |
+| Métricas | /metricas | Metricas.tsx | OK |
+| Marketing | /marketing | Marketing.tsx | OK |
+| Operaciones | /operaciones | Operaciones.tsx | OK |
+| Carga de datos | /carga-datos | CargaDatos.tsx | OK |
+| Equipo | /equipo | Equipo.tsx | OK |
+| Configuración | /configuracion | Configuracion.tsx | OK |
 
-## BUG ENCONTRADO: Marketing no aparece en sidebar (RAÍZ REAL)
+## Visibilidad condicional del sidebar
 
-**Problema**: El sidebar llama `useExtractedData()` que crea su propia instancia independiente del hook. El hook hace `fetchData` una sola vez al montar (via `useEffect`). Como el sidebar **se monta una sola vez** (persiste entre navegaciones), si se montó ANTES de que el usuario subiera archivos, la instancia del sidebar tiene datos vacíos (`marketing: []`) y **nunca refetcha**.
+El sidebar filtra `Stock` y `Marketing` así:
+- **Stock**: visible si `companySettings.has_stock || companySettings.sells_products || hasStockData`
+- **Marketing**: visible si `companySettings.uses_meta_ads || companySettings.uses_google_ads || hasMarketingData`
 
-El Dashboard sí muestra datos porque se re-monta al navegar a él (genera un nuevo `useEffect`).
+Con el nuevo `ExtractedDataProvider` compartido + `refetch()` después de subir archivos, esto funciona correctamente.
 
-**Condición del sidebar** (línea 53):
-```
-companySettings.uses_meta_ads || companySettings.uses_google_ads || hasMarketingData
-```
-- `uses_meta_ads: false`, `uses_google_ads: false` (DB confirmado)
-- `hasMarketingData` = `(extractedData?.marketing || []).length > 0` → `false` porque el hook tiene datos stale
+**Dashboard** usa la misma lógica idéntica para mostrar/ocultar KPI de Marketing y el health radar de Stock. **Consistente.**
 
-**Resultado**: Marketing nunca aparece en sidebar aunque los datos existen en la DB.
+## Consistencia de datos cruzados entre secciones
 
-**Mismo problema aplica a Stock**: si se sube un archivo de stock después del montaje del sidebar, no va a aparecer.
+### Ventas total — se usa en 4 lugares
 
-### Solución
+| Módulo | Cálculo | Consistente |
+|--------|---------|-------------|
+| Dashboard KPI | `realVentas.reduce(sum + findNumber(r, FIELD_AMOUNT, mV?.amount))` | ✓ |
+| Ventas.tsx | `realVentas.reduce(sum + findNumber(r, FIELD_AMOUNT, m?.amount))` | ✓ |
+| Finanzas.tsx | `realVentas.reduce(s + findNumber(r, FIELD_AMOUNT, mV?.amount))` | ✓ |
+| Operaciones.tsx | `ventas.forEach → findNumber(r, FIELD_AMOUNT)` | **⚠ No usa mappings** |
+| Metricas.tsx | `realVentas.reduce(s + findNumber(r, FIELD_AMOUNT))` | **⚠ No usa mappings** |
 
-Convertir `useExtractedData` en un React Context compartido (provider). Así todas las instancias comparten el mismo estado. Cuando CargaDatos termina de subir archivos, llama `refetch()` del context, y el sidebar se actualiza automáticamente.
+### Gastos total — se usa en 3 lugares
 
-## Resto de la auditoría: sin errores críticos
+| Módulo | Cálculo | Consistente |
+|--------|---------|-------------|
+| Dashboard KPI | `realGastos.reduce(sum + findNumber(r, FIELD_AMOUNT, mG?.amount))` | ✓ |
+| Finanzas.tsx | `realGastos.reduce(s + findNumber(r, FIELD_AMOUNT, mG?.amount))` | ✓ |
+| Operaciones.tsx | `gastos.forEach → findNumber(r, FIELD_AMOUNT)` | **⚠ No usa mappings** |
+| Metricas.tsx | `realGastos.reduce(s + findNumber(r, FIELD_AMOUNT))` | **⚠ No usa mappings** |
 
-### Edge function `process-file` — OK
-- **PATH A** (browser batches): chunk_index -2/-1/0+ correctos. Upserts con onConflict. Verificación de error en todos los inserts. `cleanRows` aplica `convertSerialDates` con `mappedDate` del AI. **Correcto.**
-- **PATH B** (legacy preParsed): pasa por `processTabularData`. **Correcto.**
-- **PATH C** (server-side R2): descarga, parsea, pasa por `processTabularData`. Delete-all primero, luego insert _column_mapping, luego batches. **Correcto.**
-- Quarantine re-analysis: detecta mapping insuficiente y re-analiza. **Correcto.**
-- DATE_KW incluye "mes". **Correcto.**
+### Marketing spend — se usa en 2 lugares
 
-### `CargaDatos.tsx` — OK
-- Upload flow: `cleanParsedRows` se aplica tanto en upload (línea 647) como en reprocess (línea 860). **Correcto.**
-- Health check excluye `_column_mapping` y `_classification`. **Correcto.**
-- Multi-sheet Excel: concatena sheets con mismos headers. **Correcto.**
+| Módulo | Cálculo | Consistente |
+|--------|---------|-------------|
+| Dashboard KPI | `realMarketing.reduce(sum + findNumber(r, FIELD_SPEND, mM?.spend))` | ✓ |
+| Marketing.tsx | `findNumber(r, FIELD_SPEND, m?.spend)` | ✓ |
 
-### `useExtractedData.ts` — OK (excepto el singleton issue)
-- Filtro `.not('data_category', 'in', '("_raw_cache","_classification")')` excluye metadata correctamente. **Correcto.**
-- Separación de `_column_mapping` en el loop de procesamiento. **Correcto.**
-- Paginación para superar el límite de 1000 rows. **Correcto.**
+---
 
-### `Ventas.tsx` — OK
-- `aggregateByDate` ordena por fecha correctamente (sort con Date.getTime). **Correcto.**
-- `aggregateByMonth` ordena por fecha. **Correcto.**
-- Columnas dinámicas (oculta Cliente/Detalle si no hay datos). **Correcto.**
+## PROBLEMAS ENCONTRADOS
 
-### `Dashboard.tsx` — OK
-- Sales chart ordena por fecha con `sort`. **Correcto.**
-- Health radar muestra marketing condicionalmente. **Correcto.**
+### BUG 1 (MEDIO): Operaciones.tsx no usa column mappings
 
-### `Marketing.tsx` — OK
-- `normalizeMarketing` calcula ROAS correctamente. **Correcto.**
-- Fallback de nombre a fecha cuando no hay campaign_name. **Correcto.**
-- Muestra/oculta columnas dinámicamente según datos existentes. **Correcto.**
+**Archivo**: `src/pages/Operaciones.tsx`, líneas 33-34, 44-46
 
-### `data-cleaning.ts` — OK
-- `parseDate` cubre ISO, dd/mm/yyyy, meses en español, trimestres, semanas, seriales. **Correcto.**
-- `filterByPeriod` funciona con la función `findString` pasada como parámetro. **Correcto.**
+`normalizeOps` llama `findNumber(r, FIELD_AMOUNT)` y `findString(r, FIELD_DATE)` **sin pasar el mappedCol del AI**. Si la columna de montos del archivo se llama `Monto_Total_Mensual` (y el AI la mapeó como `amount`), `findNumber` la encuentra por keyword match. Pero si la columna tiene un nombre no estándar que solo el AI mapping conoce, Operaciones mostrará `$0` mientras Dashboard y Ventas muestran el valor correcto.
 
-### `field-utils.ts` — OK
-- `findNumber` prioriza mappedCol > keywords > inference. **Correcto.**
-- `parseNumericValue` maneja formatos argentinos (puntos como separadores de miles). **Correcto.**
+**Fix**: Consumir `mappings.ventas` y `mappings.gastos` del context y pasarlos a `findNumber`/`findString`.
 
-## Resumen
+### BUG 2 (MEDIO): Metricas.tsx no usa column mappings
 
-| # | Problema | Severidad | Archivo |
-|---|----------|-----------|---------|
-| 1 | Sidebar `useExtractedData` nunca refetcha → Marketing/Stock invisibles | **Alta** | `src/hooks/useExtractedData.ts`, `src/components/AppSidebar.tsx`, `src/pages/CargaDatos.tsx` |
+**Archivo**: `src/pages/Metricas.tsx`, líneas 70, 86, 114-116
 
-Solo hay 1 bug real. Todo lo demás funciona correctamente.
+Mismo problema que Operaciones. `aggregateByMonth` llama `findString(r, FIELD_DATE)` y `findNumber(r, fieldKeywords)` sin mappings. Si las columnas tienen nombres no estándar, las métricas estarán en 0 o sin fecha.
+
+**Fix**: Pasar mappings a `aggregateByMonth`.
+
+### BUG 3 (MEDIO): Forecast.tsx no usa column mappings NI parseDate centralizado
+
+**Archivo**: `src/pages/Forecast.tsx`, líneas 12-45
+
+`aggregateSalesByMonth` implementa su propia lógica de parseo de fechas (manual con `new Date()`, regex para ISO, regex para dd/mm/yyyy) en vez de usar `parseDate` de `data-cleaning.ts`. Esto significa:
+- No soporta meses en español ("Enero 2024")
+- No soporta trimestres ("Q1 2024")  
+- No soporta semanas ("Semana 12 2024")
+- No soporta seriales de Excel
+
+Además, no usa `mappings.ventas` para encontrar la columna de fecha ni la de monto.
+
+**Fix**: Reescribir `aggregateSalesByMonth` para usar `parseDate` y `findNumber`/`findString` con mappings.
+
+### BUG 4 (MEDIO): Metricas.tsx `aggregateByMonth` tiene el mismo problema de parseo
+
+**Archivo**: `src/pages/Metricas.tsx`, líneas 67-93
+
+Usa `new Date(raw)` + regex manuales en vez de `parseDate`. Mismo riesgo que Forecast: fechas en formatos soportados por `parseDate` pero no por este código manual no se parsean.
+
+**Fix**: Reemplazar por `parseDate`.
+
+### BUG 5 (BAJO): Forecast.tsx sort por fecha es frágil
+
+**Archivo**: `src/pages/Forecast.tsx`, líneas 39-42
+
+El sort usa `new Date(s.replace(...))` con un regex que intenta parsear "ene 2024" como fecha JS. Esto falla para meses en español que JS no reconoce, resultando en `NaN` → orden indeterminado.
+
+**Fix**: Almacenar el `Date` original como en Ventas.tsx.
+
+### BUG 6 (BAJO): Finanzas.tsx `normalizeExpenses` no usa mappings
+
+**Archivo**: `src/pages/Finanzas.tsx`, líneas 38-51
+
+`normalizeExpenses` llama `findString(r, ['estado', 'status'])` y `findString(r, FIELD_NAME)` sin mappings. No es grave porque los gastos suelen tener headers estándar, pero es inconsistente con el resto.
+
+### BUG 7 (BAJO): Alertas.tsx no usa mappings
+
+**Archivo**: `src/pages/Alertas.tsx`, líneas 25-28, 45-46
+
+`buildAlertsFromData` usa `findNumber(r, FIELD_STOCK_QTY)` sin mappings. Si el AI mapeó la columna de stock con un nombre no estándar, las alertas de stock no se generarán.
+
+### BUG 8 (INFORMATIVO): Configuracion.tsx toggle de Marketing activa `uses_meta_ads` pero no `uses_google_ads`
+
+**Archivo**: `src/pages/Configuracion.tsx`, líneas 36-38
+
+Al activar Marketing, solo se setea `uses_meta_ads = true`. Al desactivar, se apagan ambos (`uses_meta_ads = false, uses_google_ads = false`). Pero si el usuario solo usa Google Ads y activa el toggle, se prende `uses_meta_ads` (que no usa). No afecta funcionalidad porque la condición del sidebar es OR, pero es semánticamente incorrecto.
+
+### No hay problemas en:
+- **Dashboard.tsx** — Usa mappings correctamente para ventas, gastos y marketing. Gráfico ordena por fecha. Health radar filtra condicionalmente. **OK.**
+- **Ventas.tsx** — `aggregateByDate` y `aggregateByMonth` usan `parseDate` y mappings. Ordena por fecha. **OK.**
+- **Marketing.tsx** — Usa mappings para todos los campos. Fallback inteligente de nombre a fecha. **OK.**
+- **Stock.tsx** — Usa keywords directos (sin mappings pero Stock rara vez necesita AI mapping). **OK.**
+- **Clientes.tsx** — Usa keywords directos. **OK.**
+- **AppSidebar.tsx** — Consume context compartido. Visibilidad data-driven funciona. **OK.**
+- **field-utils.ts** — 3 niveles de búsqueda (exact → normalized → partial + inference). **OK.**
+- **data-cleaning.ts** — `parseDate` es robusto. `filterByPeriod` funciona. **OK.**
+
+---
 
 ## Plan de implementación
 
-### 1. Crear `ExtractedDataProvider` context
+### 1. Operaciones.tsx — Agregar mappings
 
-Convertir `useExtractedData` en un context provider que se monta en `AppLayout`. Todos los consumidores (`AppSidebar`, `Dashboard`, `Ventas`, `Marketing`, etc.) comparten la misma instancia y los mismos datos.
+Consumir `mappings` del context. Pasar `mV` y `mG` a `normalizeOps`. Actualizar `findNumber` y `findString` para usar los mapped columns.
 
-**Archivo**: `src/hooks/useExtractedData.ts`
-- Agregar `ExtractedDataProvider` y `useExtractedData` como context consumer
-- El provider hace el fetch una vez y expone `data`, `mappings`, `loading`, `hasData`, `refetch`
+### 2. Metricas.tsx — Usar parseDate + mappings
 
-**Archivo**: `src/components/AppLayout.tsx`
-- Envolver el layout en `<ExtractedDataProvider>`
+Reescribir `aggregateByMonth` para usar `parseDate` de `data-cleaning.ts` en vez del parseo manual. Consumir `mappings` del context y pasar `mV.amount`, `mG.amount`, `mV.date`, `mG.date` a las funciones de agregación.
 
-### 2. CargaDatos llama `refetch()` después de subir archivos
+### 3. Forecast.tsx — Usar parseDate + mappings
 
-**Archivo**: `src/pages/CargaDatos.tsx`
-- Después de `Promise.all(activePromises)` (línea 762), llamar `refetch()` del context
-- Esto actualiza automáticamente el sidebar y cualquier otro consumidor
+Reescribir `aggregateSalesByMonth` para usar `parseDate`. Consumir `mappings.ventas` y pasarlos a `findString`/`findNumber`. Almacenar `Date` para sort robusto (como hace Ventas.tsx).
 
-### Resultado esperado
-- Marketing aparece en el sidebar inmediatamente después de subir un archivo de marketing
-- Stock aparece en el sidebar inmediatamente después de subir un archivo de stock
-- No hay más instancias duplicadas del fetch — un solo fetch compartido
-- Los módulos (Dashboard, Ventas, Marketing) todos ven los mismos datos sin fetches independientes
+### 4. Finanzas.tsx — Pasar mappings a normalizeExpenses
+
+Agregar `mG` a `normalizeExpenses` para `findString` con mapped columns.
+
+### 5. Alertas.tsx — Pasar mappings a buildAlertsFromData
+
+Consumir `mappings` y pasarlos a los `findNumber`/`findString` dentro de `buildAlertsFromData`.
+
+## Archivos a modificar
+
+| Archivo | Cambio | Severidad |
+|---------|--------|-----------|
+| `src/pages/Operaciones.tsx` | Agregar mappings a normalizeOps | Media |
+| `src/pages/Metricas.tsx` | Reemplazar parseo manual por parseDate + mappings | Media |
+| `src/pages/Forecast.tsx` | Reemplazar parseo manual por parseDate + mappings + sort robusto | Media |
+| `src/pages/Finanzas.tsx` | Pasar mappings a normalizeExpenses | Baja |
+| `src/pages/Alertas.tsx` | Pasar mappings a buildAlertsFromData | Baja |
+
+## Resultado esperado
+
+- Todas las secciones usan los mismos column mappings del AI → números consistentes en toda la plataforma.
+- Todas las secciones usan `parseDate` centralizado → soporte uniforme de formatos de fecha.
+- Los totales de ventas/gastos coinciden entre Dashboard, Ventas, Finanzas, Operaciones y Métricas.
 
