@@ -966,12 +966,15 @@ serve(async (req) => {
         } else {
           const content = `[PDF con ${pdfResult.pages} páginas]\n\n${pdfResult.text}`;
           const result = await extractWithAI(content, file_name, undefined, undefined, processingMetadata);
-          await sb.from("file_extracted_data").delete().eq("file_upload_id", fileUploadId);
-          await sb.from("file_extracted_data").insert({
-            file_upload_id: fileUploadId, company_id: companyId,
-            data_category: result.category, extracted_json: result.data,
-            summary: result.summary, row_count: result.rowCount, chunk_index: 0,
-          });
+          { const { error: d } = await sb.from("file_extracted_data").delete().eq("file_upload_id", fileUploadId);
+            if (d) console.error('[process-file] DELETE error:', d.message);
+            const { error: e } = await sb.from("file_extracted_data").insert({
+              file_upload_id: fileUploadId, company_id: companyId,
+              data_category: result.category, extracted_json: result.data,
+              summary: result.summary, row_count: result.rowCount, chunk_index: 0,
+            });
+            if (e) console.error('[process-file] ❌ INSERT FAILED:', e.message);
+            else console.log('[process-file] ✅ Stored AI extraction at chunk_index=0'); }
           resultInfo = { category: result.category, summary: result.summary, totalRows: result.rowCount };
         }
       } else {
