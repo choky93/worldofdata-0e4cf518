@@ -92,31 +92,76 @@ export function cleanParsedRows(rows: Record<string, unknown>[], headers: string
 }
 
 /**
- * Try to parse a date string (ISO, dd/mm/yyyy, or various formats) into a Date.
+ * Try to parse a date string (ISO, dd/mm/yyyy, Spanish months, quarters, etc.) into a Date.
  */
+const SPANISH_MONTHS: Record<string, number> = {
+  'enero': 0, 'ene': 0, 'febrero': 1, 'feb': 1, 'marzo': 2, 'mar': 2,
+  'abril': 3, 'abr': 3, 'mayo': 4, 'may': 4, 'junio': 5, 'jun': 5,
+  'julio': 6, 'jul': 6, 'agosto': 7, 'ago': 7, 'septiembre': 8, 'sep': 8, 'sept': 8,
+  'octubre': 9, 'oct': 9, 'noviembre': 10, 'nov': 10, 'diciembre': 11, 'dic': 11,
+};
+
 export function parseDate(raw: string): Date | null {
   if (!raw || raw === '—' || raw === '-') return null;
+  const trimmed = raw.trim();
   
   // ISO format: 2023-11-01
-  const d = new Date(raw);
-  if (!isNaN(d.getTime()) && raw.includes('-')) return d;
+  const d = new Date(trimmed);
+  if (!isNaN(d.getTime()) && trimmed.includes('-')) return d;
   
-  // dd/mm/yyyy
-  const ddmmyyyy = raw.match(/^(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{4})$/);
+  // dd/mm/yyyy or dd-mm-yyyy or dd.mm.yyyy
+  const ddmmyyyy = trimmed.match(/^(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{4})$/);
   if (ddmmyyyy) {
     const dt = new Date(parseInt(ddmmyyyy[3]), parseInt(ddmmyyyy[2]) - 1, parseInt(ddmmyyyy[1]));
     if (!isNaN(dt.getTime())) return dt;
   }
   
   // yyyy-mm-dd already handled above, but try again
-  const yyyymmdd = raw.match(/^(\d{4})[/\-.](\d{1,2})[/\-.](\d{1,2})$/);
+  const yyyymmdd = trimmed.match(/^(\d{4})[/\-.](\d{1,2})[/\-.](\d{1,2})$/);
   if (yyyymmdd) {
     const dt = new Date(parseInt(yyyymmdd[1]), parseInt(yyyymmdd[2]) - 1, parseInt(yyyymmdd[3]));
     if (!isNaN(dt.getTime())) return dt;
   }
+
+  // Spanish month names: "Enero 2024", "Ene 2024", "Ene-24", "Enero-2024", "ene. 2024"
+  const lower = trimmed.toLowerCase().replace(/\./g, '').trim();
+  const monthYear = lower.match(/^([a-záéíóú]+)\s*[-/]?\s*(\d{2,4})$/);
+  if (monthYear) {
+    const monthIdx = SPANISH_MONTHS[monthYear[1]];
+    if (monthIdx !== undefined) {
+      let year = parseInt(monthYear[2]);
+      if (year < 100) year += 2000;
+      return new Date(year, monthIdx, 1);
+    }
+  }
+
+  // Quarters: "Q1 2024", "1T 2024", "1er Trim 2024", "T1 2024"
+  const quarter = lower.match(/(?:q|t|(\d)(?:er|do|to)?\s*trim(?:estre)?)\s*(\d)?\s*(\d{4})/);
+  if (quarter) {
+    const qNum = parseInt(quarter[1] || quarter[2] || '1');
+    const year = parseInt(quarter[3]);
+    if (qNum >= 1 && qNum <= 4) return new Date(year, (qNum - 1) * 3, 1);
+  }
+  // Also "1T2024" or "Q12024"
+  const quarterCompact = lower.match(/^(?:q|t)(\d)\s*(\d{4})$/);
+  if (quarterCompact) {
+    const qNum = parseInt(quarterCompact[1]);
+    const year = parseInt(quarterCompact[2]);
+    if (qNum >= 1 && qNum <= 4) return new Date(year, (qNum - 1) * 3, 1);
+  }
+
+  // "Semana 12 2024" or "Sem 12 2024"
+  const week = lower.match(/sem(?:ana)?\s*(\d{1,2})\s*(\d{4})/);
+  if (week) {
+    const weekNum = parseInt(week[1]);
+    const year = parseInt(week[2]);
+    const jan1 = new Date(year, 0, 1);
+    const dayOffset = (weekNum - 1) * 7;
+    return new Date(jan1.getTime() + dayOffset * 86400000);
+  }
   
   // Serial number as string
-  const num = parseFloat(raw);
+  const num = parseFloat(trimmed);
   if (!isNaN(num) && num > 1 && num < 200000) {
     return new Date((num - 25569) * 86400000);
   }

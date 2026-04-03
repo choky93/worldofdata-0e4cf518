@@ -201,14 +201,29 @@ async function classifyWithAI(
   headers: string[],
   sampleRows: Record<string, unknown>[],
   fileName: string,
-): Promise<{ category: string; summary: string }> {
+): Promise<{ category: string; summary: string; column_mapping: Record<string, string | null> }> {
   console.log(`[process-file] AI classification for "${fileName}" (${headers.length} cols, ${sampleRows.length} sample rows)`);
 
   const systemPrompt = `Sos un clasificador de datos de negocios PyME latinoamericanas.
 Te doy las columnas y unas filas de ejemplo de un archivo. Respondé SOLO en JSON:
-{"category":"ventas"|"gastos"|"stock"|"facturas"|"marketing"|"clientes"|"rrhh"|"otro","summary":"Resumen breve 1-2 oraciones describiendo el contenido"}
-Reglas:
-- Detectá tipo de datos por los nombres de columnas y contenido de las filas
+{"category":"ventas"|"gastos"|"stock"|"facturas"|"marketing"|"clientes"|"rrhh"|"otro","summary":"Resumen breve 1-2 oraciones","column_mapping":{...}}
+
+El campo "column_mapping" debe mapear claves semánticas al NOMBRE EXACTO de la columna original del archivo.
+Si no hay columna que corresponda, poné null.
+
+Según la categoría, usá estas claves semánticas:
+- ventas: {"amount":"<col>","date":"<col>","name":"<col>","client":"<col>","category":"<col>"}
+- gastos: {"amount":"<col>","date":"<col>","name":"<col>","category":"<col>","status":"<col>"}
+- marketing: {"spend":"<col>","date":"<col>","campaign_name":"<col>","clicks":"<col>","impressions":"<col>","conversions":"<col>","reach":"<col>","roas":"<col>","ctr":"<col>","revenue":"<col>"}
+- stock: {"name":"<col>","quantity":"<col>","price":"<col>","cost":"<col>","min_stock":"<col>"}
+- clientes: {"name":"<col>","total_purchases":"<col>","debt":"<col>","last_purchase":"<col>","purchase_count":"<col>"}
+- facturas: {"amount":"<col>","date":"<col>","name":"<col>","client":"<col>","number":"<col>"}
+- rrhh: {"name":"<col>","salary":"<col>","date":"<col>","position":"<col>"}
+- otro: {"amount":"<col>","date":"<col>","name":"<col>"}
+
+IMPORTANTE: El valor de cada clave debe ser el nombre EXACTO de la columna como aparece en los headers, o null.
+
+Reglas de clasificación:
 - Si ves columnas como ganancia, monto, precio, venta, facturación → "ventas"
 - Si ves gasto, costo, proveedor, egreso → "gastos"
 - Si ves stock, cantidad, inventario, existencia → "stock"
@@ -236,7 +251,7 @@ ${JSON.stringify(sampleRows.slice(0, 10), null, 2)}`;
       ],
       response_format: { type: "json_object" },
       temperature: 0.1,
-      max_tokens: 256,
+      max_tokens: 512,
     }),
   });
 
@@ -252,9 +267,10 @@ ${JSON.stringify(sampleRows.slice(0, 10), null, 2)}`;
     return {
       category: parsed.category || "otro",
       summary: parsed.summary || "Sin resumen",
+      column_mapping: parsed.column_mapping || {},
     };
   } catch {
-    return { category: "otro", summary: "No se pudo clasificar" };
+    return { category: "otro", summary: "No se pudo clasificar", column_mapping: {} };
   }
 }
 
@@ -380,8 +396,8 @@ async function processTabularData(
 
   // Step 1: AI classifies using headers + sample (one cheap call)
   const sampleRows = allRows.slice(0, 10);
-  const { category, summary } = await classifyWithAI(headers, sampleRows, fileName);
-  console.log(`[process-file] Classification: category=${category}`);
+  const { category, summary, column_mapping } = await classifyWithAI(headers, sampleRows, fileName);
+  console.log(`[process-file] Classification: category=${category}, mapping keys=${Object.keys(column_mapping).join(',')}`);
 
   // Step 2: Store all rows in batches deterministically (no AI)
   const totalBatches = Math.ceil(allRows.length / BATCH_SIZE);
@@ -389,6 +405,16 @@ async function processTabularData(
 
   // Clean up any previous extracted data (including _raw_cache)
   await sb.from("file_extracted_data").delete().eq("file_upload_id", fileUploadId);
+
+  // Store column_mapping as _classification chunk (persists after processing)
+  await sb.from("file_extracted_data").insert({
+    file_upload_id: fileUploadId,
+    company_id: companyId,
+    data_category: "_column_mapping",
+    extracted_json: { category, column_mapping },
+    chunk_index: 0,
+    row_count: 0,
+  });
 
   for (let i = 0; i < totalBatches; i++) {
     const batchRows = allRows.slice(i * BATCH_SIZE, (i + 1) * BATCH_SIZE);
@@ -507,9 +533,9 @@ serve(async (req) => {
 
       if (batchIndex === 0) {
         // First batch: classify with AI
-        const { category, summary } = await classifyWithAI(headers, cleanedBatch.slice(0, 10), file_name);
+        const { category, summary, column_mapping } = await classifyWithAI(headers, cleanedBatch.slice(0, 10), file_name);
 
-        // Store classification metadata for subsequent batches
+        // Store classification metadata for subsequent batches (including column_mapping)
         await sb.from("file_extracted_data").delete()
           .eq("file_upload_id", fileUploadId)
           .eq("data_category", "_classification");
@@ -517,7 +543,20 @@ serve(async (req) => {
           file_upload_id: fileUploadId,
           company_id: companyId,
           data_category: "_classification",
-          extracted_json: { category, summary },
+          extracted_json: { category, summary, column_mapping },
+          chunk_index: 0,
+          row_count: 0,
+        });
+
+        // Also store persistent column_mapping chunk
+        await sb.from("file_extracted_data").delete()
+          .eq("file_upload_id", fileUploadId)
+          .eq("data_category", "_column_mapping");
+        await sb.from("file_extracted_data").insert({
+          file_upload_id: fileUploadId,
+          company_id: companyId,
+          data_category: "_column_mapping",
+          extracted_json: { category, column_mapping },
           chunk_index: 0,
           row_count: 0,
         });

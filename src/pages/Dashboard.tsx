@@ -104,7 +104,10 @@ function DataSourceBanner({ hasData, loading }: { hasData: boolean; loading: boo
 export default function Dashboard() {
   const { profile, companySettings, companyName } = useAuth();
   const navigate = useNavigate();
-  const { data: extractedData, loading: dataLoading, hasData } = useExtractedData();
+  const { data: extractedData, mappings, loading: dataLoading, hasData } = useExtractedData();
+  const mV = mappings.ventas;
+  const mG = mappings.gastos;
+  const mM = mappings.marketing;
   const [period, setPeriod] = useState<PeriodKey>('all');
   const name = profile?.full_name || 'Usuario';
   const company = companyName || 'tu empresa';
@@ -114,23 +117,23 @@ export default function Dashboard() {
   const allVentas = extractedData?.ventas || [];
   const allGastos = extractedData?.gastos || [];
   const allMarketing = extractedData?.marketing || [];
-  const realVentas = period === 'all' ? allVentas : filterByPeriod(allVentas, FIELD_DATE, period, findString);
+  const realVentas = period === 'all' ? allVentas : filterByPeriod(allVentas, FIELD_DATE, period, (row, kw) => findString(row, kw, mV?.date));
   const realStock = extractedData?.stock || [];
-  const realGastos = period === 'all' ? allGastos : filterByPeriod(allGastos, FIELD_DATE, period, findString);
+  const realGastos = period === 'all' ? allGastos : filterByPeriod(allGastos, FIELD_DATE, period, (row, kw) => findString(row, kw, mG?.date));
   const realClientes = extractedData?.clientes || [];
-  const realMarketing = period === 'all' ? allMarketing : filterByPeriod(allMarketing, FIELD_DATE, period, findString);
+  const realMarketing = period === 'all' ? allMarketing : filterByPeriod(allMarketing, FIELD_DATE, period, (row, kw) => findString(row, kw, mM?.date));
   const realOtro = extractedData?.otro || [];
 
   const salesTotal = hasData && realVentas.length > 0
-    ? realVentas.reduce((sum: number, r: any) => sum + findNumber(r, FIELD_AMOUNT), 0)
+    ? realVentas.reduce((sum: number, r: any) => sum + findNumber(r, FIELD_AMOUNT, mV?.amount), 0)
     : null;
 
   const gastosTotal = hasData && realGastos.length > 0
-    ? realGastos.reduce((sum: number, r: any) => sum + findNumber(r, FIELD_AMOUNT), 0)
+    ? realGastos.reduce((sum: number, r: any) => sum + findNumber(r, FIELD_AMOUNT, mG?.amount), 0)
     : null;
 
   const marketingSpend = hasData && realMarketing.length > 0
-    ? realMarketing.reduce((sum: number, r: any) => sum + findNumber(r, FIELD_SPEND), 0)
+    ? realMarketing.reduce((sum: number, r: any) => sum + findNumber(r, FIELD_SPEND, mM?.spend), 0)
     : null;
 
   const healthDimensions = [
@@ -171,14 +174,14 @@ export default function Dashboard() {
     if (!hasData || realVentas.length === 0) return [];
     const map = new Map<string, number>();
     for (const r of realVentas) {
-      const raw = findString(r, FIELD_DATE);
+      const raw = findString(r, FIELD_DATE, mV?.date);
       if (!raw) continue;
       let key = raw;
       const d = new Date(raw);
       if (!isNaN(d.getTime())) {
         key = d.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit' });
       }
-      const amt = findNumber(r, FIELD_AMOUNT);
+      const amt = findNumber(r, FIELD_AMOUNT, mV?.amount);
       map.set(key, (map.get(key) || 0) + amt);
     }
     return Array.from(map.entries())

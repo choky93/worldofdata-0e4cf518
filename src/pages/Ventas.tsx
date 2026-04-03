@@ -12,10 +12,10 @@ import { TrendingUp, Database, Upload, Loader2, ShoppingCart } from 'lucide-reac
 import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 
-function aggregateByDate(ventas: any[]): { day: string; value: number }[] {
+function aggregateByDate(ventas: any[], m?: any): { day: string; value: number }[] {
   const map = new Map<string, number>();
   for (const r of ventas) {
-    const raw = findString(r, FIELD_DATE);
+    const raw = findString(r, FIELD_DATE, m?.date);
     if (!raw) continue;
     let key = raw;
     const d = new Date(raw);
@@ -24,16 +24,16 @@ function aggregateByDate(ventas: any[]): { day: string; value: number }[] {
     } else if (/^\d{2}\/\d{2}\/\d{4}/.test(raw)) {
       key = raw.substring(0, 5);
     }
-    const amt = findNumber(r, FIELD_AMOUNT);
+    const amt = findNumber(r, FIELD_AMOUNT, m?.amount);
     map.set(key, (map.get(key) || 0) + amt);
   }
   return Array.from(map.entries()).slice(-30).map(([day, value]) => ({ day, value }));
 }
 
-function aggregateByMonth(ventas: any[]): { month: string; value: number }[] {
+function aggregateByMonth(ventas: any[], m?: any): { month: string; value: number }[] {
   const map = new Map<string, number>();
   for (const r of ventas) {
-    const raw = findString(r, FIELD_DATE);
+    const raw = findString(r, FIELD_DATE, m?.date);
     if (!raw) continue;
     let key = '';
     const d = new Date(raw);
@@ -49,7 +49,7 @@ function aggregateByMonth(ventas: any[]): { month: string; value: number }[] {
       if (!isNaN(dt.getTime())) key = dt.toLocaleDateString('es-AR', { month: 'short', year: 'numeric' });
     }
     if (!key) continue;
-    const amt = findNumber(r, FIELD_AMOUNT);
+    const amt = findNumber(r, FIELD_AMOUNT, m?.amount);
     map.set(key, (map.get(key) || 0) + amt);
   }
   const parseKey = (s: string) => new Date(s.replace(/(\w+) (\d{4})/, '$1 1, $2')).getTime();
@@ -59,10 +59,11 @@ function aggregateByMonth(ventas: any[]): { month: string; value: number }[] {
 }
 
 export default function Ventas() {
-  const { data: extractedData, hasData, loading } = useExtractedData();
+  const { data: extractedData, mappings, hasData, loading } = useExtractedData();
+  const m = mappings.ventas;
   const [period, setPeriod] = useState<PeriodKey>('all');
   const allVentas = extractedData?.ventas || [];
-  const realVentas = period === 'all' ? allVentas : filterByPeriod(allVentas, FIELD_DATE, period, findString);
+  const realVentas = period === 'all' ? allVentas : filterByPeriod(allVentas, FIELD_DATE, period, (row, kw) => findString(row, kw, m?.date));
 
   if (loading) {
     return (
@@ -107,17 +108,17 @@ export default function Ventas() {
     );
   }
 
-  const salesTotal = realVentas.reduce((sum: number, r: any) => sum + findNumber(r, FIELD_AMOUNT), 0);
+  const salesTotal = realVentas.reduce((sum: number, r: any) => sum + findNumber(r, FIELD_AMOUNT, m?.amount), 0);
 
   const salesHistory = realVentas.slice(0, 50).map((r: any, i: number) => ({
-    date: findString(r, FIELD_DATE) || '—',
-    client: findString(r, FIELD_CLIENT) || '—',
-    product: findString(r, FIELD_NAME) || '—',
-    amount: findNumber(r, FIELD_AMOUNT),
+    date: findString(r, FIELD_DATE, m?.date) || '—',
+    client: findString(r, FIELD_CLIENT, m?.client) || '—',
+    product: findString(r, FIELD_NAME, m?.name) || '—',
+    amount: findNumber(r, FIELD_AMOUNT, m?.amount),
   }));
 
-  const dailyChart = aggregateByDate(realVentas);
-  const monthlyChart = aggregateByMonth(realVentas);
+  const dailyChart = aggregateByDate(realVentas, m);
+  const monthlyChart = aggregateByMonth(realVentas, m);
   const estimated = Math.round(salesTotal * 1.2);
 
   return (

@@ -56,30 +56,40 @@ export function findField(row: Record<string, unknown>, keywords: string[]): unk
 
 /**
  * Find a numeric value from a row using keyword matching.
+ * If mappedCol is provided, it takes priority over keywords.
  */
-export function findNumber(row: Record<string, unknown>, keywords: string[]): number {
+export function findNumber(row: Record<string, unknown>, keywords: string[], mappedCol?: string | null): number {
+  // Priority 1: use AI-mapped column name directly
+  if (mappedCol && row[mappedCol] !== undefined && row[mappedCol] !== null && row[mappedCol] !== '') {
+    const v = row[mappedCol];
+    if (typeof v === 'number') return isNaN(v) ? 0 : v;
+    return parseNumericValue(String(v));
+  }
   const val = findField(row, keywords);
   if (val === null || val === undefined) return 0;
   if (typeof val === 'number') return isNaN(val) ? 0 : val;
-  // Use parseLocalNumber-style parsing inline
-  const s = String(val).trim().replace(/^[$\s]+/, '').replace(/\s+/g, '');
-  if (!s || s === '—' || s === '-') return 0;
-  const lastDot = s.lastIndexOf('.');
-  const lastComma = s.lastIndexOf(',');
+  return parseNumericValue(String(val));
+}
+
+function parseNumericValue(s: string): number {
+  const cleaned0 = s.trim().replace(/^[$\s]+/, '').replace(/\s+/g, '');
+  if (!cleaned0 || cleaned0 === '—' || cleaned0 === '-') return 0;
+  const lastDot = cleaned0.lastIndexOf('.');
+  const lastComma = cleaned0.lastIndexOf(',');
   let cleaned: string;
   if (lastComma > lastDot) {
-    cleaned = s.replace(/\./g, '').replace(',', '.');
+    cleaned = cleaned0.replace(/\./g, '').replace(',', '.');
   } else if (lastDot > lastComma && lastComma !== -1) {
-    cleaned = s.replace(/,/g, '');
+    cleaned = cleaned0.replace(/,/g, '');
   } else if (lastComma !== -1 && lastDot === -1) {
-    const parts = s.split(',');
+    const parts = cleaned0.split(',');
     if (parts.length === 2 && parts[1].length <= 2) {
-      cleaned = s.replace(',', '.');
+      cleaned = cleaned0.replace(',', '.');
     } else {
-      cleaned = s.replace(/,/g, '');
+      cleaned = cleaned0.replace(/,/g, '');
     }
   } else {
-    cleaned = s;
+    cleaned = cleaned0;
   }
   const result = parseFloat(cleaned);
   return isNaN(result) ? 0 : result;
@@ -87,11 +97,20 @@ export function findNumber(row: Record<string, unknown>, keywords: string[]): nu
 
 /**
  * Find a string value from a row using keyword matching.
+ * If mappedCol is provided, it takes priority over keywords.
  */
-export function findString(row: Record<string, unknown>, keywords: string[]): string {
+export function findString(row: Record<string, unknown>, keywords: string[], mappedCol?: string | null): string {
+  if (mappedCol && row[mappedCol] !== undefined && row[mappedCol] !== null) {
+    return String(row[mappedCol]).trim();
+  }
   const val = findField(row, keywords);
   if (val === null || val === undefined) return '';
   return String(val).trim();
+}
+
+// ─── Column Mapping types ─────────────────────────────────────
+export interface ColumnMapping {
+  [semanticKey: string]: string | null;
 }
 
 // ─── Pre-built keyword sets for common business data ─────────

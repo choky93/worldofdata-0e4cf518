@@ -24,33 +24,34 @@ interface CampaignRow {
   impressions: number;
 }
 
-function normalizeMarketing(rows: any[]): CampaignRow[] {
+function normalizeMarketing(rows: any[], m?: any): CampaignRow[] {
   return rows.map((r: any) => {
-    const spend = findNumber(r, FIELD_SPEND);
-    const revenue = findNumber(r, FIELD_REVENUE);
-    const roas = spend > 0 ? (revenue > 0 ? revenue / spend : findNumber(r, FIELD_ROAS)) : findNumber(r, FIELD_ROAS);
+    const spend = findNumber(r, FIELD_SPEND, m?.spend);
+    const revenue = findNumber(r, FIELD_REVENUE, m?.revenue);
+    const roas = spend > 0 ? (revenue > 0 ? revenue / spend : findNumber(r, FIELD_ROAS, m?.roas)) : findNumber(r, FIELD_ROAS, m?.roas);
     return {
-      name: findString(r, FIELD_CAMPAIGN_NAME) || 'Campaña',
+      name: findString(r, FIELD_CAMPAIGN_NAME, m?.campaign_name) || 'Campaña',
       spend,
       revenue,
       roas: parseFloat(roas.toFixed(2)),
-      clicks: Math.round(findNumber(r, FIELD_CLICKS)),
-      ctr: findNumber(r, FIELD_CTR),
-      conversions: Math.round(findNumber(r, FIELD_CONVERSIONS)),
-      reach: Math.round(findNumber(r, FIELD_REACH)),
-      impressions: Math.round(findNumber(r, FIELD_IMPRESSIONS)),
+      clicks: Math.round(findNumber(r, FIELD_CLICKS, m?.clicks)),
+      ctr: findNumber(r, FIELD_CTR, m?.ctr),
+      conversions: Math.round(findNumber(r, FIELD_CONVERSIONS, m?.conversions)),
+      reach: Math.round(findNumber(r, FIELD_REACH, m?.reach)),
+      impressions: Math.round(findNumber(r, FIELD_IMPRESSIONS, m?.impressions)),
     };
   });
 }
 
 export default function Marketing() {
-  const { data: extractedData, hasData, loading } = useExtractedData();
+  const { data: extractedData, mappings, hasData, loading } = useExtractedData();
+  const m = mappings.marketing;
   const [period, setPeriod] = useState<PeriodKey>('all');
   const allMarketing = extractedData?.marketing || [];
   // Filter summary rows (empty campaign name) and period
-  const filteredMarketing = (period === 'all' ? allMarketing : filterByPeriod(allMarketing, FIELD_DATE, period, findString))
+  const filteredMarketing = (period === 'all' ? allMarketing : filterByPeriod(allMarketing, FIELD_DATE, period, (row, kw) => findString(row, kw, m?.date)))
     .filter((r: any) => {
-      const name = findString(r, FIELD_CAMPAIGN_NAME);
+      const name = findString(r, FIELD_CAMPAIGN_NAME, m?.campaign_name);
       return name && name.trim() !== '';
     });
   const useReal = hasData && allMarketing.length > 0;
@@ -92,7 +93,7 @@ export default function Marketing() {
     );
   }
 
-  const campaigns = normalizeMarketing(filteredMarketing);
+  const campaigns = normalizeMarketing(filteredMarketing, m);
   const totalSpend = campaigns.reduce((s, c) => s + c.spend, 0);
   const totalRevenue = campaigns.reduce((s, c) => s + c.revenue, 0);
   const globalRoas = totalSpend > 0 ? totalRevenue / totalSpend : 0;
