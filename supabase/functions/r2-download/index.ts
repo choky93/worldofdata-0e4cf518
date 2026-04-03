@@ -79,8 +79,11 @@ serve(async (req) => {
     const r2Resp = await aws.fetch(r2Url, { method: "GET" });
 
     if (!r2Resp.ok) {
-      return new Response(JSON.stringify({ error: `R2 download failed [${r2Resp.status}]` }), {
-        status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      const errMsg = r2Resp.status === 404 || r2Resp.status === 403
+        ? "Archivo no encontrado en storage. Volvé a subir el archivo desde la interfaz."
+        : `Error descargando archivo [${r2Resp.status}]`;
+      return new Response(JSON.stringify({ error: errMsg }), {
+        status: r2Resp.status === 404 ? 404 : 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 

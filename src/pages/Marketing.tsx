@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { formatCurrency, formatPercent, formatNumber } from '@/lib/formatters';
 import { useExtractedData } from '@/hooks/useExtractedData';
 import { findNumber, findString, FIELD_CAMPAIGN_NAME, FIELD_SPEND, FIELD_REVENUE, FIELD_ROAS, FIELD_CLICKS, FIELD_CTR, FIELD_CONVERSIONS, FIELD_REACH, FIELD_IMPRESSIONS, FIELD_DATE } from '@/lib/field-utils';
-import { filterByPeriod, type PeriodKey } from '@/lib/data-cleaning';
+import { filterByPeriod, parseDate, type PeriodKey } from '@/lib/data-cleaning';
 import { PeriodFilter } from '@/components/PeriodFilter';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { TrendingUp, Upload, Database, Loader2, Megaphone } from 'lucide-react';
@@ -22,6 +22,7 @@ interface CampaignRow {
   conversions: number;
   reach: number;
   impressions: number;
+  date: string;
 }
 
 function normalizeMarketing(rows: any[], m?: any): CampaignRow[] {
@@ -29,8 +30,10 @@ function normalizeMarketing(rows: any[], m?: any): CampaignRow[] {
     const spend = findNumber(r, FIELD_SPEND, m?.spend);
     const revenue = findNumber(r, FIELD_REVENUE, m?.revenue);
     const roas = spend > 0 ? (revenue > 0 ? revenue / spend : findNumber(r, FIELD_ROAS, m?.roas)) : findNumber(r, FIELD_ROAS, m?.roas);
+    const rawDate = findString(r, FIELD_DATE, m?.date);
+    const d = parseDate(rawDate);
     return {
-      name: findString(r, FIELD_CAMPAIGN_NAME, m?.campaign_name) || 'Campaña',
+      name: findString(r, FIELD_CAMPAIGN_NAME, m?.campaign_name) || (d ? d.toLocaleDateString('es-AR', { day: '2-digit', month: 'short', year: 'numeric' }) : 'Sin nombre'),
       spend,
       revenue,
       roas: parseFloat(roas.toFixed(2)),
@@ -39,6 +42,7 @@ function normalizeMarketing(rows: any[], m?: any): CampaignRow[] {
       conversions: Math.round(findNumber(r, FIELD_CONVERSIONS, m?.conversions)),
       reach: Math.round(findNumber(r, FIELD_REACH, m?.reach)),
       impressions: Math.round(findNumber(r, FIELD_IMPRESSIONS, m?.impressions)),
+      date: rawDate,
     };
   });
 }
@@ -48,12 +52,7 @@ export default function Marketing() {
   const m = mappings.marketing;
   const [period, setPeriod] = useState<PeriodKey>('all');
   const allMarketing = extractedData?.marketing || [];
-  // Filter summary rows (empty campaign name) and period
-  const filteredMarketing = (period === 'all' ? allMarketing : filterByPeriod(allMarketing, FIELD_DATE, period, (row, kw) => findString(row, kw, m?.date)))
-    .filter((r: any) => {
-      const name = findString(r, FIELD_CAMPAIGN_NAME, m?.campaign_name);
-      return name && name.trim() !== '';
-    });
+  const filteredMarketing = period === 'all' ? allMarketing : filterByPeriod(allMarketing, FIELD_DATE, period, (row, kw) => findString(row, kw, m?.date));
   const useReal = hasData && allMarketing.length > 0;
 
   if (loading) {
@@ -102,6 +101,13 @@ export default function Marketing() {
   const totalReach = campaigns.reduce((s, c) => s + c.reach, 0);
   const totalImpressions = campaigns.reduce((s, c) => s + c.impressions, 0);
 
+  // Check if we have campaign names or just date-based rows
+  const hasCampaignNames = campaigns.some(c => {
+    const n = c.name;
+    // Check if name looks like a date (our fallback) vs a real campaign name
+    return n && n !== 'Sin nombre' && !parseDate(n);
+  });
+
   const chartData = campaigns.map(c => ({
     name: c.name.length > 14 ? c.name.slice(0, 14) + '…' : c.name,
     gasto: c.spend,
@@ -117,7 +123,7 @@ export default function Marketing() {
             <PeriodFilter value={period} onChange={setPeriod} />
             <div className="flex items-center gap-1.5 text-xs text-success bg-success/10 rounded-lg px-3 py-1.5 border border-success/20">
               <Database className="h-3.5 w-3.5" />
-              Datos reales ({campaigns.length} campañas)
+              Datos reales ({campaigns.length} {hasCampaignNames ? 'campañas' : 'registros'})
             </div>
           </div>
         </div>
@@ -175,11 +181,13 @@ export default function Marketing() {
         )}
 
         <Card>
-          <CardHeader><CardTitle className="text-sm text-muted-foreground">Desglose por campaña</CardTitle></CardHeader>
+          <CardHeader><CardTitle className="text-sm text-muted-foreground">
+            {hasCampaignNames ? 'Desglose por campaña' : 'Registros de inversión'}
+          </CardTitle></CardHeader>
           <CardContent className="overflow-x-auto">
             <Table>
               <TableHeader><TableRow>
-                <TableHead>Campaña</TableHead>
+                <TableHead>{hasCampaignNames ? 'Campaña' : 'Período'}</TableHead>
                 <TableHead className="text-right">Gasto</TableHead>
                 {totalRevenue > 0 && <TableHead className="text-right">Ingresos</TableHead>}
                 {globalRoas > 0 && <TableHead className="text-right">ROAS</TableHead>}

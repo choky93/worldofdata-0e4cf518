@@ -113,7 +113,9 @@ export default function Dashboard() {
   const name = profile?.full_name || 'Usuario';
   const company = companyName || 'tu empresa';
   const showStock = !companySettings || companySettings.has_stock || companySettings.sells_products;
-  const showAds = !companySettings || companySettings.uses_meta_ads || companySettings.uses_google_ads;
+  // Show marketing if configured OR if marketing data actually exists
+  const hasMarketingData = (extractedData?.marketing || []).length > 0;
+  const showAds = !companySettings || companySettings.uses_meta_ads || companySettings.uses_google_ads || hasMarketingData;
 
   const allVentas = extractedData?.ventas || [];
   const allGastos = extractedData?.gastos || [];
@@ -170,25 +172,28 @@ export default function Dashboard() {
     return true;
   });
 
-  // Build sales chart from real data if available
+  // Build sales chart from real data if available — sorted by date
   const salesChartData = (() => {
     if (!hasData || realVentas.length === 0) return [];
-    const map = new Map<string, number>();
+    const map = new Map<string, { value: number; date: Date }>();
     for (const r of realVentas) {
       const raw = findString(r, FIELD_DATE, mV?.date);
       if (!raw) continue;
-      let key = raw;
-      // Try parseDate for robust handling (serial strings, Spanish months, etc.)
       const d = parseDate(raw);
-      if (d) {
-        key = d.toLocaleDateString('es-AR', { month: 'short', year: 'numeric' });
-      }
+      if (!d) continue;
+      const key = d.toLocaleDateString('es-AR', { month: 'short', year: 'numeric' });
       const amt = findNumber(r, FIELD_AMOUNT, mV?.amount);
-      map.set(key, (map.get(key) || 0) + amt);
+      const existing = map.get(key);
+      if (existing) {
+        existing.value += amt;
+      } else {
+        map.set(key, { value: amt, date: d });
+      }
     }
     return Array.from(map.entries())
+      .sort(([, a], [, b]) => a.date.getTime() - b.date.getTime())
       .slice(-30)
-      .map(([day, value]) => ({ day, value }));
+      .map(([day, { value }]) => ({ day, value }));
   })();
 
   return (
@@ -253,12 +258,12 @@ export default function Dashboard() {
                 <CardContent className="p-4">
                   <div className="flex items-center gap-1.5 text-muted-foreground mb-2">
                     <ShoppingCart className="h-3.5 w-3.5" />
-                    <span className="text-xs font-medium">Ventas cargadas</span>
+                    <span className="text-xs font-medium">Ventas</span>
                   </div>
                   {salesTotal !== null ? (
                     <>
                       <p className="kpi-value">{formatCurrency(salesTotal)}</p>
-                      <p className="text-[11px] text-muted-foreground mt-1">{realVentas.length} {realVentas.length === 1 ? 'registro' : 'registros'}</p>
+                      <p className="text-[11px] text-muted-foreground mt-1">{realVentas.length} {realVentas.length === 1 ? 'período' : 'períodos'}</p>
                     </>
                   ) : (
                     <p className="text-sm text-muted-foreground">Sin datos</p>
@@ -335,7 +340,7 @@ export default function Dashboard() {
           <Stagger index={5}>
             <Card>
               <CardHeader className="pb-1">
-                <CardTitle className="text-sm font-semibold text-muted-foreground">Ventas por fecha</CardTitle>
+                <CardTitle className="text-sm font-semibold text-muted-foreground">Ventas por mes</CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="h-56">

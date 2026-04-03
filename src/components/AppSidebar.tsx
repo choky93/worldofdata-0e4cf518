@@ -5,6 +5,7 @@ import {
 import { NavLink } from '@/components/NavLink';
 import { useAuth } from '@/contexts/AuthContext';
 import { APP_NAME } from '@/lib/constants';
+import { useExtractedData } from '@/hooks/useExtractedData';
 import {
   Sidebar, SidebarContent, SidebarGroup, SidebarGroupContent,
   SidebarMenu, SidebarMenuButton, SidebarMenuItem, SidebarHeader, SidebarFooter,
@@ -36,15 +37,20 @@ const employeeItems = [
 export function AppSidebar() {
   const { role, companySettings, signOut } = useAuth();
   const { state, isMobile, setOpenMobile } = useSidebar();
+  const { data: extractedData } = useExtractedData();
   const collapsed = !isMobile && state === 'collapsed';
 
   const items = role === 'employee' ? employeeItems : adminItems;
 
+  // Show sections if settings say so OR if actual data exists for that category
+  const hasMarketingData = (extractedData?.marketing || []).length > 0;
+  const hasStockData = (extractedData?.stock || []).length > 0;
+
   const visibleItems = items.filter((item) => {
     if (!('conditional' in item) || !item.conditional) return true;
     if (!companySettings) return true;
-    if (item.conditional === 'has_stock') return companySettings.has_stock || companySettings.sells_products;
-    if (item.conditional === 'has_ads') return companySettings.uses_meta_ads || companySettings.uses_google_ads;
+    if (item.conditional === 'has_stock') return companySettings.has_stock || companySettings.sells_products || hasStockData;
+    if (item.conditional === 'has_ads') return companySettings.uses_meta_ads || companySettings.uses_google_ads || hasMarketingData;
     return true;
   });
 

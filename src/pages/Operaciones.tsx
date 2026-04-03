@@ -2,8 +2,9 @@ import { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { formatCurrency, formatDate } from '@/lib/formatters';
+import { formatCurrency } from '@/lib/formatters';
 import { findNumber, findString, FIELD_AMOUNT, FIELD_NAME, FIELD_DATE, FIELD_CLIENT, FIELD_CATEGORY } from '@/lib/field-utils';
+import { parseDate } from '@/lib/data-cleaning';
 import { useExtractedData } from '@/hooks/useExtractedData';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { FileBox, Upload, Loader2, Database } from 'lucide-react';
@@ -48,13 +49,22 @@ function normalizeOps(ventas: any[], gastos: any[]): OpRow[] {
     });
   });
 
-  // Sort by date descending
+  // Sort by date descending using robust parser
   return ops.sort((a, b) => {
-    if (!a.date && !b.date) return 0;
-    if (!a.date) return 1;
-    if (!b.date) return -1;
-    return new Date(b.date).getTime() - new Date(a.date).getTime();
+    const da = a.date ? parseDate(a.date) : null;
+    const db = b.date ? parseDate(b.date) : null;
+    if (!da && !db) return 0;
+    if (!da) return 1;
+    if (!db) return -1;
+    return db.getTime() - da.getTime();
   });
+}
+
+function fmtDate(raw: string): string {
+  if (!raw || raw === '—') return '—';
+  const d = parseDate(raw);
+  if (d) return d.toLocaleDateString('es-AR', { day: '2-digit', month: 'short', year: 'numeric' });
+  return raw;
 }
 
 export default function Operaciones() {
@@ -162,9 +172,7 @@ export default function Operaciones() {
             <TableBody>
               {filtered.map(op => (
                 <TableRow key={op.id}>
-                  <TableCell className="tabular-nums">
-                    {op.date ? (() => { try { return formatDate(op.date); } catch { return op.date; } })() : '—'}
-                  </TableCell>
+                  <TableCell className="tabular-nums">{fmtDate(op.date)}</TableCell>
                   <TableCell>
                     <Badge variant={op.type === 'sale' ? 'default' : 'outline'}>
                       {op.type === 'sale' ? 'Venta' : 'Compra/Gasto'}
