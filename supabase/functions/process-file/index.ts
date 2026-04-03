@@ -622,7 +622,27 @@ serve(async (req) => {
 
       if (batchIndex === 0) {
         // First batch: classify with AI
-        const { category, summary, column_mapping } = await classifyWithAI(headers, cleanedBatch.slice(0, 10), file_name);
+        let { category, summary, column_mapping } = await classifyWithAI(headers, cleanedBatch.slice(0, 10), file_name);
+
+        // ─── Quarantine check: verify mapping quality ─────────
+        if (!isMappingAcceptable(column_mapping, category)) {
+          console.log(`[process-file] ⚠️ Mapping insufficient for "${file_name}". Triggering re-analysis...`);
+          const reMapping = await reAnalyzeMapping(headers, cleanedBatch.slice(0, 20), file_name, category);
+          if (isMappingAcceptable(reMapping, category)) {
+            console.log(`[process-file] ✅ Re-analysis succeeded for "${file_name}"`);
+            column_mapping = reMapping;
+          } else {
+            console.log(`[process-file] ⚠️ Re-analysis also failed for "${file_name}". Marking for review.`);
+            // Merge whatever the re-analysis found
+            for (const [k, v] of Object.entries(reMapping)) {
+              if (v && !column_mapping[k]) column_mapping[k] = v;
+            }
+            // Mark file for review (but still save data)
+            await sb.from("file_uploads").update({
+              processing_error: "Requiere revisión: no se detectaron campos clave (monto/fecha). Los datos se guardaron pero pueden necesitar ajuste manual.",
+            }).eq("id", fileUploadId);
+          }
+        }
 
         // Store classification metadata for subsequent batches (including column_mapping)
         await sb.from("file_extracted_data").delete()
