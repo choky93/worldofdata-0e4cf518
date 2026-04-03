@@ -507,7 +507,7 @@ serve(async (req) => {
 
       if (batchIndex === 0) {
         // First batch: classify with AI
-        const { category, summary } = await classifyWithAI(headers, rowBatch.slice(0, 10), file_name);
+        const { category, summary } = await classifyWithAI(headers, cleanedBatch.slice(0, 10), file_name);
 
         // Store classification metadata for subsequent batches
         await sb.from("file_extracted_data").delete()
