@@ -46,9 +46,9 @@ function buildAlertsFromData(data: ReturnType<typeof useExtractedData>['data'], 
 
   // Clientes: cobros pendientes
   const clientRows = data.clientes || [];
-  const withDebt = clientRows.filter((r: any) => findNumber(r, FIELD_DEBT) > 0);
+  const withDebt = clientRows.filter((r: any) => findNumber(r, FIELD_DEBT, mC?.debt) > 0);
   if (withDebt.length > 0) {
-    const totalDeuda = withDebt.reduce((s: number, r: any) => s + findNumber(r, FIELD_DEBT), 0);
+    const totalDeuda = withDebt.reduce((s: number, r: any) => s + findNumber(r, FIELD_DEBT, mC?.debt), 0);
     alerts.push({
       id: 'clientes-debt',
       type: 'clientes',
