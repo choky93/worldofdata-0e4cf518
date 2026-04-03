@@ -92,7 +92,7 @@ export default function Marketing() {
     );
   }
 
-  const campaigns = normalizeMarketing(realMarketing);
+  const campaigns = normalizeMarketing(filteredMarketing);
   const totalSpend = campaigns.reduce((s, c) => s + c.spend, 0);
   const totalRevenue = campaigns.reduce((s, c) => s + c.revenue, 0);
   const globalRoas = totalSpend > 0 ? totalRevenue / totalSpend : 0;
@@ -112,9 +112,12 @@ export default function Marketing() {
       <div className="space-y-6 max-w-7xl">
         <div className="flex items-center justify-between">
           <h1 className="text-2xl font-bold">Marketing — Inversión Publicitaria</h1>
-          <div className="flex items-center gap-1.5 text-xs text-success bg-success/10 rounded-lg px-3 py-1.5 border border-success/20">
-            <Database className="h-3.5 w-3.5" />
-            Datos reales ({campaigns.length} campañas)
+          <div className="flex items-center gap-3">
+            <PeriodFilter value={period} onChange={setPeriod} />
+            <div className="flex items-center gap-1.5 text-xs text-success bg-success/10 rounded-lg px-3 py-1.5 border border-success/20">
+              <Database className="h-3.5 w-3.5" />
+              Datos reales ({campaigns.length} campañas)
+            </div>
           </div>
         </div>
 
