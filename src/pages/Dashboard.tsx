@@ -7,6 +7,8 @@ import { useAuth } from '@/contexts/AuthContext';
 import { formatCurrency, getGreeting } from '@/lib/formatters';
 import { findNumber, findString, FIELD_AMOUNT, FIELD_SPEND, FIELD_DATE } from '@/lib/field-utils';
 import { useExtractedData } from '@/hooks/useExtractedData';
+import { filterByPeriod, type PeriodKey } from '@/lib/data-cleaning';
+import { PeriodFilter } from '@/components/PeriodFilter';
 import {
   TrendingUp, AlertTriangle, DollarSign, Package, Users,
   Megaphone, ArrowUpRight, ArrowRight, ShoppingCart, Wallet, BarChart3,
