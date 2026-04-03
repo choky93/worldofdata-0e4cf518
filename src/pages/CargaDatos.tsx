@@ -727,7 +727,14 @@ export default function CargaDatos() {
               .eq('file_upload_id', dbData.id)
               .not('data_category', 'in', '("_raw_cache","_classification","_column_mapping")');
             const savedTotal = savedChunks?.reduce((sum, c) => sum + (c.row_count || 0), 0) || 0;
-            if (savedTotal < parsedRows.length * 0.95) {
+            console.log(`[CargaDatos] Health check: saved ${savedTotal} vs sent ${parsedRows.length} rows`);
+            if (savedTotal === 0) {
+              console.error(`[CargaDatos] ❌ Health check FAILED: 0 rows saved out of ${parsedRows.length}`);
+              await supabase.from('file_uploads').update({
+                status: 'error',
+                processing_error: `Error: no se guardaron datos (0 de ${parsedRows.length} filas). Intentá reprocesar el archivo.`,
+              }).eq('id', dbData.id);
+            } else if (savedTotal < parsedRows.length * 0.95) {
               console.warn(`[CargaDatos] Health check: saved ${savedTotal} vs sent ${parsedRows.length} rows`);
               await supabase.from('file_uploads').update({
                 processing_error: `Advertencia: se guardaron ${savedTotal} de ${parsedRows.length} filas`,
