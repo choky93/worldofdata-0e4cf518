@@ -1154,7 +1154,7 @@ export default function CargaDatos() {
                               </Button>
                             </>
                           )}
-                          {(f.status === 'error' || f.status === 'processed' || f.status === 'cancelled') && (
+                          {(f.status === 'error' || f.status === 'processed' || f.status === 'cancelled' || f.status === 'review') && (
                             <Button
                               variant="ghost"
                               size="icon"
