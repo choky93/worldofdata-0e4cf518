@@ -542,7 +542,7 @@ export default function CargaDatos() {
     }
     if (validFiles.length === 0) return;
 
-    const queueItems: UploadQueueItem[] = filesToUpload.map((file, i) => ({
+    const queueItems: UploadQueueItem[] = validFiles.map((file, i) => ({
       file,
       id: `upload-${Date.now()}-${i}`,
       progress: 0,
