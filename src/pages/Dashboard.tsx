@@ -172,25 +172,28 @@ export default function Dashboard() {
     return true;
   });
 
-  // Build sales chart from real data if available
+  // Build sales chart from real data if available — sorted by date
   const salesChartData = (() => {
     if (!hasData || realVentas.length === 0) return [];
-    const map = new Map<string, number>();
+    const map = new Map<string, { value: number; date: Date }>();
     for (const r of realVentas) {
       const raw = findString(r, FIELD_DATE, mV?.date);
       if (!raw) continue;
-      let key = raw;
-      // Try parseDate for robust handling (serial strings, Spanish months, etc.)
       const d = parseDate(raw);
-      if (d) {
-        key = d.toLocaleDateString('es-AR', { month: 'short', year: 'numeric' });
-      }
+      if (!d) continue;
+      const key = d.toLocaleDateString('es-AR', { month: 'short', year: 'numeric' });
       const amt = findNumber(r, FIELD_AMOUNT, mV?.amount);
-      map.set(key, (map.get(key) || 0) + amt);
+      const existing = map.get(key);
+      if (existing) {
+        existing.value += amt;
+      } else {
+        map.set(key, { value: amt, date: d });
+      }
     }
     return Array.from(map.entries())
+      .sort(([, a], [, b]) => a.date.getTime() - b.date.getTime())
       .slice(-30)
-      .map(([day, value]) => ({ day, value }));
+      .map(([day, { value }]) => ({ day, value }));
   })();
 
   return (
