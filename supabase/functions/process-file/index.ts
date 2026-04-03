@@ -724,8 +724,10 @@ serve(async (req) => {
           await sb.from("file_extracted_data").delete()
             .eq("file_upload_id", fileUploadId)
             .eq("data_category", "_classification");
-          await sb.from("file_uploads").update({ status: "processed", processing_error: null }).eq("id", fileUploadId);
-          console.log(`[process-file] ✅ All ${totalBatches} batches stored for "${file_name}"`);
+          const { data: flagCheck } = await sb.from("file_uploads").select("processing_error").eq("id", fileUploadId).single();
+          const finalStatus = flagCheck?.processing_error?.includes("Requiere revisión") ? "review" : "processed";
+          await sb.from("file_uploads").update({ status: finalStatus, ...(finalStatus === "processed" ? { processing_error: null } : {}) }).eq("id", fileUploadId);
+          console.log(`[process-file] ✅ All ${totalBatches} batches stored for "${file_name}" (status: ${finalStatus})`);
         }
 
         return new Response(JSON.stringify({
