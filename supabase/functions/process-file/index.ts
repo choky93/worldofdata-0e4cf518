@@ -560,7 +560,7 @@ serve(async (req) => {
           summary = (classData?.extracted_json as any)?.summary || "";
         }
 
-        await storeRowBatch(sb, rowBatch, headers, category,
+        await storeRowBatch(sb, cleanedBatch, headers, category,
           `Lote ${batchIndex + 1}/${totalBatches}`, fileUploadId, companyId, batchIndex);
 
         await sb.from("file_uploads").update({
