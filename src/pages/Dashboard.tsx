@@ -113,7 +113,9 @@ export default function Dashboard() {
   const name = profile?.full_name || 'Usuario';
   const company = companyName || 'tu empresa';
   const showStock = !companySettings || companySettings.has_stock || companySettings.sells_products;
-  const showAds = !companySettings || companySettings.uses_meta_ads || companySettings.uses_google_ads;
+  // Show marketing if configured OR if marketing data actually exists
+  const hasMarketingData = (extractedData?.marketing || []).length > 0;
+  const showAds = !companySettings || companySettings.uses_meta_ads || companySettings.uses_google_ads || hasMarketingData;
 
   const allVentas = extractedData?.ventas || [];
   const allGastos = extractedData?.gastos || [];
