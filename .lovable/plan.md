@@ -1,89 +1,105 @@
 
 
-# Plan: Blindar el pipeline de ingesta para cualquier cliente y cualquier archivo
+# Plan: Corregir la interpretación y visualización de datos ya clasificados
 
-## Diagnóstico real — Todos los flancos abiertos que encontré
+## Diagnóstico real (con datos del cliente en mano)
 
-Revisé todo el pipeline de punta a punta. Hay **6 problemas concretos** que explican por qué los datos no siempre se reflejan bien y por qué no podés confiar en que "funcione para cualquier cliente":
+Los archivos SÍ se clasifican correctamente — el CSV de marketing quedó como `marketing`, el XLS de ventas quedó como `ventas`. El problema NO es la clasificación. Son 3 problemas concretos en cómo se interpretan los datos después de clasificarlos:
 
-### 1. CSV no se parsea en el navegador
-Los archivos Excel sí se parsean client-side (determinístico, bien). Pero los CSV van directo al servidor sin parseo previo. Si un CSV es grande, pasa por la misma ruta vieja del servidor que puede fallar.
+### Problema 1: Fechas seriales de Excel
+La columna `Mes` del archivo de ventas tiene valor `45231` (número serial de Excel = días desde 1/1/1900). El módulo de Ventas intenta `new Date("45231")` que es inválido → no genera gráficos de evolución mensual ni diaria. Aparece el mensaje "Se necesitan fechas".
 
-### 2. `fixBrokenHeaders` no se aplica en el servidor
-La función que detecta filas de título rotas (`__EMPTY`) solo existe en el frontend. Si un archivo Excel se procesa en el servidor (porque el parseo client-side falló, o porque llega por URL import, o por la cola), **los headers quedan rotos**.
+### Problema 2: Fila de totales en el CSV de Marketing
+La fila 0 del CSV de Meta Ads tiene `Nombre de la campaña: ""` (vacío) con `Importe gastado: 1,909,997.40` que es la SUMA de todas las campañas. Esa fila se incluye en las métricas → el gasto total se DUPLICA. Lo mismo pasa con `Compras: 15` y `Valor de conversión: 12,712,251`.
 
-### 3. Límite de 1000 filas en la consulta de datos
-`useExtractedData` hace un `SELECT` sin `.limit()`, que en la API de la base de datos tiene un límite por defecto de **1000 registros**. Si un cliente tiene 50 archivos procesados con 3 batches cada uno = 150 chunks, está bien. Pero si tiene muchos archivos, los últimos chunks no se cargan y las métricas quedan incompletas **en silencio**.
+### Problema 3: Sin filtros de período
+Todos los datos se suman juntos sin importar la fecha. El cliente no puede ver "ventas de marzo" vs "ventas de febrero".
 
-### 4. No hay validación de que las filas tengan datos útiles
-El sistema guarda filas tal cual vienen de SheetJS. Si una fila tiene todos los valores vacíos (filas en blanco dentro del Excel), se guarda igual. Después `findNumber` devuelve 0 para esas filas y infla los conteos.
+## Solución
 
-### 5. Archivos multi-hoja se mezclan sin control
-Si un Excel tiene 3 hojas (ej: "Ventas Enero", "Ventas Febrero", "Resumen"), todas las filas se concatenan en un solo array. El clasificador AI ve solo las primeras 10 filas (de la primera hoja). Si la última hoja tiene estructura distinta, se guarda con headers que no le corresponden.
+### A. Conversión automática de fechas seriales de Excel
+**Archivo:** `src/pages/CargaDatos.tsx` (en el parseo client-side, antes de enviar batches)
 
-### 6. La categoría `otro` no se muestra en ningún módulo
-Si la IA clasifica mal (o no puede clasificar), los datos quedan en `otro`. Pero ningún módulo (Dashboard, Ventas, Finanzas, etc.) consume la categoría `otro`. Esos datos desaparecen para el usuario sin aviso.
+Lógica:
+- Detectar columnas con keywords de fecha (`mes`, `fecha`, `date`, `periodo`)
+- Si el valor es un número entre 1 y 200000, convertirlo: `new Date((serial - 25569) * 86400000).toISOString().split('T')[0]`
+- Aplicar ANTES de enviar a `process-file`
 
-## Soluciones — archivo por archivo
+Esto también se aplica en el server-side (`process-file/index.ts`) para archivos procesados por cola.
 
-### A. `src/pages/CargaDatos.tsx` — Parseo client-side para CSV + limpieza de filas vacías
+### B. Filtrado automático de filas de totales/resumen
+**Archivo:** `src/pages/CargaDatos.tsx` (post-parseo, pre-envío)
 
-**Qué cambia:**
-- Parsear CSV en el navegador igual que Excel (usando `Papa Parse` o parseo manual simple)
-- Aplicar `fixBrokenHeaders` también a CSV
-- Filtrar filas completamente vacías antes de enviar batches
-- Mejorar manejo de archivos multi-hoja: procesar cada hoja como archivo independiente si tienen headers distintos
+Lógica:
+- Si una fila tiene el campo "nombre/campaña/producto" vacío PERO tiene valores numéricos altos, es probablemente un subtotal
+- Marcar esas filas con `_is_summary: true` o directamente excluirlas
+- Aplicar para marketing (nombre de campaña vacío) y ventas (producto vacío con monto)
 
-### B. `supabase/functions/process-file/index.ts` — `fixBrokenHeaders` server-side
+### C. Filtros de período en módulos de visualización
+**Archivos:** `src/pages/Dashboard.tsx`, `src/pages/Ventas.tsx`, `src/pages/Marketing.tsx`, `src/pages/Finanzas.tsx`
 
-**Qué cambia:**
-- Mover la lógica de `fixBrokenHeaders` al servidor también (para el Path C: archivos procesados server-side)
-- Aplicarla a Excel Y CSV procesados en servidor
-- Filtrar filas vacías antes de guardar
+Agregar un selector simple: "Este mes", "Mes pasado", "Últimos 3 meses", "Todo". Filtrar las filas por fecha antes de calcular métricas.
 
-### C. `src/hooks/useExtractedData.ts` — Paginación completa
+### D. Sistema de cuarentena para archivos dudosos
+**Archivos:** `src/pages/CargaDatos.tsx`, `supabase/functions/process-file/index.ts`
 
-**Qué cambia:**
-- Usar paginación para traer TODOS los chunks, no solo los primeros 1000
-- Loop de `range(0, 999)`, `range(1000, 1999)`, etc. hasta que no haya más
-- Esto garantiza que un cliente con cientos de archivos vea todos sus datos
+Cuando el sistema detecte que no puede interpretar campos clave de un archivo (ej: no encuentra columna de monto, o todas las fechas son inválidas):
+- Marcar el archivo como `status: 'review'` en vez de `processed`
+- Mostrar en la UI de Carga de Datos una sección "Pendientes de revisión" donde el admin pueda ver las primeras filas y confirmar o reclasificar manualmente
 
-### D. `src/pages/CargaDatos.tsx` — Manejo inteligente de multi-hoja
+## Detalle técnico
 
-**Qué cambia:**
-- Detectar si las hojas tienen headers diferentes
-- Si son diferentes: clasificar y enviar cada hoja por separado (como si fueran archivos distintos pero bajo el mismo `file_upload_id`)
-- Si son iguales: concatenar como ahora
+### Conversión de fechas seriales
+```text
+Ubicación: CargaDatos.tsx → después de fixBrokenHeaders(), antes de enviar batches
+Ubicación server: process-file/index.ts → después de fixBrokenHeaders()
 
-### E. Visibilidad de datos sin clasificar
+Para cada fila:
+  Para cada columna cuyo header contenga "fecha"/"mes"/"date"/"periodo":
+    Si el valor es número entre 1 y 200000:
+      valor = new Date((valor - 25569) * 86400000).toISOString().split('T')[0]
+```
 
-**Qué cambia:**
-- Si hay datos en categoría `otro`, mostrar un aviso en Dashboard: "Hay X filas que no pudieron clasificarse automáticamente"
-- Agregar una sección en Carga de Datos que muestre qué archivos quedaron como `otro` con opción de reclasificar manualmente
+### Filtrado de filas resumen
+```text
+Ubicación: CargaDatos.tsx → después de la conversión de fechas, antes de enviar batches
 
-### F. Validación post-ingesta (health check)
+Para cada fila:
+  Buscar campos de "nombre"/"producto"/"campaña" en los headers
+  Si TODOS esos campos están vacíos Y hay al menos un campo numérico > 0:
+    Excluir la fila (es un subtotal)
+```
 
-**Qué cambia:**
-- Después de guardar todos los batches, verificar que la suma de `row_count` de los chunks coincida con el total de filas enviadas
-- Si no coincide, marcar como `partial` en vez de `processed`
-- Mostrar en la UI cuántas filas se guardaron vs cuántas se esperaban
+### Cuarentena
+```text
+Ubicación: process-file/index.ts → después de clasificar con AI
+
+Verificar:
+  - ¿Se encontró al menos 1 campo numérico en los headers? (monto/total/precio/gasto)
+  - ¿Hay al menos 1 campo de fecha convertible?
+  
+Si NO pasa la verificación:
+  - Guardar los datos igual (para que no se pierdan)
+  - Marcar status = 'review' en file_uploads
+  - Agregar processing_error = "Requiere revisión: no se detectaron campos de monto/fecha"
+```
 
 ## Archivos a modificar
 
-| Archivo | Cambios |
+| Archivo | Cambio |
 |---|---|
-| `src/pages/CargaDatos.tsx` | Parseo client-side de CSV, limpieza filas vacías, multi-hoja inteligente |
-| `supabase/functions/process-file/index.ts` | `fixBrokenHeaders` server-side, filtrado filas vacías |
-| `src/hooks/useExtractedData.ts` | Paginación completa para traer todos los chunks |
-| `src/pages/Dashboard.tsx` | Aviso si hay datos en categoría `otro` |
+| `src/pages/CargaDatos.tsx` | Conversión fechas seriales + filtrado filas resumen + UI de cuarentena |
+| `supabase/functions/process-file/index.ts` | Conversión fechas seriales server-side + lógica cuarentena |
+| `src/pages/Ventas.tsx` | Filtro de período |
+| `src/pages/Dashboard.tsx` | Filtro de período |
+| `src/pages/Marketing.tsx` | Filtro de período + excluir filas sin nombre de campaña |
+| `src/pages/Finanzas.tsx` | Filtro de período |
+| Migración SQL | Agregar valor `'review'` como status válido (ya es text libre, no necesita migración) |
 
 ## Resultado esperado
 
-- Un cliente sube 30 archivos mezclados → todos se parsean, clasifican y distribuyen correctamente
-- CSV, XLS, XLSX: todos pasan por parseo estructurado (no por IA)
-- Headers rotos se corrigen automáticamente en cualquier ruta (client o server)
-- Filas vacías no contaminan las métricas
-- Multi-hoja se maneja sin perder datos
-- Si algo no se pudo clasificar, el usuario lo sabe y puede actuar
-- No hay límite silencioso de 1000 chunks que esconda datos
+- El archivo de ventas con `Mes: 45231` se convierte a `2023-11-01` → los gráficos de evolución funcionan
+- La fila de totales del CSV de Meta Ads se excluye → el gasto total no se duplica
+- El usuario puede filtrar por período en todos los módulos
+- Si un archivo no tiene campos reconocibles, queda en cuarentena para revisión manual en vez de mostrarse con datos incorrectos
 
