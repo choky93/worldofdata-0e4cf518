@@ -66,32 +66,25 @@ function MetricChart({ data, title, formatter, tooltip }: {
   );
 }
 
-function aggregateByMonth(rows: any[], fieldKeywords: string[]): { month: string; value: number }[] {
-  const map = new Map<string, number>();
+function aggregateByMonth(rows: any[], fieldKeywords: string[], mappedDate?: string, mappedAmount?: string): { month: string; value: number }[] {
+  const buckets = new Map<string, { total: number; date: Date }>();
   for (const r of rows) {
-    const raw = findString(r, FIELD_DATE);
+    const raw = findString(r, FIELD_DATE, mappedDate);
     if (!raw) continue;
-    let key = '';
-    const d = new Date(raw);
-    if (!isNaN(d.getTime())) {
-      key = d.toLocaleDateString('es-AR', { month: 'short', year: 'numeric' });
-    } else if (/^\d{4}-\d{2}/.test(raw)) {
-      const [year, month] = raw.split('-');
-      const dt = new Date(parseInt(year), parseInt(month) - 1, 1);
-      key = dt.toLocaleDateString('es-AR', { month: 'short', year: 'numeric' });
-    } else if (/^\d{2}\/\d{2}\/\d{4}/.test(raw)) {
-      const [dd, mm, yyyy] = raw.split('/');
-      const dt = new Date(parseInt(yyyy), parseInt(mm) - 1, parseInt(dd));
-      if (!isNaN(dt.getTime())) key = dt.toLocaleDateString('es-AR', { month: 'short', year: 'numeric' });
+    const d = parseDate(raw);
+    if (!d) continue;
+    const key = d.toLocaleDateString('es-AR', { month: 'short', year: 'numeric' });
+    const amount = findNumber(r, fieldKeywords, mappedAmount);
+    const existing = buckets.get(key);
+    if (existing) {
+      existing.total += amount;
+    } else {
+      buckets.set(key, { total: amount, date: new Date(d.getFullYear(), d.getMonth(), 1) });
     }
-    if (!key) continue;
-    const amount = findNumber(r, fieldKeywords);
-    map.set(key, (map.get(key) || 0) + amount);
   }
-  const parseMonthKey = (s: string) => new Date(s.replace(/(\w+) (\d{4})/, '$1 1, $2')).getTime();
-  return Array.from(map.entries())
-    .sort(([a], [b]) => parseMonthKey(a) - parseMonthKey(b))
-    .map(([month, value]) => ({ month, value }));
+  return Array.from(buckets.entries())
+    .sort(([, a], [, b]) => a.date.getTime() - b.date.getTime())
+    .map(([month, { total }]) => ({ month, value: total }));
 }
 
 export default function Metricas() {
