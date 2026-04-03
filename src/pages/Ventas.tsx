@@ -18,11 +18,9 @@ function aggregateByDate(ventas: any[], m?: any): { day: string; value: number }
     const raw = findString(r, FIELD_DATE, m?.date);
     if (!raw) continue;
     let key = raw;
-    const d = new Date(raw);
-    if (!isNaN(d.getTime())) {
+    const d = parseDate(raw);
+    if (d) {
       key = d.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit' });
-    } else if (/^\d{2}\/\d{2}\/\d{4}/.test(raw)) {
-      key = raw.substring(0, 5);
     }
     const amt = findNumber(r, FIELD_AMOUNT, m?.amount);
     map.set(key, (map.get(key) || 0) + amt);
