@@ -501,7 +501,9 @@ serve(async (req) => {
     // PATH A: Structured row batch (new deterministic pipeline)
     // ══════════════════════════════════════════════════════════
     if (rowBatch && headers && batchIndex !== undefined && totalBatches !== undefined) {
-      console.log(`[process-file] Row batch ${batchIndex + 1}/${totalBatches} for "${file_name}" (${rowBatch.length} rows)`);
+      // Clean data: convert serial dates + filter summary rows
+      const cleanedBatch = cleanRows(rowBatch, headers);
+      console.log(`[process-file] Row batch ${batchIndex + 1}/${totalBatches} for "${file_name}" (${rowBatch.length} → ${cleanedBatch.length} rows after cleaning)`);
 
       if (batchIndex === 0) {
         // First batch: classify with AI
