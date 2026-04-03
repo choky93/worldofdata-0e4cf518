@@ -258,7 +258,7 @@ export default function Dashboard() {
                 <CardContent className="p-4">
                   <div className="flex items-center gap-1.5 text-muted-foreground mb-2">
                     <ShoppingCart className="h-3.5 w-3.5" />
-                    <span className="text-xs font-medium">Ventas cargadas</span>
+                    <span className="text-xs font-medium">Ventas</span>
                   </div>
                   {salesTotal !== null ? (
                     <>
