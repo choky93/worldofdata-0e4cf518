@@ -13,6 +13,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import * as XLSX from 'xlsx';
 import { cleanParsedRows } from '@/lib/data-cleaning';
+import { useExtractedData } from '@/hooks/useExtractedData';
 
 
 interface FileRecord {
