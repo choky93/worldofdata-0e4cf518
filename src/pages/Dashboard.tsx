@@ -125,15 +125,15 @@ export default function Dashboard() {
   const realOtro = extractedData?.otro || [];
 
   const salesTotal = hasData && realVentas.length > 0
-    ? realVentas.reduce((sum: number, r: any) => sum + findNumber(r, FIELD_AMOUNT), 0)
+    ? realVentas.reduce((sum: number, r: any) => sum + findNumber(r, FIELD_AMOUNT, mV?.amount), 0)
     : null;
 
   const gastosTotal = hasData && realGastos.length > 0
-    ? realGastos.reduce((sum: number, r: any) => sum + findNumber(r, FIELD_AMOUNT), 0)
+    ? realGastos.reduce((sum: number, r: any) => sum + findNumber(r, FIELD_AMOUNT, mG?.amount), 0)
     : null;
 
   const marketingSpend = hasData && realMarketing.length > 0
-    ? realMarketing.reduce((sum: number, r: any) => sum + findNumber(r, FIELD_SPEND), 0)
+    ? realMarketing.reduce((sum: number, r: any) => sum + findNumber(r, FIELD_SPEND, mM?.spend), 0)
     : null;
 
   const healthDimensions = [
