@@ -1,7 +1,7 @@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { formatCurrency, formatPercent } from '@/lib/formatters';
-import { findNumber, findString, FIELD_NAME, FIELD_STOCK_QTY, FIELD_STOCK_MIN, FIELD_STOCK_MAX, FIELD_PRICE, FIELD_COST } from '@/lib/field-utils';
+import { findNumber, findString, FIELD_NAME, FIELD_STOCK_QTY, FIELD_STOCK_MIN, FIELD_STOCK_MAX, FIELD_PRICE, FIELD_COST, type ColumnMapping } from '@/lib/field-utils';
 import { useExtractedData } from '@/hooks/useExtractedData';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip';
