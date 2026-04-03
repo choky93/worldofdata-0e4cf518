@@ -15,7 +15,7 @@ const typeLabels = { stock: 'Stock', clientes: 'Clientes', finanzas: 'Finanzas',
 
 type AlertType = { id: string; type: 'stock' | 'clientes' | 'finanzas' | 'forecast'; priority: 'high' | 'medium' | 'low'; message: string; suggestion?: string; read: boolean; date: string };
 
-function buildAlertsFromData(data: ReturnType<typeof useExtractedData>['data']): AlertType[] {
+function buildAlertsFromData(data: ReturnType<typeof useExtractedData>['data'], mappings: CategoryMappings): AlertType[] {
   const alerts: AlertType[] = [];
   if (!data) return alerts;
 
