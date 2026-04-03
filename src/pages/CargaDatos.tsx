@@ -526,6 +526,22 @@ export default function CargaDatos() {
     const filesToUpload = Array.from(fileList);
     if (filesToUpload.length === 0) return;
 
+    // Validate file formats
+    const SUPPORTED_EXTENSIONS = ['xlsx', 'xls', 'csv', 'pdf', 'png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp', 'doc', 'docx', 'xml', 'txt'];
+    const validFiles: File[] = [];
+    for (const file of filesToUpload) {
+      const ext = file.name.split('.').pop()?.toLowerCase() || '';
+      if (!SUPPORTED_EXTENSIONS.includes(ext)) {
+        toast.error(`Formato no soportado: .${ext}`, {
+          description: `Los formatos aceptados son: Excel (.xlsx, .xls), CSV (.csv), PDF (.pdf), Imágenes (.png, .jpg, .webp, .gif, .bmp), Word (.doc, .docx) y XML (.xml)`,
+          duration: 8000,
+        });
+        continue;
+      }
+      validFiles.push(file);
+    }
+    if (validFiles.length === 0) return;
+
     const queueItems: UploadQueueItem[] = filesToUpload.map((file, i) => ({
       file,
       id: `upload-${Date.now()}-${i}`,
