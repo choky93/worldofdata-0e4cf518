@@ -655,7 +655,7 @@ serve(async (req) => {
           }
         }
 
-        // Store classification metadata
+        // Store classification metadata (chunk_index -2 to avoid unique constraint conflict with data batch 0)
         await sb.from("file_extracted_data").delete()
           .eq("file_upload_id", fileUploadId)
           .eq("data_category", "_classification");
@@ -664,11 +664,11 @@ serve(async (req) => {
           company_id: companyId,
           data_category: "_classification",
           extracted_json: { category, summary, column_mapping },
-          chunk_index: 0,
+          chunk_index: -2,
           row_count: 0,
         });
 
-        // Store persistent column_mapping
+        // Store persistent column_mapping (chunk_index -1 to avoid conflict)
         await sb.from("file_extracted_data").delete()
           .eq("file_upload_id", fileUploadId)
           .eq("data_category", "_column_mapping");
@@ -677,7 +677,7 @@ serve(async (req) => {
           company_id: companyId,
           data_category: "_column_mapping",
           extracted_json: { category, column_mapping },
-          chunk_index: 0,
+          chunk_index: -1,
           row_count: 0,
         });
 
