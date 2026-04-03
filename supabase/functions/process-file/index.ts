@@ -515,9 +515,12 @@ async function processTabularData(
   const totalBatches = Math.ceil(allRows.length / BATCH_SIZE);
   console.log(`[process-file] Storing ${allRows.length} rows in ${totalBatches} batch(es)`);
 
-  await sb.from("file_extracted_data").delete().eq("file_upload_id", fileUploadId);
+  // Delete ALL existing data for this file first (clean slate)
+  const { error: delAllErr } = await sb.from("file_extracted_data").delete().eq("file_upload_id", fileUploadId);
+  if (delAllErr) console.error(`[process-file] DELETE all error:`, delAllErr.message);
 
-  await sb.from("file_extracted_data").insert({
+  // Insert column_mapping AFTER delete-all
+  const { error: mapErr } = await sb.from("file_extracted_data").insert({
     file_upload_id: fileUploadId,
     company_id: companyId,
     data_category: "_column_mapping",
@@ -525,6 +528,11 @@ async function processTabularData(
     chunk_index: -1,
     row_count: 0,
   });
+  if (mapErr) {
+    console.error(`[process-file] ❌ INSERT _column_mapping FAILED:`, mapErr.message);
+  } else {
+    console.log(`[process-file] ✅ Stored _column_mapping at chunk_index=-1`);
+  }
 
   for (let i = 0; i < totalBatches; i++) {
     const batchRows = allRows.slice(i * BATCH_SIZE, (i + 1) * BATCH_SIZE);
