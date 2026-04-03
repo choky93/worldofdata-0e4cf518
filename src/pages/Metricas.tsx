@@ -88,7 +88,10 @@ function aggregateByMonth(rows: any[], fieldKeywords: string[], mappedDate?: str
 }
 
 export default function Metricas() {
-  const { data: extractedData, hasData, loading } = useExtractedData();
+  const { data: extractedData, mappings, hasData, loading } = useExtractedData();
+  const mV = mappings.ventas;
+  const mG = mappings.gastos;
+  const mS = mappings.stock;
 
   if (loading) {
     return (
