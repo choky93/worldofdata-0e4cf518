@@ -174,14 +174,14 @@ export default function Dashboard() {
     if (!hasData || realVentas.length === 0) return [];
     const map = new Map<string, number>();
     for (const r of realVentas) {
-      const raw = findString(r, FIELD_DATE);
+      const raw = findString(r, FIELD_DATE, mV?.date);
       if (!raw) continue;
       let key = raw;
       const d = new Date(raw);
       if (!isNaN(d.getTime())) {
         key = d.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit' });
       }
-      const amt = findNumber(r, FIELD_AMOUNT);
+      const amt = findNumber(r, FIELD_AMOUNT, mV?.amount);
       map.set(key, (map.get(key) || 0) + amt);
     }
     return Array.from(map.entries())
