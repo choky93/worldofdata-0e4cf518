@@ -574,12 +574,14 @@ async function processChunksLimited(
     const chunkMeta = { ...metadata, chunk_index: chunk.index, total_chunks: chunks.length };
     const result = await extractWithAI(chunk.content, fileName, undefined, undefined, chunkMeta);
 
-    await sb.from("file_extracted_data").delete().eq("file_upload_id", fileUploadId).eq("chunk_index", chunk.index);
-    await sb.from("file_extracted_data").insert({
+    const { error: delErr } = await sb.from("file_extracted_data").delete().eq("file_upload_id", fileUploadId).eq("chunk_index", chunk.index);
+    if (delErr) console.error(`[process-file] DELETE chunk ${chunk.index} error:`, delErr.message);
+    const { error: insErr } = await sb.from("file_extracted_data").insert({
       file_upload_id: fileUploadId, company_id: companyId,
       data_category: result.category, extracted_json: result.data,
       summary: result.summary, row_count: result.rowCount, chunk_index: chunk.index,
     });
+    if (insErr) console.error(`[process-file] ❌ INSERT chunk ${chunk.index} FAILED:`, insErr.message);
 
     if (i === startChunk) mainCategory = result.category;
     summaries.push(result.summary);
