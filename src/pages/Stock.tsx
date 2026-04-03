@@ -65,11 +65,12 @@ function normalizeProducts(rawData: any[], m?: ColumnMapping): ProductRow[] {
 }
 
 export default function Stock() {
-  const { data: extractedData, hasData } = useExtractedData();
+  const { data: extractedData, mappings, hasData } = useExtractedData();
+  const mS = mappings.stock;
   const realStock = extractedData?.stock || [];
 
   const useReal = hasData && realStock.length > 0;
-  const products: ProductRow[] = useReal ? normalizeProducts(realStock) : [];
+  const products: ProductRow[] = useReal ? normalizeProducts(realStock, mS) : [];
 
   if (!useReal) {
     return (

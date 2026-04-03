@@ -79,16 +79,17 @@ export default function Clientes() {
     );
   }
 
-  const clients = normalizeClients(realClientes);
+  const clients = normalizeClients(realClientes, mC);
   const totalPending = clients.reduce((s, c) => s + c.pendingPayment, 0);
   const totalSales = clients.reduce((s, c) => s + c.totalPurchases, 0);
-  const top2Pct = clients.length >= 2 && totalSales > 0
-    ? ((clients[0].totalPurchases + clients[1].totalPurchases) / totalSales * 100).toFixed(0)
+  const sorted = [...clients].sort((a, b) => b.totalPurchases - a.totalPurchases);
+  const top2Pct = sorted.length >= 2 && totalSales > 0
+    ? ((sorted[0].totalPurchases + sorted[1].totalPurchases) / totalSales * 100).toFixed(0)
     : '0';
   const withChurn = clients.filter(c => {
     if (!c.lastPurchase) return false;
-    const d = new Date(c.lastPurchase);
-    if (isNaN(d.getTime())) return false;
+    const d = parseDate(c.lastPurchase);
+    if (!d || isNaN(d.getTime())) return false;
     const daysSince = (Date.now() - d.getTime()) / (1000 * 60 * 60 * 24);
     return daysSince > 30;
   });
