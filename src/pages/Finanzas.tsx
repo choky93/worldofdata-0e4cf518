@@ -52,6 +52,7 @@ function normalizeExpenses(rows: any[]): ExpenseRow[] {
 
 export default function Finanzas() {
   const { data: extractedData, hasData } = useExtractedData();
+  const [period, setPeriod] = useState<PeriodKey>('all');
   const [ledger, setLedger] = useState<LedgerEntry[]>([]);
   const [showForm, setShowForm] = useState(false);
   const [formType, setFormType] = useState<'ingreso' | 'egreso'>('ingreso');
