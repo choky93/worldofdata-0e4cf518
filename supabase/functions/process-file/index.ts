@@ -673,7 +673,8 @@ serve(async (req) => {
 
           if (allRows.length > 0) {
             const fixed = fixBrokenHeaders(allRows);
-            resultInfo = await processTabularData(sb, fixed.rows, fixed.headers.length > 0 ? fixed.headers : headers, file_name, fileUploadId, companyId);
+            const cleaned = cleanRows(fixed.rows, fixed.headers.length > 0 ? fixed.headers : headers);
+            resultInfo = await processTabularData(sb, cleaned, fixed.headers.length > 0 ? fixed.headers : headers, file_name, fileUploadId, companyId);
           } else {
             throw new Error("No rows parsed");
           }
