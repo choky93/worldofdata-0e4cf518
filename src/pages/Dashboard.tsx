@@ -117,11 +117,11 @@ export default function Dashboard() {
   const allVentas = extractedData?.ventas || [];
   const allGastos = extractedData?.gastos || [];
   const allMarketing = extractedData?.marketing || [];
-  const realVentas = period === 'all' ? allVentas : filterByPeriod(allVentas, FIELD_DATE, period, findString);
+  const realVentas = period === 'all' ? allVentas : filterByPeriod(allVentas, FIELD_DATE, period, (row, kw) => findString(row, kw, mV?.date));
   const realStock = extractedData?.stock || [];
-  const realGastos = period === 'all' ? allGastos : filterByPeriod(allGastos, FIELD_DATE, period, findString);
+  const realGastos = period === 'all' ? allGastos : filterByPeriod(allGastos, FIELD_DATE, period, (row, kw) => findString(row, kw, mG?.date));
   const realClientes = extractedData?.clientes || [];
-  const realMarketing = period === 'all' ? allMarketing : filterByPeriod(allMarketing, FIELD_DATE, period, findString);
+  const realMarketing = period === 'all' ? allMarketing : filterByPeriod(allMarketing, FIELD_DATE, period, (row, kw) => findString(row, kw, mM?.date));
   const realOtro = extractedData?.otro || [];
 
   const salesTotal = hasData && realVentas.length > 0
