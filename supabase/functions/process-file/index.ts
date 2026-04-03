@@ -118,7 +118,50 @@ function fixBrokenHeaders(rows: Record<string, unknown>[]): { rows: Record<strin
   return { rows: remapped, headers: newHeaders };
 }
 
+// ─── Data Cleaning (serial dates + summary rows) ──────────────
+const DATE_KW = ['fecha', 'date', 'periodo', 'mes', 'month', 'dia', 'day'];
+const NAME_KW = ['nombre', 'name', 'producto', 'product', 'campana', 'campaign',
+  'detalle', 'concepto', 'descripcion', 'articulo', 'item', 'cliente', 'client'];
+
+function norm(s: string): string {
+  return s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]/g, '');
+}
+
+function convertSerialDates(rows: Record<string, unknown>[], headers: string[]): void {
+  const dateHeaders = headers.filter(h => DATE_KW.some(kw => norm(h).includes(kw)));
+  if (dateHeaders.length === 0) return;
+  for (const row of rows) {
+    for (const h of dateHeaders) {
+      const val = row[h];
+      if (typeof val === 'number' && val > 1 && val < 200000) {
+        row[h] = new Date((val - 25569) * 86400000).toISOString().split('T')[0];
+      }
+    }
+  }
+}
+
+function filterSummaryRows(rows: Record<string, unknown>[], headers: string[]): Record<string, unknown>[] {
+  const nameHeaders = headers.filter(h => NAME_KW.some(kw => norm(h).includes(kw)));
+  if (nameHeaders.length === 0) return rows;
+  return rows.filter(row => {
+    const allEmpty = nameHeaders.every(h => {
+      const v = row[h];
+      return v === undefined || v === null || String(v ?? '').trim() === '';
+    });
+    if (!allEmpty) return true;
+    const hasNum = Object.values(row).some(v => typeof v === 'number' && v > 0);
+    if (hasNum) { console.log(`[process-file] Filtered summary row`); return false; }
+    return true;
+  });
+}
+
+function cleanRows(rows: Record<string, unknown>[], headers: string[]): Record<string, unknown>[] {
+  convertSerialDates(rows, headers);
+  return filterSummaryRows(rows, headers);
+}
+
 // ─── Helpers ───────────────────────────────────────────────────
+
 function uint8ToBase64(bytes: Uint8Array): string {
   const chunks: string[] = [];
   const chunkSize = 8192;
@@ -458,11 +501,13 @@ serve(async (req) => {
     // PATH A: Structured row batch (new deterministic pipeline)
     // ══════════════════════════════════════════════════════════
     if (rowBatch && headers && batchIndex !== undefined && totalBatches !== undefined) {
-      console.log(`[process-file] Row batch ${batchIndex + 1}/${totalBatches} for "${file_name}" (${rowBatch.length} rows)`);
+      // Clean data: convert serial dates + filter summary rows
+      const cleanedBatch = cleanRows(rowBatch, headers);
+      console.log(`[process-file] Row batch ${batchIndex + 1}/${totalBatches} for "${file_name}" (${rowBatch.length} → ${cleanedBatch.length} rows after cleaning)`);
 
       if (batchIndex === 0) {
         // First batch: classify with AI
-        const { category, summary } = await classifyWithAI(headers, rowBatch.slice(0, 10), file_name);
+        const { category, summary } = await classifyWithAI(headers, cleanedBatch.slice(0, 10), file_name);
 
         // Store classification metadata for subsequent batches
         await sb.from("file_extracted_data").delete()
@@ -478,8 +523,8 @@ serve(async (req) => {
         });
 
         // Store first batch
-        await storeRowBatch(sb, rowBatch, headers, category,
-          `${summary} (${totalRows || rowBatch.length} filas)`, fileUploadId, companyId, 0);
+        await storeRowBatch(sb, cleanedBatch, headers, category,
+          `${summary} (${totalRows || cleanedBatch.length} filas)`, fileUploadId, companyId, 0);
 
         await sb.from("file_uploads").update({
           total_chunks: totalBatches,
@@ -515,7 +560,7 @@ serve(async (req) => {
           summary = (classData?.extracted_json as any)?.summary || "";
         }
 
-        await storeRowBatch(sb, rowBatch, headers, category,
+        await storeRowBatch(sb, cleanedBatch, headers, category,
           `Lote ${batchIndex + 1}/${totalBatches}`, fileUploadId, companyId, batchIndex);
 
         await sb.from("file_uploads").update({
@@ -589,7 +634,7 @@ serve(async (req) => {
       // Apply fixBrokenHeaders to CSV too
       if (allRows.length > 0) {
         const fixed = fixBrokenHeaders(allRows);
-        allRows = fixed.rows;
+        allRows = cleanRows(fixed.rows, fixed.headers.length > 0 ? fixed.headers : Object.keys(allRows[0]));
         const parsedHeaders = fixed.headers.length > 0 ? fixed.headers : Object.keys(allRows[0]);
         resultInfo = await processTabularData(sb, allRows, parsedHeaders, file_name, fileUploadId, companyId);
       } else {
@@ -628,7 +673,8 @@ serve(async (req) => {
 
           if (allRows.length > 0) {
             const fixed = fixBrokenHeaders(allRows);
-            resultInfo = await processTabularData(sb, fixed.rows, fixed.headers.length > 0 ? fixed.headers : headers, file_name, fileUploadId, companyId);
+            const cleaned = cleanRows(fixed.rows, fixed.headers.length > 0 ? fixed.headers : headers);
+            resultInfo = await processTabularData(sb, cleaned, fixed.headers.length > 0 ? fixed.headers : headers, file_name, fileUploadId, companyId);
           } else {
             throw new Error("No rows parsed");
           }
@@ -659,7 +705,8 @@ serve(async (req) => {
 
           if (allRows.length > 0) {
             const fixed = fixBrokenHeaders(allRows);
-            resultInfo = await processTabularData(sb, fixed.rows, fixed.headers.length > 0 ? fixed.headers : headers, file_name, fileUploadId, companyId);
+            const cleaned = cleanRows(fixed.rows, fixed.headers.length > 0 ? fixed.headers : headers);
+            resultInfo = await processTabularData(sb, cleaned, fixed.headers.length > 0 ? fixed.headers : headers, file_name, fileUploadId, companyId);
           } else {
             // Empty Excel — try AI extraction on CSV text
             const csv = XLSX.utils.sheet_to_csv(wb.Sheets[wb.SheetNames[0]], { FS: ',', RS: '\n' });

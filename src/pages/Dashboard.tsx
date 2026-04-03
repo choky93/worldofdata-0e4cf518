@@ -7,6 +7,8 @@ import { useAuth } from '@/contexts/AuthContext';
 import { formatCurrency, getGreeting } from '@/lib/formatters';
 import { findNumber, findString, FIELD_AMOUNT, FIELD_SPEND, FIELD_DATE } from '@/lib/field-utils';
 import { useExtractedData } from '@/hooks/useExtractedData';
+import { filterByPeriod, type PeriodKey } from '@/lib/data-cleaning';
+import { PeriodFilter } from '@/components/PeriodFilter';
 import {
   TrendingUp, AlertTriangle, DollarSign, Package, Users,
   Megaphone, ArrowUpRight, ArrowRight, ShoppingCart, Wallet, BarChart3,
@@ -103,16 +105,20 @@ export default function Dashboard() {
   const { profile, companySettings, companyName } = useAuth();
   const navigate = useNavigate();
   const { data: extractedData, loading: dataLoading, hasData } = useExtractedData();
+  const [period, setPeriod] = useState<PeriodKey>('all');
   const name = profile?.full_name || 'Usuario';
   const company = companyName || 'tu empresa';
   const showStock = !companySettings || companySettings.has_stock || companySettings.sells_products;
   const showAds = !companySettings || companySettings.uses_meta_ads || companySettings.uses_google_ads;
 
-  const realVentas = extractedData?.ventas || [];
+  const allVentas = extractedData?.ventas || [];
+  const allGastos = extractedData?.gastos || [];
+  const allMarketing = extractedData?.marketing || [];
+  const realVentas = period === 'all' ? allVentas : filterByPeriod(allVentas, FIELD_DATE, period, findString);
   const realStock = extractedData?.stock || [];
-  const realGastos = extractedData?.gastos || [];
+  const realGastos = period === 'all' ? allGastos : filterByPeriod(allGastos, FIELD_DATE, period, findString);
   const realClientes = extractedData?.clientes || [];
-  const realMarketing = extractedData?.marketing || [];
+  const realMarketing = period === 'all' ? allMarketing : filterByPeriod(allMarketing, FIELD_DATE, period, findString);
   const realOtro = extractedData?.otro || [];
 
   const salesTotal = hasData && realVentas.length > 0
@@ -185,9 +191,12 @@ export default function Dashboard() {
       <div className="space-y-5 max-w-[1400px]">
         {/* Greeting */}
         <Stagger index={0}>
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight">{getGreeting()}, {name.split(' ')[0]}.</h1>
-            <p className="text-muted-foreground mt-0.5">Resumen de <span className="font-semibold text-foreground">{company}</span></p>
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-2xl font-bold tracking-tight">{getGreeting()}, {name.split(' ')[0]}.</h1>
+              <p className="text-muted-foreground mt-0.5">Resumen de <span className="font-semibold text-foreground">{company}</span></p>
+            </div>
+            <PeriodFilter value={period} onChange={setPeriod} />
           </div>
         </Stagger>
 

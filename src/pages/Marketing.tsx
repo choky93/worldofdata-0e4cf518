@@ -1,7 +1,10 @@
+import { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { formatCurrency, formatPercent, formatNumber } from '@/lib/formatters';
 import { useExtractedData } from '@/hooks/useExtractedData';
-import { findNumber, findString, FIELD_CAMPAIGN_NAME, FIELD_SPEND, FIELD_REVENUE, FIELD_ROAS, FIELD_CLICKS, FIELD_CTR, FIELD_CONVERSIONS, FIELD_REACH, FIELD_IMPRESSIONS } from '@/lib/field-utils';
+import { findNumber, findString, FIELD_CAMPAIGN_NAME, FIELD_SPEND, FIELD_REVENUE, FIELD_ROAS, FIELD_CLICKS, FIELD_CTR, FIELD_CONVERSIONS, FIELD_REACH, FIELD_IMPRESSIONS, FIELD_DATE } from '@/lib/field-utils';
+import { filterByPeriod, type PeriodKey } from '@/lib/data-cleaning';
+import { PeriodFilter } from '@/components/PeriodFilter';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { TrendingUp, Upload, Database, Loader2, Megaphone } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip as RTooltip, ResponsiveContainer, CartesianGrid, Legend } from 'recharts';
@@ -42,8 +45,15 @@ function normalizeMarketing(rows: any[]): CampaignRow[] {
 
 export default function Marketing() {
   const { data: extractedData, hasData, loading } = useExtractedData();
-  const realMarketing = extractedData?.marketing || [];
-  const useReal = hasData && realMarketing.length > 0;
+  const [period, setPeriod] = useState<PeriodKey>('all');
+  const allMarketing = extractedData?.marketing || [];
+  // Filter summary rows (empty campaign name) and period
+  const filteredMarketing = (period === 'all' ? allMarketing : filterByPeriod(allMarketing, FIELD_DATE, period, findString))
+    .filter((r: any) => {
+      const name = findString(r, FIELD_CAMPAIGN_NAME);
+      return name && name.trim() !== '';
+    });
+  const useReal = hasData && allMarketing.length > 0;
 
   if (loading) {
     return (
@@ -82,7 +92,7 @@ export default function Marketing() {
     );
   }
 
-  const campaigns = normalizeMarketing(realMarketing);
+  const campaigns = normalizeMarketing(filteredMarketing);
   const totalSpend = campaigns.reduce((s, c) => s + c.spend, 0);
   const totalRevenue = campaigns.reduce((s, c) => s + c.revenue, 0);
   const globalRoas = totalSpend > 0 ? totalRevenue / totalSpend : 0;
@@ -102,9 +112,12 @@ export default function Marketing() {
       <div className="space-y-6 max-w-7xl">
         <div className="flex items-center justify-between">
           <h1 className="text-2xl font-bold">Marketing — Inversión Publicitaria</h1>
-          <div className="flex items-center gap-1.5 text-xs text-success bg-success/10 rounded-lg px-3 py-1.5 border border-success/20">
-            <Database className="h-3.5 w-3.5" />
-            Datos reales ({campaigns.length} campañas)
+          <div className="flex items-center gap-3">
+            <PeriodFilter value={period} onChange={setPeriod} />
+            <div className="flex items-center gap-1.5 text-xs text-success bg-success/10 rounded-lg px-3 py-1.5 border border-success/20">
+              <Database className="h-3.5 w-3.5" />
+              Datos reales ({campaigns.length} campañas)
+            </div>
           </div>
         </div>
 

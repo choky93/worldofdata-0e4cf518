@@ -4,6 +4,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { formatCurrency, formatDate } from '@/lib/formatters';
 import { findNumber, findString, FIELD_AMOUNT, FIELD_NAME, FIELD_DATE } from '@/lib/field-utils';
 import { useExtractedData } from '@/hooks/useExtractedData';
+import { filterByPeriod, type PeriodKey } from '@/lib/data-cleaning';
+import { PeriodFilter } from '@/components/PeriodFilter';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -50,6 +52,7 @@ function normalizeExpenses(rows: any[]): ExpenseRow[] {
 
 export default function Finanzas() {
   const { data: extractedData, hasData } = useExtractedData();
+  const [period, setPeriod] = useState<PeriodKey>('all');
   const [ledger, setLedger] = useState<LedgerEntry[]>([]);
   const [showForm, setShowForm] = useState(false);
   const [formType, setFormType] = useState<'ingreso' | 'egreso'>('ingreso');
@@ -80,10 +83,13 @@ export default function Finanzas() {
 
   const removeEntry = (id: string) => setLedger(ledger.filter(e => e.id !== id));
 
-  // Derive financial data from extracted records
-  const realVentas = extractedData?.ventas || [];
-  const realGastos = extractedData?.gastos || [];
-  const realFacturas = extractedData?.facturas || [];
+  // Derive financial data from extracted records, filtered by period
+  const allVentas = extractedData?.ventas || [];
+  const allGastos = extractedData?.gastos || [];
+  const allFacturas = extractedData?.facturas || [];
+  const realVentas = period === 'all' ? allVentas : filterByPeriod(allVentas, FIELD_DATE, period, findString);
+  const realGastos = period === 'all' ? allGastos : filterByPeriod(allGastos, FIELD_DATE, period, findString);
+  const realFacturas = period === 'all' ? allFacturas : filterByPeriod(allFacturas, FIELD_DATE, period, findString);
 
   const totalVentasReal = realVentas.reduce((s: number, r: any) => s + findNumber(r, FIELD_AMOUNT), 0);
   const totalGastosReal = realGastos.reduce((s: number, r: any) => s + findNumber(r, FIELD_AMOUNT), 0);
@@ -97,17 +103,20 @@ export default function Finanzas() {
       <div className="space-y-6 max-w-7xl">
         <div className="flex items-center justify-between">
           <h1 className="text-2xl font-bold tracking-tight">Finanzas</h1>
-          {hasFinancialData ? (
-            <div className="flex items-center gap-1.5 text-xs text-success bg-success/10 rounded-lg px-3 py-1.5 border border-success/20">
-              <Database className="h-3.5 w-3.5" />
-              Datos reales cargados
-            </div>
-          ) : (
-            <Link to="/carga-datos" className="flex items-center gap-1.5 text-xs text-muted-foreground bg-muted rounded-lg px-3 py-1.5 border border-border hover:text-primary transition-colors">
-              <Upload className="h-3.5 w-3.5" />
-              Cargá tus archivos financieros
-            </Link>
-          )}
+          <div className="flex items-center gap-3">
+            <PeriodFilter value={period} onChange={setPeriod} />
+            {hasFinancialData ? (
+              <div className="flex items-center gap-1.5 text-xs text-success bg-success/10 rounded-lg px-3 py-1.5 border border-success/20">
+                <Database className="h-3.5 w-3.5" />
+                Datos reales cargados
+              </div>
+            ) : (
+              <Link to="/carga-datos" className="flex items-center gap-1.5 text-xs text-muted-foreground bg-muted rounded-lg px-3 py-1.5 border border-border hover:text-primary transition-colors">
+                <Upload className="h-3.5 w-3.5" />
+                Cargá tus archivos financieros
+              </Link>
+            )}
+          </div>
         </div>
 
         <Tabs defaultValue="comparativa">

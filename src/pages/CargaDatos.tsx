@@ -12,6 +12,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import * as XLSX from 'xlsx';
+import { cleanParsedRows } from '@/lib/data-cleaning';
 
 
 interface FileRecord {
@@ -625,6 +626,11 @@ export default function CargaDatos() {
               parsedRows = allRows;
               parsedHeaders = sheetDataSets[0].headers;
             }
+            // Clean data: convert serial dates + filter summary rows
+            if (parsedRows && parsedHeaders) {
+              parsedRows = cleanParsedRows(parsedRows, parsedHeaders);
+              console.log(`[CargaDatos] After cleaning: ${parsedRows.length} rows`);
+            }
             updateItem({ progress: 80 });
             console.log(`[CargaDatos] Client-side parsed: ${parsedRows?.length ?? 0} rows, ${parsedHeaders?.length ?? 0} cols`);
           } catch (parseErr) {
@@ -640,6 +646,11 @@ export default function CargaDatos() {
               if (fixed.rows.length > 50000) fixed.rows.length = 50000;
               parsedRows = fixed.rows;
               parsedHeaders = fixed.headers;
+            }
+            // Clean data: convert serial dates + filter summary rows
+            if (parsedRows && parsedHeaders) {
+              parsedRows = cleanParsedRows(parsedRows, parsedHeaders);
+              console.log(`[CargaDatos] CSV after cleaning: ${parsedRows.length} rows`);
             }
             updateItem({ progress: 80 });
             console.log(`[CargaDatos] Client-side CSV parsed: ${parsedRows?.length ?? 0} rows`);

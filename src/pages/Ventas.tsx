@@ -1,7 +1,10 @@
+import { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { formatCurrency, formatDate } from '@/lib/formatters';
 import { findNumber, findString, FIELD_AMOUNT, FIELD_DATE, FIELD_CLIENT, FIELD_NAME } from '@/lib/field-utils';
 import { useExtractedData } from '@/hooks/useExtractedData';
+import { filterByPeriod, type PeriodKey } from '@/lib/data-cleaning';
+import { PeriodFilter } from '@/components/PeriodFilter';
 import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Tooltip as UITooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip';
@@ -57,7 +60,9 @@ function aggregateByMonth(ventas: any[]): { month: string; value: number }[] {
 
 export default function Ventas() {
   const { data: extractedData, hasData, loading } = useExtractedData();
-  const realVentas = extractedData?.ventas || [];
+  const [period, setPeriod] = useState<PeriodKey>('all');
+  const allVentas = extractedData?.ventas || [];
+  const realVentas = period === 'all' ? allVentas : filterByPeriod(allVentas, FIELD_DATE, period, findString);
 
   if (loading) {
     return (
@@ -71,7 +76,7 @@ export default function Ventas() {
     );
   }
 
-  if (!hasData || realVentas.length === 0) {
+  if (!hasData || allVentas.length === 0) {
     return (
       <TooltipProvider>
         <div className="space-y-6 max-w-7xl">
@@ -120,9 +125,12 @@ export default function Ventas() {
       <div className="space-y-6 max-w-7xl">
         <div className="flex items-center justify-between">
           <h1 className="text-2xl font-bold">Ventas</h1>
-          <div className="flex items-center gap-1.5 text-xs text-success bg-success/10 rounded-lg px-3 py-1.5 border border-success/20">
-            <Database className="h-3.5 w-3.5" />
-            Datos reales ({realVentas.length} registros)
+          <div className="flex items-center gap-3">
+            <PeriodFilter value={period} onChange={setPeriod} />
+            <div className="flex items-center gap-1.5 text-xs text-success bg-success/10 rounded-lg px-3 py-1.5 border border-success/20">
+              <Database className="h-3.5 w-3.5" />
+              Datos reales ({realVentas.length} registros)
+            </div>
           </div>
         </div>
 
