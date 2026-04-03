@@ -864,7 +864,7 @@ export default function CargaDatos() {
           const totalBatches = Math.ceil(cleanedRows.length / ROW_BATCH_SIZE);
           let resolvedCategory: string | undefined;
           for (let bi = 0; bi < totalBatches; bi++) {
-            const batchRows = fixedRows.slice(bi * ROW_BATCH_SIZE, (bi + 1) * ROW_BATCH_SIZE);
+            const batchRows = cleanedRows.slice(bi * ROW_BATCH_SIZE, (bi + 1) * ROW_BATCH_SIZE);
             const { data: pfData, error: pfError } = await supabase.functions.invoke('process-file', {
               body: {
                 fileUploadId: file.id,

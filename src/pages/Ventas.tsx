@@ -13,19 +13,29 @@ import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 
 function aggregateByDate(ventas: any[], m?: any): { day: string; value: number }[] {
-  const map = new Map<string, number>();
+  const map = new Map<string, { date: Date | null; value: number }>();
   for (const r of ventas) {
     const raw = findString(r, FIELD_DATE, m?.date);
     if (!raw) continue;
-    let key = raw;
     const d = parseDate(raw);
-    if (d) {
-      key = d.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit' });
-    }
+    const key = d
+      ? d.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit' })
+      : raw;
     const amt = findNumber(r, FIELD_AMOUNT, m?.amount);
-    map.set(key, (map.get(key) || 0) + amt);
+    const existing = map.get(key);
+    if (existing) {
+      existing.value += amt;
+    } else {
+      map.set(key, { date: d, value: amt });
+    }
   }
-  return Array.from(map.entries()).slice(-30).map(([day, value]) => ({ day, value }));
+  return Array.from(map.entries())
+    .sort(([, a], [, b]) => {
+      if (a.date && b.date) return a.date.getTime() - b.date.getTime();
+      return 0;
+    })
+    .slice(-30)
+    .map(([day, { value }]) => ({ day, value }));
 }
 
 function aggregateByMonth(ventas: any[], m?: any): { month: string; value: number }[] {
