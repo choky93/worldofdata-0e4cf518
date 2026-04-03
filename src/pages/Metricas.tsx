@@ -109,9 +109,9 @@ export default function Metricas() {
   const realGastos = extractedData?.gastos || [];
   const realStock = extractedData?.stock || [];
 
-  const salesEvolution = aggregateByMonth(realVentas, FIELD_AMOUNT);
-  const gastosEvolution = aggregateByMonth(realGastos, FIELD_AMOUNT);
-  const stockEvolution = aggregateByMonth(realStock, FIELD_STOCK_QTY);
+  const salesEvolution = aggregateByMonth(realVentas, FIELD_AMOUNT, mV?.date, mV?.amount);
+  const gastosEvolution = aggregateByMonth(realGastos, FIELD_AMOUNT, mG?.date, mG?.amount);
+  const stockEvolution = aggregateByMonth(realStock, FIELD_STOCK_QTY, mS?.date, mS?.stock_qty);
 
   const hasCharts = salesEvolution.length >= 2;
   const hasAny = hasData && (realVentas.length > 0 || realGastos.length > 0 || realStock.length > 0);
