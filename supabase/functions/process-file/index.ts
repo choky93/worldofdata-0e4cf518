@@ -274,7 +274,96 @@ ${JSON.stringify(sampleRows.slice(0, 10), null, 2)}`;
   }
 }
 
-// ─── AI Extraction for non-tabular content (PDF, images, etc.) ─
+
+// ─── Quarantine: Re-analysis with detailed prompt ─────────────
+async function reAnalyzeMapping(
+  headers: string[],
+  sampleRows: Record<string, unknown>[],
+  fileName: string,
+  originalCategory: string,
+): Promise<Record<string, string | null>> {
+  console.log(`[process-file] ⚠️ Quarantine re-analysis for "${fileName}" (category: ${originalCategory})`);
+
+  const systemPrompt = `Sos un experto en análisis de datos de PyMEs latinoamericanas. Se te pasa un archivo que ya fue clasificado como "${originalCategory}" pero NO se pudieron identificar las columnas clave.
+
+Tu tarea es analizar EXHAUSTIVAMENTE cada columna y determinar cuál corresponde a cada campo semántico. Analizá no solo los nombres sino los VALORES de ejemplo.
+
+Respondé SOLO en JSON: {"column_mapping":{...}}
+
+Claves semánticas según categoría "${originalCategory}":
+${originalCategory === 'ventas' ? '{"amount":"<col>","date":"<col>","name":"<col>","client":"<col>","category":"<col>"}' : ''}
+${originalCategory === 'gastos' ? '{"amount":"<col>","date":"<col>","name":"<col>","category":"<col>","status":"<col>"}' : ''}
+${originalCategory === 'marketing' ? '{"spend":"<col>","date":"<col>","campaign_name":"<col>","clicks":"<col>","impressions":"<col>","conversions":"<col>","reach":"<col>","roas":"<col>","ctr":"<col>","revenue":"<col>"}' : ''}
+${originalCategory === 'stock' ? '{"name":"<col>","quantity":"<col>","price":"<col>","cost":"<col>","min_stock":"<col>"}' : ''}
+${originalCategory === 'clientes' ? '{"name":"<col>","total_purchases":"<col>","debt":"<col>","last_purchase":"<col>","purchase_count":"<col>"}' : ''}
+${['facturas', 'rrhh', 'otro'].includes(originalCategory) ? '{"amount":"<col>","date":"<col>","name":"<col>"}' : ''}
+
+REGLAS IMPORTANTES:
+- Analizá los VALORES de cada columna, no solo el nombre
+- Si una columna tiene valores como "$1.234", "15000", "$ 500.00" → probablemente es un monto
+- Si una columna tiene valores como "01/03/2024", "Enero", "2024-03" → probablemente es una fecha
+- Si una columna tiene valores de texto descriptivos únicos → probablemente es un nombre/descripción
+- El valor debe ser el nombre EXACTO de la columna como aparece en los headers, o null
+- NO dejes null un campo si hay una columna que razonablemente podría corresponder`;
+
+  const content = `Archivo: "${fileName}"
+Columnas: ${JSON.stringify(headers)}
+Todas las filas de ejemplo disponibles:
+${JSON.stringify(sampleRows.slice(0, 20), null, 2)}`;
+
+  const resp = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${Deno.env.get("OPENAI_API_KEY")!}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: "gpt-4.1",
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content },
+      ],
+      response_format: { type: "json_object" },
+      temperature: 0.05,
+      max_tokens: 512,
+    }),
+  });
+
+  if (!resp.ok) {
+    console.error(`[process-file] Re-analysis API error: ${resp.status}`);
+    return {};
+  }
+
+  const data = await resp.json();
+  const raw = data.choices?.[0]?.message?.content || '{}';
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed.column_mapping || {};
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * Check if a column mapping has at least basic critical fields mapped.
+ * Returns true if mapping is acceptable, false if quarantine needed.
+ */
+function isMappingAcceptable(mapping: Record<string, string | null>, category: string): boolean {
+  const amountKeys = ['amount', 'spend', 'salary', 'quantity', 'total_purchases', 'price'];
+  const dateKeys = ['date', 'last_purchase'];
+
+  const hasAmount = amountKeys.some(k => mapping[k] != null);
+  const hasDate = dateKeys.some(k => mapping[k] != null);
+
+  // For stock, we don't strictly need dates
+  if (category === 'stock') return hasAmount || mapping['name'] != null;
+  // For clientes, we don't strictly need dates
+  if (category === 'clientes') return hasAmount || mapping['name'] != null;
+
+  return hasAmount || hasDate;
+}
+
+
 async function extractWithAI(
   content: string,
   fileName: string,
