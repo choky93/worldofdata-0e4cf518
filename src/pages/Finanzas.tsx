@@ -35,16 +35,16 @@ interface ExpenseRow {
   status: 'paid' | 'pending' | 'overdue';
 }
 
-function normalizeExpenses(rows: any[]): ExpenseRow[] {
+function normalizeExpenses(rows: any[], mG?: Record<string, string>): ExpenseRow[] {
   return rows.map((r: any) => {
-    const statusRaw = findString(r, ['estado', 'status']).toLowerCase();
+    const statusRaw = findString(r, ['estado', 'status'], mG?.status).toLowerCase();
     let status: 'paid' | 'pending' | 'overdue' = 'pending';
     if (statusRaw === 'pagado' || statusRaw === 'paid') status = 'paid';
     else if (statusRaw === 'vencido' || statusRaw === 'overdue') status = 'overdue';
     return {
-      name: findString(r, FIELD_NAME) || 'Gasto',
-      amount: findNumber(r, FIELD_AMOUNT),
-      dueDate: findString(r, ['vencimiento', 'fecha_vencimiento', 'due_date', ...FIELD_DATE]),
+      name: findString(r, FIELD_NAME, mG?.name) || 'Gasto',
+      amount: findNumber(r, FIELD_AMOUNT, mG?.amount),
+      dueDate: findString(r, ['vencimiento', 'fecha_vencimiento', 'due_date', ...FIELD_DATE], mG?.date),
       status,
     };
   });
