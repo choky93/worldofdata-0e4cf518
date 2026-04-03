@@ -29,31 +29,24 @@ function aggregateByDate(ventas: any[], m?: any): { day: string; value: number }
 }
 
 function aggregateByMonth(ventas: any[], m?: any): { month: string; value: number }[] {
-  const map = new Map<string, number>();
+  const map = new Map<string, { date: Date; value: number }>();
   for (const r of ventas) {
     const raw = findString(r, FIELD_DATE, m?.date);
     if (!raw) continue;
-    let key = '';
-    const d = new Date(raw);
-    if (!isNaN(d.getTime())) {
-      key = d.toLocaleDateString('es-AR', { month: 'short', year: 'numeric' });
-    } else if (/^\d{4}-\d{2}/.test(raw)) {
-      const [year, month] = raw.split('-');
-      const dt = new Date(parseInt(year), parseInt(month) - 1, 1);
-      key = dt.toLocaleDateString('es-AR', { month: 'short', year: 'numeric' });
-    } else if (/^\d{2}\/\d{2}\/\d{4}/.test(raw)) {
-      const [dd, mm, yyyy] = raw.split('/');
-      const dt = new Date(parseInt(yyyy), parseInt(mm) - 1, parseInt(dd));
-      if (!isNaN(dt.getTime())) key = dt.toLocaleDateString('es-AR', { month: 'short', year: 'numeric' });
-    }
-    if (!key) continue;
+    const d = parseDate(raw);
+    if (!d) continue;
+    const key = d.toLocaleDateString('es-AR', { month: 'short', year: 'numeric' });
+    const existing = map.get(key);
     const amt = findNumber(r, FIELD_AMOUNT, m?.amount);
-    map.set(key, (map.get(key) || 0) + amt);
+    if (existing) {
+      existing.value += amt;
+    } else {
+      map.set(key, { date: d, value: amt });
+    }
   }
-  const parseKey = (s: string) => new Date(s.replace(/(\w+) (\d{4})/, '$1 1, $2')).getTime();
   return Array.from(map.entries())
-    .sort(([a], [b]) => parseKey(a) - parseKey(b))
-    .map(([month, value]) => ({ month, value }));
+    .sort(([, a], [, b]) => a.date.getTime() - b.date.getTime())
+    .map(([month, { value }]) => ({ month, value }));
 }
 
 export default function Ventas() {
