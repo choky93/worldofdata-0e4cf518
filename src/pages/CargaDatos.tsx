@@ -626,6 +626,11 @@ export default function CargaDatos() {
               parsedRows = allRows;
               parsedHeaders = sheetDataSets[0].headers;
             }
+            // Clean data: convert serial dates + filter summary rows
+            if (parsedRows && parsedHeaders) {
+              parsedRows = cleanParsedRows(parsedRows, parsedHeaders);
+              console.log(`[CargaDatos] After cleaning: ${parsedRows.length} rows`);
+            }
             updateItem({ progress: 80 });
             console.log(`[CargaDatos] Client-side parsed: ${parsedRows?.length ?? 0} rows, ${parsedHeaders?.length ?? 0} cols`);
           } catch (parseErr) {
