@@ -396,8 +396,8 @@ async function processTabularData(
 
   // Step 1: AI classifies using headers + sample (one cheap call)
   const sampleRows = allRows.slice(0, 10);
-  const { category, summary } = await classifyWithAI(headers, sampleRows, fileName);
-  console.log(`[process-file] Classification: category=${category}`);
+  const { category, summary, column_mapping } = await classifyWithAI(headers, sampleRows, fileName);
+  console.log(`[process-file] Classification: category=${category}, mapping keys=${Object.keys(column_mapping).join(',')}`);
 
   // Step 2: Store all rows in batches deterministically (no AI)
   const totalBatches = Math.ceil(allRows.length / BATCH_SIZE);
@@ -405,6 +405,16 @@ async function processTabularData(
 
   // Clean up any previous extracted data (including _raw_cache)
   await sb.from("file_extracted_data").delete().eq("file_upload_id", fileUploadId);
+
+  // Store column_mapping as _classification chunk (persists after processing)
+  await sb.from("file_extracted_data").insert({
+    file_upload_id: fileUploadId,
+    company_id: companyId,
+    data_category: "_column_mapping",
+    extracted_json: { category, column_mapping },
+    chunk_index: 0,
+    row_count: 0,
+  });
 
   for (let i = 0; i < totalBatches; i++) {
     const batchRows = allRows.slice(i * BATCH_SIZE, (i + 1) * BATCH_SIZE);
