@@ -983,6 +983,7 @@ export default function CargaDatos() {
             ) : (
               <Upload className="h-10 w-10 mx-auto text-muted-foreground mb-3" />
             )}
+            <p className="font-medium">{isUploading ? 'Subiendo archivos...' : 'Arrastrá archivos acá o hacé click para seleccionar'}</p>
             <p className="text-sm text-muted-foreground mt-1">Podés seleccionar muchos a la vez.</p>
             <p className="text-xs text-muted-foreground mt-2">Formatos aceptados: Excel (.xlsx, .xls), CSV (.csv), PDF (.pdf), Imágenes (.png, .jpg, .webp, .gif, .bmp), Word (.doc, .docx), XML (.xml) — Máx. 100MB por archivo.</p>
             <input
