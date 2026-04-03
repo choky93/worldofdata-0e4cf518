@@ -76,7 +76,7 @@ export default function Ventas() {
     );
   }
 
-  if (!hasData || realVentas.length === 0) {
+  if (!hasData || allVentas.length === 0) {
     return (
       <TooltipProvider>
         <div className="space-y-6 max-w-7xl">
