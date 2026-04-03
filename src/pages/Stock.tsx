@@ -37,13 +37,13 @@ interface ProductRow {
   supplierLeadDays: number;
 }
 
-function normalizeProducts(rawData: any[]): ProductRow[] {
+function normalizeProducts(rawData: any[], m?: ColumnMapping): ProductRow[] {
   return rawData.map((r: any, i: number) => {
-    const stock = Math.round(findNumber(r, FIELD_STOCK_QTY));
-    const minStock = Math.round(findNumber(r, FIELD_STOCK_MIN));
-    const maxStock = Math.round(findNumber(r, FIELD_STOCK_MAX)) || Math.max(stock * 2, 100);
-    const price = findNumber(r, FIELD_PRICE);
-    const cost = findNumber(r, FIELD_COST);
+    const stock = Math.round(findNumber(r, FIELD_STOCK_QTY, m?.stock_qty));
+    const minStock = Math.round(findNumber(r, FIELD_STOCK_MIN, m?.stock_min));
+    const maxStock = Math.round(findNumber(r, FIELD_STOCK_MAX, m?.stock_max)) || Math.max(stock * 2, 100);
+    const price = findNumber(r, FIELD_PRICE, m?.price);
+    const cost = findNumber(r, FIELD_COST, m?.cost);
 
     let status: 'ok' | 'low' | 'overstock' = 'ok';
     if (minStock > 0 && stock < minStock) status = 'low';
@@ -51,15 +51,15 @@ function normalizeProducts(rawData: any[]): ProductRow[] {
 
     return {
       id: r.id || String(i + 1),
-      name: findString(r, FIELD_NAME) || `Producto ${i + 1}`,
+      name: findString(r, FIELD_NAME, m?.name) || `Producto ${i + 1}`,
       stock,
       minStock,
       maxStock,
       price,
       cost,
       status,
-      avgDailySales: findNumber(r, ['venta_diaria', 'avg_daily_sales']),
-      supplierLeadDays: Math.round(findNumber(r, ['lead_days', 'dias_proveedor'])) || 10,
+      avgDailySales: findNumber(r, ['venta_diaria', 'avg_daily_sales'], m?.avg_daily_sales),
+      supplierLeadDays: Math.round(findNumber(r, ['lead_days', 'dias_proveedor'], m?.lead_days)) || 10,
     };
   });
 }
