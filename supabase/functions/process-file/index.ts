@@ -28,7 +28,12 @@ async function downloadFromR2(storagePath: string): Promise<ArrayBuffer> {
   });
   const url = `${Deno.env.get("CLOUDFLARE_R2_ENDPOINT")!}/${Deno.env.get("CLOUDFLARE_R2_BUCKET_NAME")!}/${storagePath}`;
   const resp = await aws.fetch(url, { method: "GET" });
-  if (!resp.ok) throw new Error(`R2 download failed [${resp.status}]`);
+  if (!resp.ok) {
+    if (resp.status === 404 || resp.status === 403) {
+      throw new Error(`Archivo no encontrado en storage. Volvé a subir el archivo desde la interfaz.`);
+    }
+    throw new Error(`R2 download failed [${resp.status}]`);
+  }
   return resp.arrayBuffer();
 }
 
@@ -83,7 +88,6 @@ function fixBrokenHeaders(rows: Record<string, unknown>[]): { rows: Record<strin
   const originalHeaders = Object.keys(rows[0]);
   const emptyCount = originalHeaders.filter(h => h.startsWith('__EMPTY') || h.trim() === '').length;
   if (emptyCount / originalHeaders.length < 0.5) {
-    // Filter completely empty rows
     const filtered = rows.filter(row => Object.values(row).some(v => String(v ?? '').trim() !== ''));
     return { rows: filtered, headers: originalHeaders };
   }
@@ -131,17 +135,26 @@ function excelSerialToISO(serial: number): string {
   return new Date((serial - 25569) * 86400000).toISOString().split('T')[0];
 }
 
-function convertSerialDates(rows: Record<string, unknown>[], headers: string[]): void {
-  const dateHeaders = headers.filter(h => DATE_KW.some(kw => norm(h).includes(kw)));
-  if (dateHeaders.length === 0) return;
+/**
+ * Convert Excel serial dates to ISO strings.
+ * Checks both keyword-matched headers AND explicitly mapped date columns.
+ */
+function convertSerialDates(rows: Record<string, unknown>[], headers: string[], mappedDateCol?: string | null): void {
+  const dateHeaders = new Set(headers.filter(h => DATE_KW.some(kw => norm(h).includes(kw))));
+  if (mappedDateCol) dateHeaders.add(mappedDateCol);
+  if (dateHeaders.size === 0) return;
+
   for (const row of rows) {
     for (const h of dateHeaders) {
       const val = row[h];
       if (typeof val === 'number' && val > 1 && val < 200000) {
         row[h] = excelSerialToISO(val);
-      } else if (typeof val === 'string') {
-        const num = parseFloat(val);
-        if (!isNaN(num) && num > 25569 && num < 200000 && /^\d+(\.\d+)?$/.test(val.trim())) {
+        continue;
+      }
+      if (typeof val === 'string') {
+        const trimmed = val.trim();
+        const num = parseFloat(trimmed);
+        if (!isNaN(num) && num > 25569 && num < 200000 && /^\d+(\.\d+)?$/.test(trimmed)) {
           row[h] = excelSerialToISO(num);
         }
       }
@@ -164,8 +177,8 @@ function filterSummaryRows(rows: Record<string, unknown>[], headers: string[]): 
   });
 }
 
-function cleanRows(rows: Record<string, unknown>[], headers: string[]): Record<string, unknown>[] {
-  convertSerialDates(rows, headers);
+function cleanRows(rows: Record<string, unknown>[], headers: string[], mappedDateCol?: string | null): Record<string, unknown>[] {
+  convertSerialDates(rows, headers, mappedDateCol);
   return filterSummaryRows(rows, headers);
 }
 
@@ -353,10 +366,6 @@ ${JSON.stringify(sampleRows.slice(0, 20), null, 2)}`;
   }
 }
 
-/**
- * Check if a column mapping has at least basic critical fields mapped.
- * Returns true if mapping is acceptable, false if quarantine needed.
- */
 function isMappingAcceptable(mapping: Record<string, string | null>, category: string): boolean {
   const amountKeys = ['amount', 'spend', 'salary', 'quantity', 'total_purchases', 'price'];
   const dateKeys = ['date', 'last_purchase'];
@@ -364,9 +373,7 @@ function isMappingAcceptable(mapping: Record<string, string | null>, category: s
   const hasAmount = amountKeys.some(k => mapping[k] != null);
   const hasDate = dateKeys.some(k => mapping[k] != null);
 
-  // For stock, we don't strictly need dates
   if (category === 'stock') return hasAmount || mapping['name'] != null;
-  // For clientes, we don't strictly need dates
   if (category === 'clientes') return hasAmount || mapping['name'] != null;
 
   return hasAmount || hasDate;
@@ -453,7 +460,6 @@ Reglas:
 }
 
 // ─── Deterministic row storage ────────────────────────────────
-// Stores rows directly without AI, in batches
 async function storeRowBatch(
   sb: ReturnType<typeof createClient>,
   rows: Record<string, unknown>[],
@@ -464,7 +470,6 @@ async function storeRowBatch(
   companyId: string,
   batchIndex: number,
 ): Promise<void> {
-  // Delete any existing data for this batch — but preserve metadata rows
   await sb.from("file_extracted_data")
     .delete()
     .eq("file_upload_id", fileUploadId)
@@ -493,19 +498,19 @@ async function processTabularData(
 ): Promise<{ category: string; summary: string; totalRows: number }> {
   console.log(`[process-file] Deterministic tabular processing: ${allRows.length} rows, ${headers.length} columns`);
 
-  // Step 1: AI classifies using headers + sample (one cheap call)
   const sampleRows = allRows.slice(0, 10);
   const { category, summary, column_mapping } = await classifyWithAI(headers, sampleRows, fileName);
   console.log(`[process-file] Classification: category=${category}, mapping keys=${Object.keys(column_mapping).join(',')}`);
 
-  // Step 2: Store all rows in batches deterministically (no AI)
+  // Apply date normalization using both keywords AND mapped date column
+  const mappedDate = column_mapping?.date || null;
+  convertSerialDates(allRows, headers, mappedDate);
+
   const totalBatches = Math.ceil(allRows.length / BATCH_SIZE);
   console.log(`[process-file] Storing ${allRows.length} rows in ${totalBatches} batch(es)`);
 
-  // Clean up any previous extracted data (including _raw_cache)
   await sb.from("file_extracted_data").delete().eq("file_upload_id", fileUploadId);
 
-  // Store column_mapping as _classification chunk (persists after processing)
   await sb.from("file_extracted_data").insert({
     file_upload_id: fileUploadId,
     company_id: companyId,
@@ -522,7 +527,6 @@ async function processTabularData(
       fileUploadId, companyId, i);
   }
 
-  // Update total_chunks
   await sb.from("file_uploads").update({ total_chunks: totalBatches }).eq("id", fileUploadId);
 
   return { category, summary, totalRows: allRows.length };
@@ -594,15 +598,13 @@ serve(async (req) => {
     const companyId = body.companyId;
     const startChunk = body.startChunk || 0;
 
-    // ─── NEW: Structured row batch from client ────────────────
     const rowBatch = body.rowBatch as Record<string, unknown>[] | undefined;
     const headers = body.headers as string[] | undefined;
     const batchIndex = body.batchIndex as number | undefined;
     const totalBatches = body.totalBatches as number | undefined;
     const totalRows = body.totalRows as number | undefined;
-    const explicitCategory = body.category as string | undefined; // passed from client for batches > 0
+    const explicitCategory = body.category as string | undefined;
 
-    // ─── LEGACY: preParsedData (CSV text from old client code) ─
     const preParsedData = body.preParsedData;
 
     console.log(`[process-file] fileUploadId=${fileUploadId}, companyId=${companyId}`);
@@ -626,15 +628,16 @@ serve(async (req) => {
     // PATH A: Structured row batch (new deterministic pipeline)
     // ══════════════════════════════════════════════════════════
     if (rowBatch && headers && batchIndex !== undefined && totalBatches !== undefined) {
-      // Clean data: convert serial dates + filter summary rows
-      const cleanedBatch = cleanRows(rowBatch, headers);
-      console.log(`[process-file] Row batch ${batchIndex + 1}/${totalBatches} for "${file_name}" (${rowBatch.length} → ${cleanedBatch.length} rows after cleaning)`);
-
       if (batchIndex === 0) {
         // First batch: classify with AI
-        let { category, summary, column_mapping } = await classifyWithAI(headers, cleanedBatch.slice(0, 10), file_name);
+        let { category, summary, column_mapping } = await classifyWithAI(headers, rowBatch.slice(0, 10), file_name);
 
-        // ─── Quarantine check: verify mapping quality ─────────
+        // Apply date normalization using mapped date column
+        const mappedDate = column_mapping?.date || null;
+        const cleanedBatch = cleanRows(rowBatch, headers, mappedDate);
+        console.log(`[process-file] Row batch ${batchIndex + 1}/${totalBatches} for "${file_name}" (${rowBatch.length} → ${cleanedBatch.length} rows after cleaning)`);
+
+        // Quarantine check
         if (!isMappingAcceptable(column_mapping, category)) {
           console.log(`[process-file] ⚠️ Mapping insufficient for "${file_name}". Triggering re-analysis...`);
           const reMapping = await reAnalyzeMapping(headers, cleanedBatch.slice(0, 20), file_name, category);
@@ -643,18 +646,16 @@ serve(async (req) => {
             column_mapping = reMapping;
           } else {
             console.log(`[process-file] ⚠️ Re-analysis also failed for "${file_name}". Marking for review.`);
-            // Merge whatever the re-analysis found
             for (const [k, v] of Object.entries(reMapping)) {
               if (v && !column_mapping[k]) column_mapping[k] = v;
             }
-            // Mark file for review (but still save data)
             await sb.from("file_uploads").update({
               processing_error: "Requiere revisión: no se detectaron campos clave (monto/fecha). Los datos se guardaron pero pueden necesitar ajuste manual.",
             }).eq("id", fileUploadId);
           }
         }
 
-        // Store classification metadata for subsequent batches (including column_mapping)
+        // Store classification metadata
         await sb.from("file_extracted_data").delete()
           .eq("file_upload_id", fileUploadId)
           .eq("data_category", "_classification");
@@ -667,7 +668,7 @@ serve(async (req) => {
           row_count: 0,
         });
 
-        // Also store persistent column_mapping chunk
+        // Store persistent column_mapping
         await sb.from("file_extracted_data").delete()
           .eq("file_upload_id", fileUploadId)
           .eq("data_category", "_column_mapping");
@@ -690,11 +691,9 @@ serve(async (req) => {
         }).eq("id", fileUploadId);
 
         if (totalBatches === 1) {
-          // Single batch → done
           await sb.from("file_extracted_data").delete()
             .eq("file_upload_id", fileUploadId)
             .eq("data_category", "_classification");
-          // Check if quarantine flagged this file
           const { data: flagCheck } = await sb.from("file_uploads").select("processing_error").eq("id", fileUploadId).single();
           const finalStatus = flagCheck?.processing_error?.includes("Requiere revisión") ? "review" : "processed";
           await sb.from("file_uploads").update({ status: finalStatus, ...(finalStatus === "processed" ? { processing_error: null } : {}) }).eq("id", fileUploadId);
@@ -707,9 +706,9 @@ serve(async (req) => {
         }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
       } else {
-        // Subsequent batch: use explicit category from client, or fall back to DB lookup
+        // Subsequent batch: clean with mapped date column from classification
         let category = explicitCategory || "";
-        let summary = "";
+        let mappedDate: string | null = null;
 
         if (!category) {
           const { data: classData } = await sb.from("file_extracted_data")
@@ -718,8 +717,21 @@ serve(async (req) => {
             .eq("data_category", "_classification")
             .single();
           category = (classData?.extracted_json as any)?.category || "otro";
-          summary = (classData?.extracted_json as any)?.summary || "";
+          mappedDate = (classData?.extracted_json as any)?.column_mapping?.date || null;
         }
+
+        // Also try _column_mapping for date column
+        if (!mappedDate) {
+          const { data: mapData } = await sb.from("file_extracted_data")
+            .select("extracted_json")
+            .eq("file_upload_id", fileUploadId)
+            .eq("data_category", "_column_mapping")
+            .single();
+          mappedDate = (mapData?.extracted_json as any)?.column_mapping?.date || null;
+        }
+
+        const cleanedBatch = cleanRows(rowBatch, headers, mappedDate);
+        console.log(`[process-file] Row batch ${batchIndex + 1}/${totalBatches} for "${file_name}" (${rowBatch.length} → ${cleanedBatch.length} rows after cleaning)`);
 
         await storeRowBatch(sb, cleanedBatch, headers, category,
           `Lote ${batchIndex + 1}/${totalBatches}`, fileUploadId, companyId, batchIndex);
@@ -730,7 +742,6 @@ serve(async (req) => {
 
         const isLast = batchIndex === totalBatches - 1;
         if (isLast) {
-          // Clean up classification metadata
           await sb.from("file_extracted_data").delete()
             .eq("file_upload_id", fileUploadId)
             .eq("data_category", "_classification");
@@ -749,19 +760,16 @@ serve(async (req) => {
     }
 
     // ══════════════════════════════════════════════════════════
-    // PATH B: Legacy preParsedData (CSV text — try to parse to rows)
+    // PATH B: Legacy preParsedData
     // ══════════════════════════════════════════════════════════
     if (preParsedData) {
       const content = typeof preParsedData === 'string' ? preParsedData : JSON.stringify(preParsedData);
-
-      // Try to parse CSV text into structured rows
       const rows = parseCSV(content);
       if (rows.length > 0) {
         const parsedHeaders = Object.keys(rows[0]);
         console.log(`[process-file] Legacy preParsed → parsed ${rows.length} rows, using deterministic path`);
         resultInfo = await processTabularData(sb, rows, parsedHeaders, file_name, fileUploadId, companyId);
       } else {
-        // Fallback: treat as unstructured text (shouldn't happen often)
         console.log(`[process-file] Legacy preParsed → could not parse rows, using AI extraction`);
         const result = await extractWithAI(content.substring(0, MAX_CONTENT_CHARS), file_name);
         await sb.from("file_extracted_data").delete().eq("file_upload_id", fileUploadId);
@@ -794,14 +802,12 @@ serve(async (req) => {
       let allRows = parseCSV(text);
       console.log(`[process-file] CSV parsed: ${allRows.length} rows`);
 
-      // Apply fixBrokenHeaders to CSV too
       if (allRows.length > 0) {
         const fixed = fixBrokenHeaders(allRows);
         allRows = cleanRows(fixed.rows, fixed.headers.length > 0 ? fixed.headers : Object.keys(allRows[0]));
         const parsedHeaders = fixed.headers.length > 0 ? fixed.headers : Object.keys(allRows[0]);
         resultInfo = await processTabularData(sb, allRows, parsedHeaders, file_name, fileUploadId, companyId);
       } else {
-        // Empty CSV — use AI on raw text
         const result = await extractWithAI(text.substring(0, MAX_CONTENT_CHARS), file_name);
         await sb.from("file_extracted_data").delete().eq("file_upload_id", fileUploadId);
         await sb.from("file_extracted_data").insert({
@@ -812,28 +818,31 @@ serve(async (req) => {
         resultInfo = { category: result.category, summary: result.summary, totalRows: result.rowCount };
       }
 
-    // ─── Excel: Deterministic if possible, error if too large ─
+    // ─── Excel: Deterministic if possible ────────────────────
     } else if (['xls', 'xlsx'].includes(ext)) {
+      const parseExcel = () => {
+        const wb = XLSX.read(bytes, { type: 'array', dense: true, cellStyles: false, cellNF: false, cellText: false, sheetRows: MAX_EXCEL_ROWS });
+        const allRows: Record<string, unknown>[] = [];
+        let headers: string[] = [];
+        for (const sheetName of wb.SheetNames) {
+          const sheet = wb.Sheets[sheetName];
+          if (!sheet) continue;
+          const sheetRows = XLSX.utils.sheet_to_json(sheet, { defval: '' }) as Record<string, unknown>[];
+          if (sheetRows.length > 0 && headers.length === 0) {
+            headers = Object.keys(sheetRows[0]);
+          }
+          allRows.push(...sheetRows);
+          if (allRows.length >= MAX_EXCEL_ROWS) break;
+        }
+        if (allRows.length > MAX_EXCEL_ROWS) allRows.length = MAX_EXCEL_ROWS;
+        return { allRows, headers };
+      };
+
       if (buffer.byteLength > MAX_EXCEL_FILE_SIZE) {
         const sizeMB = (buffer.byteLength / 1024 / 1024).toFixed(1);
         console.warn(`[process-file] Excel too large: ${sizeMB}MB`);
-        // Instead of erroring, try to parse anyway with limits
         try {
-          const wb = XLSX.read(bytes, { type: 'array', dense: true, cellStyles: false, cellNF: false, cellText: false, sheetRows: MAX_EXCEL_ROWS });
-          const allRows: Record<string, unknown>[] = [];
-          let headers: string[] = [];
-          for (const sheetName of wb.SheetNames) {
-            const sheet = wb.Sheets[sheetName];
-            if (!sheet) continue;
-            const sheetRows = XLSX.utils.sheet_to_json(sheet, { defval: '' }) as Record<string, unknown>[];
-            if (sheetRows.length > 0 && headers.length === 0) {
-              headers = Object.keys(sheetRows[0]);
-            }
-            allRows.push(...sheetRows);
-            if (allRows.length >= MAX_EXCEL_ROWS) break;
-          }
-          if (allRows.length > MAX_EXCEL_ROWS) allRows.length = MAX_EXCEL_ROWS;
-
+          const { allRows, headers } = parseExcel();
           if (allRows.length > 0) {
             const fixed = fixBrokenHeaders(allRows);
             const cleaned = cleanRows(fixed.rows, fixed.headers.length > 0 ? fixed.headers : headers);
@@ -849,29 +858,14 @@ serve(async (req) => {
           });
         }
       } else {
-        // Normal Excel — parse to rows deterministically
         try {
-          const wb = XLSX.read(bytes, { type: 'array', dense: true, cellStyles: false, cellNF: false, cellText: false, sheetRows: MAX_EXCEL_ROWS });
-          const allRows: Record<string, unknown>[] = [];
-          let headers: string[] = [];
-          for (const sheetName of wb.SheetNames) {
-            const sheet = wb.Sheets[sheetName];
-            if (!sheet) continue;
-            const sheetRows = XLSX.utils.sheet_to_json(sheet, { defval: '' }) as Record<string, unknown>[];
-            if (sheetRows.length > 0 && headers.length === 0) {
-              headers = Object.keys(sheetRows[0]);
-            }
-            allRows.push(...sheetRows);
-            if (allRows.length >= MAX_EXCEL_ROWS) break;
-          }
-          if (allRows.length > MAX_EXCEL_ROWS) allRows.length = MAX_EXCEL_ROWS;
-
+          const { allRows, headers } = parseExcel();
           if (allRows.length > 0) {
             const fixed = fixBrokenHeaders(allRows);
             const cleaned = cleanRows(fixed.rows, fixed.headers.length > 0 ? fixed.headers : headers);
             resultInfo = await processTabularData(sb, cleaned, fixed.headers.length > 0 ? fixed.headers : headers, file_name, fileUploadId, companyId);
           } else {
-            // Empty Excel — try AI extraction on CSV text
+            const wb = XLSX.read(bytes, { type: 'array' });
             const csv = XLSX.utils.sheet_to_csv(wb.Sheets[wb.SheetNames[0]], { FS: ',', RS: '\n' });
             const result = await extractWithAI(csv.substring(0, MAX_CONTENT_CHARS), file_name);
             await sb.from("file_extracted_data").delete().eq("file_upload_id", fileUploadId);
@@ -917,7 +911,6 @@ serve(async (req) => {
       const processingMetadata: Record<string, unknown> = { method: pdfResult.method, pages: pdfResult.pages };
 
       if (pdfResult.method === 'text_extraction' && pdfResult.text.length > 50) {
-        // Try to parse PDF text as CSV (some PDFs are tabular)
         const pdfRows = parseCSV(pdfResult.text);
         if (pdfRows.length > 10) {
           const pdfHeaders = Object.keys(pdfRows[0]);
