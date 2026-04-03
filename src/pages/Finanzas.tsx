@@ -82,10 +82,13 @@ export default function Finanzas() {
 
   const removeEntry = (id: string) => setLedger(ledger.filter(e => e.id !== id));
 
-  // Derive financial data from extracted records
-  const realVentas = extractedData?.ventas || [];
-  const realGastos = extractedData?.gastos || [];
-  const realFacturas = extractedData?.facturas || [];
+  // Derive financial data from extracted records, filtered by period
+  const allVentas = extractedData?.ventas || [];
+  const allGastos = extractedData?.gastos || [];
+  const allFacturas = extractedData?.facturas || [];
+  const realVentas = period === 'all' ? allVentas : filterByPeriod(allVentas, FIELD_DATE, period, findString);
+  const realGastos = period === 'all' ? allGastos : filterByPeriod(allGastos, FIELD_DATE, period, findString);
+  const realFacturas = period === 'all' ? allFacturas : filterByPeriod(allFacturas, FIELD_DATE, period, findString);
 
   const totalVentasReal = realVentas.reduce((s: number, r: any) => s + findNumber(r, FIELD_AMOUNT), 0);
   const totalGastosReal = realGastos.reduce((s: number, r: any) => s + findNumber(r, FIELD_AMOUNT), 0);
