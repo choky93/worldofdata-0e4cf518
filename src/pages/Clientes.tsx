@@ -39,7 +39,8 @@ function normalizeClients(rawData: any[], m?: ColumnMapping): ClientRow[] {
 }
 
 export default function Clientes() {
-  const { data: extractedData, hasData, loading } = useExtractedData();
+  const { data: extractedData, mappings, hasData, loading } = useExtractedData();
+  const mC = mappings.clientes;
   const realClientes = extractedData?.clientes || [];
   const useReal = hasData && realClientes.length > 0;
 
