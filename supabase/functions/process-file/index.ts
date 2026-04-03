@@ -548,6 +548,19 @@ serve(async (req) => {
           row_count: 0,
         });
 
+        // Also store persistent column_mapping chunk
+        await sb.from("file_extracted_data").delete()
+          .eq("file_upload_id", fileUploadId)
+          .eq("data_category", "_column_mapping");
+        await sb.from("file_extracted_data").insert({
+          file_upload_id: fileUploadId,
+          company_id: companyId,
+          data_category: "_column_mapping",
+          extracted_json: { category, column_mapping },
+          chunk_index: 0,
+          row_count: 0,
+        });
+
         // Store first batch
         await storeRowBatch(sb, cleanedBatch, headers, category,
           `${summary} (${totalRows || cleanedBatch.length} filas)`, fileUploadId, companyId, 0);
