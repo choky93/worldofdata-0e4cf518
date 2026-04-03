@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { useExtractedData } from '@/hooks/useExtractedData';
 import { formatDate } from '@/lib/formatters';
 import { findNumber, findString, FIELD_NAME, FIELD_STOCK_QTY, FIELD_STOCK_MIN, FIELD_DEBT } from '@/lib/field-utils';
+import type { CategoryMappings } from '@/hooks/useExtractedData';
 import { Package, Users, Wallet, TrendingUp, Check, Bell, ArrowRight, Upload, Loader2 } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip';
 import { Link } from 'react-router-dom';
