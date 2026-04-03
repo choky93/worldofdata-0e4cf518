@@ -93,7 +93,7 @@ export default function Marketing() {
     );
   }
 
-  const campaigns = normalizeMarketing(filteredMarketing);
+  const campaigns = normalizeMarketing(filteredMarketing, m);
   const totalSpend = campaigns.reduce((s, c) => s + c.spend, 0);
   const totalRevenue = campaigns.reduce((s, c) => s + c.revenue, 0);
   const globalRoas = totalSpend > 0 ? totalRevenue / totalSpend : 0;
