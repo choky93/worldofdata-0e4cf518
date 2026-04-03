@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, createContext, useContext, ReactNode } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import type { ColumnMapping } from '@/lib/field-utils';
@@ -35,20 +35,31 @@ export interface CategoryMappings {
   otro: ColumnMapping;
 }
 
-export function useExtractedData() {
+interface ExtractedDataContextValue {
+  data: AggregatedData | null;
+  mappings: CategoryMappings;
+  loading: boolean;
+  hasData: boolean;
+  refetch: () => Promise<void>;
+}
+
+const defaultMappings: CategoryMappings = {
+  ventas: {}, gastos: {}, stock: {}, clientes: {},
+  marketing: {}, facturas: {}, rrhh: {}, otro: {},
+};
+
+const ExtractedDataContext = createContext<ExtractedDataContextValue | undefined>(undefined);
+
+export function ExtractedDataProvider({ children }: { children: ReactNode }) {
   const { profile } = useAuth();
   const [data, setData] = useState<AggregatedData | null>(null);
-  const [mappings, setMappings] = useState<CategoryMappings>({
-    ventas: {}, gastos: {}, stock: {}, clientes: {},
-    marketing: {}, facturas: {}, rrhh: {}, otro: {},
-  });
+  const [mappings, setMappings] = useState<CategoryMappings>({ ...defaultMappings });
   const [loading, setLoading] = useState(true);
   const [hasData, setHasData] = useState(false);
 
   const fetchData = useCallback(async () => {
     if (!profile?.company_id) return;
     try {
-      // Paginate to fetch ALL chunks (API default limit is 1000)
       const PAGE = 1000;
       let allRecords: ExtractedRecord[] = [];
       let from = 0;
@@ -78,7 +89,6 @@ export function useExtractedData() {
         marketing: {}, facturas: {}, rrhh: {}, otro: {},
       };
 
-      // Separate _column_mapping records from data records
       const dataRecords: ExtractedRecord[] = [];
       for (const r of allRecords) {
         if (r.data_category === '_column_mapping') {
@@ -86,7 +96,6 @@ export function useExtractedData() {
           const cat = json?.category as keyof CategoryMappings;
           const mapping = json?.column_mapping;
           if (cat && mapping && mergedMappings[cat]) {
-            // Merge (first one wins — most recent due to order)
             const target = mergedMappings[cat];
             for (const [k, v] of Object.entries(mapping)) {
               if (v && !target[k]) target[k] = v as string;
@@ -128,5 +137,17 @@ export function useExtractedData() {
     fetchData();
   }, [fetchData]);
 
-  return { data, mappings, loading, hasData, refetch: fetchData };
+  return (
+    <ExtractedDataContext.Provider value={{ data, mappings, loading, hasData, refetch: fetchData }}>
+      {children}
+    </ExtractedDataContext.Provider>
+  );
+}
+
+export function useExtractedData() {
+  const context = useContext(ExtractedDataContext);
+  if (context === undefined) {
+    throw new Error('useExtractedData must be used within an ExtractedDataProvider');
+  }
+  return context;
 }

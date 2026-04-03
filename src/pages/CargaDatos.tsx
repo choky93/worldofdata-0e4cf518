@@ -13,6 +13,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import * as XLSX from 'xlsx';
 import { cleanParsedRows } from '@/lib/data-cleaning';
+import { useExtractedData } from '@/hooks/useExtractedData';
 
 
 interface FileRecord {
@@ -366,6 +367,7 @@ function StatusDashboard({ files, totalCount }: { files: FileRecord[]; totalCoun
 
 export default function CargaDatos() {
   const { user, profile, role, companySettings } = useAuth();
+  const { refetch: refetchExtractedData } = useExtractedData();
   const [files, setFiles] = useState<FileRecord[]>([]);
   const [totalCount, setTotalCount] = useState(0);
   const [extractedDataMap, setExtractedDataMap] = useState<Record<string, ExtractedData[]>>({});
@@ -761,6 +763,7 @@ export default function CargaDatos() {
 
     await Promise.all(activePromises);
     fetchFiles();
+    refetchExtractedData();
   };
 
   const handleDrop = useCallback((e: React.DragEvent) => {
