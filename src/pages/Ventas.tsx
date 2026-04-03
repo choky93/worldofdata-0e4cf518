@@ -63,7 +63,7 @@ export default function Ventas() {
   const m = mappings.ventas;
   const [period, setPeriod] = useState<PeriodKey>('all');
   const allVentas = extractedData?.ventas || [];
-  const realVentas = period === 'all' ? allVentas : filterByPeriod(allVentas, FIELD_DATE, period, findString);
+  const realVentas = period === 'all' ? allVentas : filterByPeriod(allVentas, FIELD_DATE, period, (row, kw) => findString(row, kw, m?.date));
 
   if (loading) {
     return (
