@@ -763,6 +763,7 @@ export default function CargaDatos() {
 
     await Promise.all(activePromises);
     fetchFiles();
+    refetchExtractedData();
   };
 
   const handleDrop = useCallback((e: React.DragEvent) => {
