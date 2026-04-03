@@ -60,7 +60,9 @@ function aggregateByMonth(ventas: any[]): { month: string; value: number }[] {
 
 export default function Ventas() {
   const { data: extractedData, hasData, loading } = useExtractedData();
-  const realVentas = extractedData?.ventas || [];
+  const [period, setPeriod] = useState<PeriodKey>('all');
+  const allVentas = extractedData?.ventas || [];
+  const realVentas = period === 'all' ? allVentas : filterByPeriod(allVentas, FIELD_DATE, period, findString);
 
   if (loading) {
     return (
