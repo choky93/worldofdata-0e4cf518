@@ -22,14 +22,17 @@ function buildAlertsFromData(data: ReturnType<typeof useExtractedData>['data'], 
   const today = new Date().toISOString().split('T')[0];
 
   // Stock alerts
+  const mS = mappings.stock;
+  const mC = mappings.clientes;
+  const mG = mappings.gastos;
   const stockRows = data.stock || [];
   const lowStock = stockRows.filter((r: any) => {
-    const stock = Math.round(findNumber(r, FIELD_STOCK_QTY));
-    const min = Math.round(findNumber(r, FIELD_STOCK_MIN));
+    const stock = Math.round(findNumber(r, FIELD_STOCK_QTY, mS?.stock_qty));
+    const min = Math.round(findNumber(r, FIELD_STOCK_MIN, mS?.stock_min));
     return min > 0 && stock < min;
   });
   if (lowStock.length > 0) {
-    const names = lowStock.slice(0, 3).map((r: any) => findString(r, FIELD_NAME) || 'producto').join(', ');
+    const names = lowStock.slice(0, 3).map((r: any) => findString(r, FIELD_NAME, mS?.name) || 'producto').join(', ');
     alerts.push({
       id: 'stock-low',
       type: 'stock',
