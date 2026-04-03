@@ -945,6 +945,7 @@ export default function CargaDatos() {
       case 'queued': return 'En cola';
       case 'processing': return 'Procesando';
       case 'cancelled': return 'Cancelado';
+      case 'review': return 'Pendiente de revisión';
       default: return status || 'Desconocido';
     }
   };
