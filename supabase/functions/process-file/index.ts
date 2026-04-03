@@ -669,31 +669,35 @@ serve(async (req) => {
           }
         }
 
-        // Store classification metadata (chunk_index -2 to avoid unique constraint conflict with data batch 0)
-        await sb.from("file_extracted_data").delete()
-          .eq("file_upload_id", fileUploadId)
-          .eq("data_category", "_classification");
-        await sb.from("file_extracted_data").insert({
+        // Store classification metadata using upsert (chunk_index -2)
+        const { error: classErr } = await sb.from("file_extracted_data").upsert({
           file_upload_id: fileUploadId,
           company_id: companyId,
           data_category: "_classification",
           extracted_json: { category, summary, column_mapping },
           chunk_index: -2,
           row_count: 0,
-        });
+        }, { onConflict: 'file_upload_id,chunk_index' });
+        if (classErr) {
+          console.error(`[process-file] ❌ UPSERT _classification FAILED:`, classErr.message, classErr.details);
+        } else {
+          console.log(`[process-file] ✅ Stored _classification at chunk_index=-2 (category=${category})`);
+        }
 
-        // Store persistent column_mapping (chunk_index -1 to avoid conflict)
-        await sb.from("file_extracted_data").delete()
-          .eq("file_upload_id", fileUploadId)
-          .eq("data_category", "_column_mapping");
-        await sb.from("file_extracted_data").insert({
+        // Store persistent column_mapping using upsert (chunk_index -1)
+        const { error: mapErr } = await sb.from("file_extracted_data").upsert({
           file_upload_id: fileUploadId,
           company_id: companyId,
           data_category: "_column_mapping",
           extracted_json: { category, column_mapping },
           chunk_index: -1,
           row_count: 0,
-        });
+        }, { onConflict: 'file_upload_id,chunk_index' });
+        if (mapErr) {
+          console.error(`[process-file] ❌ UPSERT _column_mapping FAILED:`, mapErr.message, mapErr.details);
+        } else {
+          console.log(`[process-file] ✅ Stored _column_mapping at chunk_index=-1`);
+        }
 
         // Store first batch
         await storeRowBatch(sb, cleanedBatch, headers, category,
