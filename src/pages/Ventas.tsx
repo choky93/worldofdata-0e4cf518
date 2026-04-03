@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { formatCurrency, formatDate } from '@/lib/formatters';
 import { findNumber, findString, FIELD_AMOUNT, FIELD_DATE, FIELD_CLIENT, FIELD_NAME } from '@/lib/field-utils';
 import { useExtractedData } from '@/hooks/useExtractedData';
-import { filterByPeriod, type PeriodKey } from '@/lib/data-cleaning';
+import { filterByPeriod, parseDate, type PeriodKey } from '@/lib/data-cleaning';
 import { PeriodFilter } from '@/components/PeriodFilter';
 import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -18,11 +18,9 @@ function aggregateByDate(ventas: any[], m?: any): { day: string; value: number }
     const raw = findString(r, FIELD_DATE, m?.date);
     if (!raw) continue;
     let key = raw;
-    const d = new Date(raw);
-    if (!isNaN(d.getTime())) {
+    const d = parseDate(raw);
+    if (d) {
       key = d.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit' });
-    } else if (/^\d{2}\/\d{2}\/\d{4}/.test(raw)) {
-      key = raw.substring(0, 5);
     }
     const amt = findNumber(r, FIELD_AMOUNT, m?.amount);
     map.set(key, (map.get(key) || 0) + amt);
@@ -31,31 +29,24 @@ function aggregateByDate(ventas: any[], m?: any): { day: string; value: number }
 }
 
 function aggregateByMonth(ventas: any[], m?: any): { month: string; value: number }[] {
-  const map = new Map<string, number>();
+  const map = new Map<string, { date: Date; value: number }>();
   for (const r of ventas) {
     const raw = findString(r, FIELD_DATE, m?.date);
     if (!raw) continue;
-    let key = '';
-    const d = new Date(raw);
-    if (!isNaN(d.getTime())) {
-      key = d.toLocaleDateString('es-AR', { month: 'short', year: 'numeric' });
-    } else if (/^\d{4}-\d{2}/.test(raw)) {
-      const [year, month] = raw.split('-');
-      const dt = new Date(parseInt(year), parseInt(month) - 1, 1);
-      key = dt.toLocaleDateString('es-AR', { month: 'short', year: 'numeric' });
-    } else if (/^\d{2}\/\d{2}\/\d{4}/.test(raw)) {
-      const [dd, mm, yyyy] = raw.split('/');
-      const dt = new Date(parseInt(yyyy), parseInt(mm) - 1, parseInt(dd));
-      if (!isNaN(dt.getTime())) key = dt.toLocaleDateString('es-AR', { month: 'short', year: 'numeric' });
-    }
-    if (!key) continue;
+    const d = parseDate(raw);
+    if (!d) continue;
+    const key = d.toLocaleDateString('es-AR', { month: 'short', year: 'numeric' });
+    const existing = map.get(key);
     const amt = findNumber(r, FIELD_AMOUNT, m?.amount);
-    map.set(key, (map.get(key) || 0) + amt);
+    if (existing) {
+      existing.value += amt;
+    } else {
+      map.set(key, { date: d, value: amt });
+    }
   }
-  const parseKey = (s: string) => new Date(s.replace(/(\w+) (\d{4})/, '$1 1, $2')).getTime();
   return Array.from(map.entries())
-    .sort(([a], [b]) => parseKey(a) - parseKey(b))
-    .map(([month, value]) => ({ month, value }));
+    .sort(([, a], [, b]) => a.date.getTime() - b.date.getTime())
+    .map(([month, { value }]) => ({ month, value }));
 }
 
 export default function Ventas() {
@@ -110,12 +101,24 @@ export default function Ventas() {
 
   const salesTotal = realVentas.reduce((sum: number, r: any) => sum + findNumber(r, FIELD_AMOUNT, m?.amount), 0);
 
-  const salesHistory = realVentas.slice(0, 50).map((r: any, i: number) => ({
+  const salesHistory = realVentas.slice(0, 50).map((r: any) => ({
     date: findString(r, FIELD_DATE, m?.date) || '—',
-    client: findString(r, FIELD_CLIENT, m?.client) || '—',
-    product: findString(r, FIELD_NAME, m?.name) || '—',
+    client: findString(r, FIELD_CLIENT, m?.client) || '',
+    product: findString(r, FIELD_NAME, m?.name) || '',
     amount: findNumber(r, FIELD_AMOUNT, m?.amount),
   }));
+
+  // Detect if client/product columns have real data
+  const hasClients = salesHistory.some(s => s.client && s.client !== '—');
+  const hasProducts = salesHistory.some(s => s.product && s.product !== '—');
+
+  // Format date robustly
+  const fmtDate = (raw: string) => {
+    if (raw === '—') return '—';
+    const d = parseDate(raw);
+    if (d) return d.toLocaleDateString('es-AR', { day: '2-digit', month: 'short', year: 'numeric' });
+    return raw;
+  };
 
   const dailyChart = aggregateByDate(realVentas, m);
   const monthlyChart = aggregateByMonth(realVentas, m);
@@ -224,18 +227,16 @@ export default function Ventas() {
             <Table>
               <TableHeader><TableRow>
                 <TableHead>Fecha</TableHead>
-                <TableHead>Cliente</TableHead>
-                <TableHead>Detalle</TableHead>
+                {hasClients && <TableHead>Cliente</TableHead>}
+                {hasProducts && <TableHead>Detalle</TableHead>}
                 <TableHead className="text-right">Monto</TableHead>
               </TableRow></TableHeader>
               <TableBody>
                 {salesHistory.map((s, i) => (
                   <TableRow key={i}>
-                    <TableCell className="tabular-nums">
-                      {s.date !== '—' ? (() => { try { return formatDate(s.date); } catch { return s.date; } })() : '—'}
-                    </TableCell>
-                    <TableCell className="font-medium">{s.client}</TableCell>
-                    <TableCell className="text-muted-foreground">{s.product}</TableCell>
+                    <TableCell className="tabular-nums">{fmtDate(s.date)}</TableCell>
+                    {hasClients && <TableCell className="font-medium">{s.client || '—'}</TableCell>}
+                    {hasProducts && <TableCell className="text-muted-foreground">{s.product || '—'}</TableCell>}
                     <TableCell className="text-right font-medium tabular-nums">{formatCurrency(s.amount)}</TableCell>
                   </TableRow>
                 ))}

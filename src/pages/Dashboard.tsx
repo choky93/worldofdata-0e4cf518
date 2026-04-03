@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { useAuth } from '@/contexts/AuthContext';
 import { formatCurrency, getGreeting } from '@/lib/formatters';
 import { findNumber, findString, FIELD_AMOUNT, FIELD_SPEND, FIELD_DATE } from '@/lib/field-utils';
+import { parseDate } from '@/lib/data-cleaning';
 import { useExtractedData } from '@/hooks/useExtractedData';
 import { filterByPeriod, type PeriodKey } from '@/lib/data-cleaning';
 import { PeriodFilter } from '@/components/PeriodFilter';
@@ -177,9 +178,10 @@ export default function Dashboard() {
       const raw = findString(r, FIELD_DATE, mV?.date);
       if (!raw) continue;
       let key = raw;
-      const d = new Date(raw);
-      if (!isNaN(d.getTime())) {
-        key = d.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit' });
+      // Try parseDate for robust handling (serial strings, Spanish months, etc.)
+      const d = parseDate(raw);
+      if (d) {
+        key = d.toLocaleDateString('es-AR', { month: 'short', year: 'numeric' });
       }
       const amt = findNumber(r, FIELD_AMOUNT, mV?.amount);
       map.set(key, (map.get(key) || 0) + amt);
@@ -256,7 +258,7 @@ export default function Dashboard() {
                   {salesTotal !== null ? (
                     <>
                       <p className="kpi-value">{formatCurrency(salesTotal)}</p>
-                      <p className="text-[11px] text-muted-foreground mt-1">{realVentas.length} transacciones</p>
+                      <p className="text-[11px] text-muted-foreground mt-1">{realVentas.length} {realVentas.length === 1 ? 'registro' : 'registros'}</p>
                     </>
                   ) : (
                     <p className="text-sm text-muted-foreground">Sin datos</p>
