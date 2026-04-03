@@ -110,13 +110,143 @@ function parseNumericValue(s: string): number {
  * Find a string value from a row using keyword matching.
  * If mappedCol is provided, it takes priority over keywords.
  */
-export function findString(row: Record<string, unknown>, keywords: string[], mappedCol?: string | null): string {
+export function findString(row: Record<string, unknown>, keywords: string[], mappedCol?: string | null, allRows?: Record<string, unknown>[]): string {
   if (mappedCol && row[mappedCol] !== undefined && row[mappedCol] !== null) {
     return String(row[mappedCol]).trim();
   }
   const val = findField(row, keywords);
-  if (val === null || val === undefined) return '';
+  if (val === null || val === undefined) {
+    // Level 3: Contextual inference — find most likely text column
+    if (allRows && allRows.length > 0) {
+      const inferredCol = inferStringColumn(row, allRows, keywords);
+      if (inferredCol !== null) {
+        const v = row[inferredCol];
+        if (v !== null && v !== undefined) return String(v).trim();
+      }
+    }
+    return '';
+  }
   return String(val).trim();
+}
+
+// ─── Level 3: Contextual Inference ───────────────────────────
+
+const _inferCache = new Map<string, string | null>();
+
+/**
+ * Infer the most likely numeric column by analyzing data patterns.
+ * Looks for columns with the highest density of large numeric values.
+ */
+function inferNumericColumn(
+  row: Record<string, unknown>,
+  allRows: Record<string, unknown>[],
+  excludeKeywords: string[],
+): string | null {
+  const cacheKey = `num:${excludeKeywords.slice(0, 3).join(',')}:${Object.keys(row).join(',')}`;
+  if (_inferCache.has(cacheKey)) return _inferCache.get(cacheKey)!;
+
+  const keys = Object.keys(row);
+  const normalizedExclude = excludeKeywords.map(normalize);
+  let bestCol: string | null = null;
+  let bestScore = 0;
+
+  const sample = allRows.slice(0, 50);
+
+  for (const key of keys) {
+    const nk = normalize(key);
+    // Skip columns already matched by keywords (already tried and failed)
+    if (nk.length < 2) continue;
+    // Skip date-like columns
+    if (['fecha', 'date', 'periodo', 'mes', 'month', 'dia', 'day', 'id', 'codigo', 'code'].some(d => nk.includes(d))) continue;
+
+    let numericCount = 0;
+    let totalValue = 0;
+
+    for (const r of sample) {
+      const v = r[key];
+      if (v === null || v === undefined || v === '') continue;
+      let num: number;
+      if (typeof v === 'number') {
+        num = v;
+      } else {
+        const s = String(v).trim().replace(/^[$\s]+/, '');
+        num = parseFloat(s.replace(/[.,]/g, (m, offset, str) => {
+          // Simple: if it looks numeric after stripping formatting
+          return m;
+        }));
+        // Try parseNumericValue for better accuracy
+        num = parseNumericValue(s);
+      }
+      if (!isNaN(num) && num !== 0) {
+        numericCount++;
+        totalValue += Math.abs(num);
+      }
+    }
+
+    // Score: density of numeric values × average magnitude
+    if (numericCount > sample.length * 0.4) {
+      const score = numericCount * (totalValue / Math.max(numericCount, 1));
+      if (score > bestScore) {
+        bestScore = score;
+        bestCol = key;
+      }
+    }
+  }
+
+  _inferCache.set(cacheKey, bestCol);
+  return bestCol;
+}
+
+/**
+ * Infer the most likely text/name column by analyzing data patterns.
+ * Looks for columns with the highest density of unique non-numeric text values.
+ */
+function inferStringColumn(
+  row: Record<string, unknown>,
+  allRows: Record<string, unknown>[],
+  excludeKeywords: string[],
+): string | null {
+  const cacheKey = `str:${excludeKeywords.slice(0, 3).join(',')}:${Object.keys(row).join(',')}`;
+  if (_inferCache.has(cacheKey)) return _inferCache.get(cacheKey)!;
+
+  const keys = Object.keys(row);
+  let bestCol: string | null = null;
+  let bestScore = 0;
+
+  const sample = allRows.slice(0, 50);
+
+  for (const key of keys) {
+    const nk = normalize(key);
+    if (nk.length < 2) continue;
+    // Skip date/id columns
+    if (['fecha', 'date', 'periodo', 'mes', 'month', 'id', 'codigo', 'code', 'numero', 'number'].some(d => nk.includes(d))) continue;
+
+    const uniqueValues = new Set<string>();
+    let textCount = 0;
+
+    for (const r of sample) {
+      const v = r[key];
+      if (v === null || v === undefined || v === '') continue;
+      const s = String(v).trim();
+      // Check it's not purely numeric
+      if (s && isNaN(Number(s.replace(/[.,\s$%]/g, '')))) {
+        textCount++;
+        uniqueValues.add(s.toLowerCase());
+      }
+    }
+
+    // Score: many unique text values = likely a name/description column
+    if (textCount > sample.length * 0.4) {
+      const score = uniqueValues.size * textCount;
+      if (score > bestScore) {
+        bestScore = score;
+        bestCol = key;
+      }
+    }
+  }
+
+  _inferCache.set(cacheKey, bestCol);
+  return bestCol;
 }
 
 // ─── Column Mapping types ─────────────────────────────────────
