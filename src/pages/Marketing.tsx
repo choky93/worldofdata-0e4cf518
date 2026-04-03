@@ -44,13 +44,14 @@ function normalizeMarketing(rows: any[], m?: any): CampaignRow[] {
 }
 
 export default function Marketing() {
-  const { data: extractedData, hasData, loading } = useExtractedData();
+  const { data: extractedData, mappings, hasData, loading } = useExtractedData();
+  const m = mappings.marketing;
   const [period, setPeriod] = useState<PeriodKey>('all');
   const allMarketing = extractedData?.marketing || [];
   // Filter summary rows (empty campaign name) and period
-  const filteredMarketing = (period === 'all' ? allMarketing : filterByPeriod(allMarketing, FIELD_DATE, period, findString))
+  const filteredMarketing = (period === 'all' ? allMarketing : filterByPeriod(allMarketing, FIELD_DATE, period, (row, kw) => findString(row, kw, m?.date)))
     .filter((r: any) => {
-      const name = findString(r, FIELD_CAMPAIGN_NAME);
+      const name = findString(r, FIELD_CAMPAIGN_NAME, m?.campaign_name);
       return name && name.trim() !== '';
     });
   const useReal = hasData && allMarketing.length > 0;
