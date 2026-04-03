@@ -1,35 +1,49 @@
 
+Diagnóstico real del problema
 
-# Plan: Limpiar datos existentes y probar pipeline
+- El archivo de ventas mensual está quedando guardado con la fecha como serial de Excel (`Mes: "45231.0"`) en vez de una fecha normal.
+- Después la UI intenta renderizar eso con `new Date(raw)`, y por eso aparecen ejes raros e `Invalid Date`.
+- Además, el mapeo de IA no está sobreviviendo: `_classification` y `_column_mapping` se guardan con `chunk_index = 0`, pero luego el guardado del primer lote borra todo lo que tenga ese mismo índice. O sea: el sistema pierde el mapping exacto del archivo.
+- Y, encima, el dashboard trata este archivo como si fueran “26 transacciones”, cuando en realidad es una serie mensual agregada de 26 meses.
 
-## Estado actual
+Plan de implementación
 
-Hay 1 empresa (`de5e88bd-...`) con 2 archivos:
-- `Informe ventas mensuales .xls` → 26 filas de ventas
-- `Informe-sin-título-mar-1-2026-al-mar-30-2026.csv` → 6 filas de marketing
+1. Arreglar la normalización de fechas Excel de punta a punta
+- `src/lib/data-cleaning.ts`: convertir fechas Excel tanto si vienen como número como si vienen como string numérico (`"45231.0"`).
+- `supabase/functions/process-file/index.ts`: aplicar esa misma normalización antes de guardar, para que en base queden fechas reales (por ejemplo `2023-11-01`).
 
-Ambos con status `processed` pero sin el nuevo mapeo inteligente (fueron procesados antes de implementarlo).
+2. Evitar que se borre el mapeo de IA
+- `supabase/functions/process-file/index.ts`: separar el guardado de metadata del guardado de lotes reales.
+- El batch 0 no debe volver a borrar `_classification` ni `_column_mapping`.
 
-## Cambios
+3. Unificar el parseo de fechas en la UI
+- `src/lib/formatters.ts`: dejar de depender de `new Date(raw)` directo y usar un parser robusto.
+- `src/pages/Dashboard.tsx` y `src/pages/Ventas.tsx`: construir gráficos, etiquetas y tabla usando fechas ya parseadas, no strings crudos.
 
-### 1. Limpiar datos de todas las cuentas
+4. Adaptar la experiencia a archivos mensuales agregados
+- `src/pages/Dashboard.tsx`: si el archivo representa meses, mostrar algo como “26 meses cargados” o “Último mes cargado: …” en vez de “26 transacciones”.
+- `src/pages/Ventas.tsx`: si el archivo solo tiene período + monto, mostrar una tabla acorde a eso, sin columnas vacías de Cliente y Detalle.
+- Priorizar la visualización mensual cuando el origen del archivo sea mensual.
 
-Ejecutar 3 operaciones SQL via la herramienta de inserción/borrado:
+5. Reproceso y validación
+- Reprocesar el `.xls` actual con la lógica corregida.
+- Verificar:
+  - que las fechas se guarden normalizadas,
+  - que el mapping de IA quede persistido,
+  - que desaparezca `Invalid Date`,
+  - que el gráfico muestre meses reales,
+  - y que el dashboard use wording correcto para este tipo de archivo.
 
-1. `DELETE FROM file_extracted_data` — eliminar todos los datos extraídos
-2. `DELETE FROM file_uploads` — eliminar todos los registros de archivos
-3. Eliminar los archivos físicos de R2 (storage) llamando a la edge function `r2-delete` para cada `storage_path`
+Archivos a tocar
+- `src/lib/data-cleaning.ts`
+- `src/lib/formatters.ts`
+- `src/pages/Dashboard.tsx`
+- `src/pages/Ventas.tsx`
+- `supabase/functions/process-file/index.ts`
+- opcional: `src/pages/CargaDatos.tsx` para usar exactamente la misma limpieza también en reprocesos manuales
 
-Esto deja las cuentas completamente limpias, sin archivos ni datos.
-
-### 2. Probar el pipeline
-
-Después de limpiar, probar subiendo un archivo desde la UI para verificar que:
-- La clasificación con GPT-4.1 funciona
-- El `column_mapping` se genera y guarda correctamente
-- Los datos aparecen en el módulo correcto
-
-## Archivos a modificar
-
-Ninguno — son operaciones de datos y pruebas, no cambios de código.
-
+Resultado esperado
+- Ese Excel simple va a verse como una serie mensual real.
+- Las fechas van a aparecer bien en ventas y dashboard.
+- El sistema va a conservar el mapping exacto del archivo.
+- Y el dashboard va a dejar de comunicar “transacciones” cuando en realidad son meses/períodos.
