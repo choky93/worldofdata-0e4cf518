@@ -464,11 +464,12 @@ async function storeRowBatch(
   companyId: string,
   batchIndex: number,
 ): Promise<void> {
-  // Delete any existing data for this batch
+  // Delete any existing data for this batch — but preserve metadata rows
   await sb.from("file_extracted_data")
     .delete()
     .eq("file_upload_id", fileUploadId)
-    .eq("chunk_index", batchIndex);
+    .eq("chunk_index", batchIndex)
+    .not("data_category", "in", '("_column_mapping","_classification")');
 
   await sb.from("file_extracted_data").insert({
     file_upload_id: fileUploadId,

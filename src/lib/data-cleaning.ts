@@ -36,6 +36,11 @@ export function convertSerialDates(rows: Record<string, unknown>[], headers: str
       const val = row[h];
       if (typeof val === 'number' && val > 1 && val < 200000) {
         row[h] = excelSerialToDate(val);
+      } else if (typeof val === 'string') {
+        const num = parseFloat(val);
+        if (!isNaN(num) && num > 25569 && num < 200000 && /^\d+(\.\d+)?$/.test(val.trim())) {
+          row[h] = excelSerialToDate(num);
+        }
       }
     }
   }
