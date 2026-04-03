@@ -30,10 +30,10 @@ function aggregateByDate(ventas: any[], m?: any): { day: string; value: number }
   return Array.from(map.entries()).slice(-30).map(([day, value]) => ({ day, value }));
 }
 
-function aggregateByMonth(ventas: any[]): { month: string; value: number }[] {
+function aggregateByMonth(ventas: any[], m?: any): { month: string; value: number }[] {
   const map = new Map<string, number>();
   for (const r of ventas) {
-    const raw = findString(r, FIELD_DATE);
+    const raw = findString(r, FIELD_DATE, m?.date);
     if (!raw) continue;
     let key = '';
     const d = new Date(raw);
@@ -49,7 +49,7 @@ function aggregateByMonth(ventas: any[]): { month: string; value: number }[] {
       if (!isNaN(dt.getTime())) key = dt.toLocaleDateString('es-AR', { month: 'short', year: 'numeric' });
     }
     if (!key) continue;
-    const amt = findNumber(r, FIELD_AMOUNT);
+    const amt = findNumber(r, FIELD_AMOUNT, m?.amount);
     map.set(key, (map.get(key) || 0) + amt);
   }
   const parseKey = (s: string) => new Date(s.replace(/(\w+) (\d{4})/, '$1 1, $2')).getTime();
