@@ -446,7 +446,7 @@ export default function CargaDatos() {
       }
       prevErrorIdsRef.current = currentErrorIds;
 
-      const processedIds = records.filter(f => f.status === 'processed').map(f => f.id);
+      const processedIds = records.filter(f => f.status === 'processed' || f.status === 'review').map(f => f.id);
       if (processedIds.length > 0) fetchExtractedData(processedIds);
     } catch (err) {
       console.error('Error fetching files:', err);
@@ -526,7 +526,23 @@ export default function CargaDatos() {
     const filesToUpload = Array.from(fileList);
     if (filesToUpload.length === 0) return;
 
-    const queueItems: UploadQueueItem[] = filesToUpload.map((file, i) => ({
+    // Validate file formats
+    const SUPPORTED_EXTENSIONS = ['xlsx', 'xls', 'csv', 'pdf', 'png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp', 'doc', 'docx', 'xml', 'txt'];
+    const validFiles: File[] = [];
+    for (const file of filesToUpload) {
+      const ext = file.name.split('.').pop()?.toLowerCase() || '';
+      if (!SUPPORTED_EXTENSIONS.includes(ext)) {
+        toast.error(`Formato no soportado: .${ext}`, {
+          description: `Los formatos aceptados son: Excel (.xlsx, .xls), CSV (.csv), PDF (.pdf), Imágenes (.png, .jpg, .webp, .gif, .bmp), Word (.doc, .docx) y XML (.xml)`,
+          duration: 8000,
+        });
+        continue;
+      }
+      validFiles.push(file);
+    }
+    if (validFiles.length === 0) return;
+
+    const queueItems: UploadQueueItem[] = validFiles.map((file, i) => ({
       file,
       id: `upload-${Date.now()}-${i}`,
       progress: 0,
@@ -929,6 +945,7 @@ export default function CargaDatos() {
       case 'queued': return 'En cola';
       case 'processing': return 'Procesando';
       case 'cancelled': return 'Cancelado';
+      case 'review': return 'Pendiente de revisión';
       default: return status || 'Desconocido';
     }
   };
@@ -939,6 +956,7 @@ export default function CargaDatos() {
       case 'error': return 'bg-destructive/15 text-destructive';
       case 'queued': return 'bg-muted text-muted-foreground';
       case 'cancelled': return 'bg-muted text-muted-foreground';
+      case 'review': return 'bg-warning/15 text-warning';
       default: return 'bg-warning/15 text-warning';
     }
   };
@@ -966,7 +984,8 @@ export default function CargaDatos() {
               <Upload className="h-10 w-10 mx-auto text-muted-foreground mb-3" />
             )}
             <p className="font-medium">{isUploading ? 'Subiendo archivos...' : 'Arrastrá archivos acá o hacé click para seleccionar'}</p>
-            <p className="text-sm text-muted-foreground mt-1">PDF, CSV, Excel, Word, imágenes, XML (máx. 100MB). Podés seleccionar muchos a la vez.</p>
+            <p className="text-sm text-muted-foreground mt-1">Podés seleccionar muchos a la vez.</p>
+            <p className="text-xs text-muted-foreground mt-2">Formatos aceptados: Excel (.xlsx, .xls), CSV (.csv), PDF (.pdf), Imágenes (.png, .jpg, .webp, .gif, .bmp), Word (.doc, .docx), XML (.xml) — Máx. 100MB por archivo.</p>
             <input
               id="file-input"
               type="file"
@@ -1051,6 +1070,7 @@ export default function CargaDatos() {
                 <SelectItem value="processing">Procesando</SelectItem>
                 <SelectItem value="queued">En cola</SelectItem>
                 <SelectItem value="error">Error</SelectItem>
+                <SelectItem value="review">Pendiente revisión</SelectItem>
                 <SelectItem value="cancelled">Cancelados</SelectItem>
               </SelectContent>
             </Select>
@@ -1104,8 +1124,8 @@ export default function CargaDatos() {
                               {f.created_at ? formatDate(f.created_at) : '—'}
                               {f.file_size ? ` · ${f.file_size > 1024 * 1024 ? `${(f.file_size / 1024 / 1024).toFixed(1)} MB` : `${(f.file_size / 1024).toFixed(0)} KB`}` : ''}
                             </p>
-                            {f.status === 'error' && f.processing_error && (
-                              <p className="text-xs text-destructive mt-0.5 whitespace-pre-wrap break-words">{f.processing_error}</p>
+                            {(f.status === 'error' || f.status === 'review') && f.processing_error && (
+                              <p className={`text-xs mt-0.5 whitespace-pre-wrap break-words ${f.status === 'review' ? 'text-warning' : 'text-destructive'}`}>{f.processing_error}</p>
                             )}
                           </div>
                           <Badge className={`border-0 shrink-0 ${statusColor(f.status)}`}>
@@ -1135,7 +1155,7 @@ export default function CargaDatos() {
                               </Button>
                             </>
                           )}
-                          {(f.status === 'error' || f.status === 'processed' || f.status === 'cancelled') && (
+                          {(f.status === 'error' || f.status === 'processed' || f.status === 'cancelled' || f.status === 'review') && (
                             <Button
                               variant="ghost"
                               size="icon"
@@ -1163,7 +1183,7 @@ export default function CargaDatos() {
                             <Trash2 className="h-4 w-4" />
                           </Button>
                         </div>
-                        {firstExtracted && f.status === 'processed' && (
+                        {firstExtracted && (f.status === 'processed' || f.status === 'review') && (
                           <div className="mt-2 ml-8 flex items-start gap-2 text-xs text-muted-foreground bg-muted/30 rounded-md p-2">
                             <CheckCircle2 className="h-3.5 w-3.5 text-success shrink-0 mt-0.5" />
                             <div className="flex-1">
