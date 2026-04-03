@@ -1,49 +1,62 @@
 
-Diagnóstico real del problema
+Resumen
 
-- El archivo de ventas mensual está quedando guardado con la fecha como serial de Excel (`Mes: "45231.0"`) en vez de una fecha normal.
-- Después la UI intenta renderizar eso con `new Date(raw)`, y por eso aparecen ejes raros e `Invalid Date`.
-- Además, el mapeo de IA no está sobreviviendo: `_classification` y `_column_mapping` se guardan con `chunk_index = 0`, pero luego el guardado del primer lote borra todo lo que tenga ese mismo índice. O sea: el sistema pierde el mapping exacto del archivo.
-- Y, encima, el dashboard trata este archivo como si fueran “26 transacciones”, cuando en realidad es una serie mensual agregada de 26 meses.
+- Voy a corregir 4 cosas: fechas Excel persistidas como serial, lectura mensual en Dashboard/Ventas, visibilidad real de Marketing, y reproceso roto por archivos de prueba sin archivo físico.
+
+Diagnóstico confirmado
+
+- El XLS de ventas sigue guardándose con `Mes: "45231.0"` en `file_extracted_data`; la UI hoy lo puede “dibujar”, pero no queda normalizado en base.
+- El eje hasta 2025 no necesariamente está mal: con 26 períodos desde nov-2023 el rango cae en 2025. El problema es que el producto no aclara que son meses/períodos y no transacciones.
+- El archivo de marketing no quedó “procesado pero oculto”: está en `status=error` con `R2 download failed [404]`.
+- Ese archivo usa `storage_path = test/marketing.csv` (y ventas `test/ventas.xls`), que no coincide con el formato real del uploader; son artefactos de prueba/manuales, por eso reprocesar falla.
+- Además, Marketing puede quedar invisible si la sección depende del onboarding en vez de la data real, y la página actual filtra filas sin `campaign_name`.
 
 Plan de implementación
 
-1. Arreglar la normalización de fechas Excel de punta a punta
-- `src/lib/data-cleaning.ts`: convertir fechas Excel tanto si vienen como número como si vienen como string numérico (`"45231.0"`).
-- `supabase/functions/process-file/index.ts`: aplicar esa misma normalización antes de guardar, para que en base queden fechas reales (por ejemplo `2023-11-01`).
+1. Blindar fechas de punta a punta
+- `supabase/functions/process-file/index.ts`: normalizar siempre fechas antes de persistir cada batch, con fallback usando `column_mapping.date` además de keywords, y evitar guardar seriales Excel otra vez.
+- `src/lib/data-cleaning.ts` + `src/lib/formatters.ts`: unificar parser/formatter robusto y dejar de depender de `new Date(raw)` directo.
 
-2. Evitar que se borre el mapeo de IA
-- `supabase/functions/process-file/index.ts`: separar el guardado de metadata del guardado de lotes reales.
-- El batch 0 no debe volver a borrar `_classification` ni `_column_mapping`.
+2. Hacer que Ventas/Dashboard entiendan archivos mensuales
+- `src/pages/Dashboard.tsx`: ordenar por fecha real, cambiar copy a “meses/períodos” cuando corresponda, mostrar rango cargado y usar título dinámico (“Ventas por mes”).
+- `src/pages/Ventas.tsx`: modo de tabla/visualización mensual si el archivo solo trae período + monto; no simular clientes/productos/transacciones.
+- `src/pages/Operaciones.tsx`: reutilizar el parser robusto para orden y render de fechas.
 
-3. Unificar el parseo de fechas en la UI
-- `src/lib/formatters.ts`: dejar de depender de `new Date(raw)` directo y usar un parser robusto.
-- `src/pages/Dashboard.tsx` y `src/pages/Ventas.tsx`: construir gráficos, etiquetas y tabla usando fechas ya parseadas, no strings crudos.
+3. Hacer visible Marketing cuando hay datos
+- `src/components/AppSidebar.tsx` y `src/pages/Dashboard.tsx`: la visibilidad del módulo no debe depender solo de onboarding; si existe data de marketing, la sección debe aparecer.
+- `src/pages/Marketing.tsx`: soportar archivos sin `campaign_name` mostrando registros/resumen por fecha en vez de quedar vacío.
 
-4. Adaptar la experiencia a archivos mensuales agregados
-- `src/pages/Dashboard.tsx`: si el archivo representa meses, mostrar algo como “26 meses cargados” o “Último mes cargado: …” en vez de “26 transacciones”.
-- `src/pages/Ventas.tsx`: si el archivo solo tiene período + monto, mostrar una tabla acorde a eso, sin columnas vacías de Cliente y Detalle.
-- Priorizar la visualización mensual cuando el origen del archivo sea mensual.
+4. Arreglar reproceso y limpiar artefactos rotos
+- `src/pages/CargaDatos.tsx`: mostrar un error claro si el archivo físico no existe en storage y evitar venderlo como “reprocesable” cuando falta el objeto.
+- `supabase/functions/r2-download/index.ts` / `supabase/functions/process-file/index.ts`: devolver mensaje semántico para storage 404 (“archivo no encontrado, volvé a subirlo”), no un 500 genérico.
+- Limpiar los registros sintéticos `test/...` y repetir la prueba con subida real por UI, no con inserciones manuales.
 
-5. Reproceso y validación
-- Reprocesar el `.xls` actual con la lógica corregida.
-- Verificar:
-  - que las fechas se guarden normalizadas,
-  - que el mapping de IA quede persistido,
-  - que desaparezca `Invalid Date`,
-  - que el gráfico muestre meses reales,
-  - y que el dashboard use wording correcto para este tipo de archivo.
+5. Validación real y regresión mínima
+- Re-subir el XLS y el CSV desde la UI.
+- Verificar persistencia ISO, chart ordenado, copy mensual correcto, Marketing visible y reproceso sano.
+- Agregar regresiones puntuales para: serial Excel → ISO y storage missing → error claro.
+
+Detalles técnicos
+
+- No hace falta cambiar schema ni permisos; el problema es de pipeline, render y visibilidad.
+- Para el sidebar usaré un indicador liviano de categorías disponibles, no una carga pesada de todas las filas.
 
 Archivos a tocar
+
+- `supabase/functions/process-file/index.ts`
+- `supabase/functions/r2-download/index.ts`
 - `src/lib/data-cleaning.ts`
 - `src/lib/formatters.ts`
 - `src/pages/Dashboard.tsx`
 - `src/pages/Ventas.tsx`
-- `supabase/functions/process-file/index.ts`
-- opcional: `src/pages/CargaDatos.tsx` para usar exactamente la misma limpieza también en reprocesos manuales
+- `src/pages/Operaciones.tsx`
+- `src/pages/Marketing.tsx`
+- `src/components/AppSidebar.tsx`
+- `src/pages/CargaDatos.tsx`
 
 Resultado esperado
-- Ese Excel simple va a verse como una serie mensual real.
-- Las fechas van a aparecer bien en ventas y dashboard.
-- El sistema va a conservar el mapping exacto del archivo.
-- Y el dashboard va a dejar de comunicar “transacciones” cuando en realidad son meses/períodos.
+
+- Las fechas quedan bien guardadas y bien mostradas.
+- El dashboard deja de hablar de “26 registros” si en realidad son 26 meses.
+- Marketing deja de desaparecer por una mezcla de error + visibilidad.
+- Reprocesar deja de fallar de forma opaca: o funciona, o explica exactamente qué falta.
