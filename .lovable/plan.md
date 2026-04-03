@@ -1,107 +1,71 @@
 
 
-# Plan: Mapeo inteligente de columnas con IA — solución definitiva
+# Plan: Blindaje completo del pipeline de datos
 
-## El problema de fondo
+## Resumen
 
-Hoy el sistema clasifica bien (ventas, marketing, etc.) pero después **adivina** qué columna es el monto, qué columna es la fecha, etc. usando listas de keywords fijas (`FIELD_AMOUNT = ['monto', 'total', 'amount', ...]`). Esto funciona con algunos archivos y falla con otros porque:
+4 mejoras al pipeline: (1) upgrade a GPT-4.1 para clasificación y extracción, (2) tercer nivel de resolución de campos por inferencia contextual, (3) cuarentena inteligente con re-análisis automático por IA, (4) mejor manejo de formatos no soportados con mensajes claros.
 
-- Un cliente puede tener columna `Total Mensual (IVA Inc.)` — matchea parcialmente
-- Otro puede tener `Facturación bruta` — no matchea con nada
-- Otro puede tener `Monto c/IVA`, `Ingreso neto`, `Vta. Contado`
-- Formatos de fecha: `Enero 2024`, `Ene-24`, `1er Trim`, `Semana 12`, `01/03/2024`, `2024-03-01`
-- Formatos de número: `$1.234.567,89` (ARG), `1,234,567.89` (US), `1234567`
-- Archivos con columnas en inglés, español, o mezclados
-- Reportes bancarios, contables, de e-commerce — cada uno con su propia nomenclatura
+## Cambios
 
-No importa cuántas keywords agreguemos, siempre va a haber un archivo que rompa. **La lista de keywords es un approach que no escala.**
+### 1. Upgrade a GPT-4.1
 
-## La solución: Column Mapping con IA
+**Archivo:** `supabase/functions/process-file/index.ts`
 
-En vez de adivinar con keywords, **pedirle a la IA que nos diga el mapeo de columnas** al momento de clasificar. Hoy ya hacemos una llamada a OpenAI para clasificar (batch 0). Extendemos esa misma llamada para que también devuelva:
+- Línea 247: cambiar `model: "gpt-4o-mini"` → `model: "gpt-4.1"` (clasificación)
+- Línea 320: cambiar `model: "gpt-4o"` → `model: "gpt-4.1"` (extracción visual de PDFs/imágenes)
+- GPT-4.1 es el modelo más avanzado de OpenAI actualmente: mejor razonamiento, mejor comprensión de tablas, mejor visión
 
-```text
-{
-  "category": "ventas",
-  "summary": "Ventas mensuales con IVA",
-  "column_mapping": {
-    "amount": "Total Mensual (IVA Inc.)",
-    "date": "Mes",
-    "name": null,
-    "client": null
-  }
-}
-```
+### 2. Tercer nivel de resolución de campos (inferencia contextual)
 
-Ese mapeo se guarda junto con los datos y los módulos lo usan directamente en vez de buscar por keywords. Si la IA dice que `Total Mensual (IVA Inc.)` es el campo de monto, no hay ambigüedad.
+**Archivo:** `src/lib/field-utils.ts`
 
-## Cambios concretos
+Hoy la resolución es: **AI mapping → Keywords → null**. Agregamos un tercer paso antes de devolver null:
 
-### 1. `supabase/functions/process-file/index.ts` — Extender `classifyWithAI`
+- `findNumber`: si no encontró match, buscar la columna con más valores numéricos grandes (probablemente es monto/gasto)
+- `findString`: si no encontró match para "nombre", buscar la columna con más valores de texto únicos
+- Para fechas: buscar columnas con valores que parezcan fechas (contienen `/`, `-`, nombres de meses)
 
-El prompt de clasificación ya recibe headers + 10 filas de ejemplo. Se le agrega al JSON de respuesta un campo `column_mapping` con mapeos semánticos:
+Esto se activa SOLO cuando los dos primeros niveles fallan. Es un "último recurso inteligente" que analiza los datos reales en vez de los nombres de columnas.
 
-- Para **ventas**: `amount`, `date`, `name`, `client`, `category`
-- Para **marketing**: `spend`, `date`, `campaign_name`, `clicks`, `impressions`, `conversions`, `reach`, `roas`, `ctr`, `revenue`
-- Para **gastos**: `amount`, `date`, `name`, `category`, `status`
-- Para **stock**: `name`, `quantity`, `price`, `cost`, `min_stock`
-- Para **clientes**: `name`, `total_purchases`, `debt`, `last_purchase`, `purchase_count`
+### 3. Cuarentena inteligente con re-análisis automático
 
-El mapeo se guarda en el chunk de `_classification` que ya existe.
+**Archivo:** `supabase/functions/process-file/index.ts`
 
-### 2. `src/hooks/useExtractedData.ts` — Cargar column mappings
-
-Al traer los datos, también traer los chunks `_classification` y extraer los `column_mapping`. Exponerlos como parte del return del hook: `{ data, mappings, loading, hasData }`.
-
-### 3. `src/lib/field-utils.ts` — Función `resolveField` con mapping priority
-
-Nueva función que primero busca en el column_mapping (si existe), y solo cae al keyword matching como fallback:
+Después de la clasificación (paso 1 del procesamiento tabular), verificar calidad del mapping:
 
 ```text
-resolveField(row, semanticKey, mapping?) →
-  1. Si mapping tiene key → usar ese nombre de columna directo
-  2. Si no → fallback a findField con keywords (como ahora)
+Verificar:
+- ¿El column_mapping tiene al menos 1 campo de monto/gasto/precio mapeado?
+- ¿Tiene al menos 1 campo de fecha mapeado?
+
+Si AMBOS son null → Cuarentena:
+  1. Hacer una SEGUNDA llamada a GPT-4.1 con un prompt más detallado y permisivo
+  2. Si la segunda llamada logra mapear → usar ese resultado
+  3. Si sigue sin mapear → guardar datos igual, marcar status='review',
+     guardar processing_error="Requiere revisión: no se detectaron campos clave"
 ```
 
-### 4. Módulos (`Ventas.tsx`, `Marketing.tsx`, `Dashboard.tsx`, `Finanzas.tsx`)
+**Archivo:** `src/pages/CargaDatos.tsx`
 
-Reciben el mapping del hook y lo pasan a `resolveField`. El código cambia mínimamente — en vez de `findNumber(r, FIELD_AMOUNT)` pasa a ser `findNumber(r, FIELD_AMOUNT, mapping?.amount)`.
+- En la lista de archivos, mostrar los que tienen `status='review'` con un badge naranja "Pendiente de revisión"
+- Mostrar el mensaje de `processing_error` para que el admin sepa qué pasó
+- No se pierden datos: los datos se guardan igual, solo se marca que necesitan atención
 
-### 5. Normalización de fechas diversas
+### 4. Manejo de formatos no soportados
 
-Mejorar `parseDate` en `data-cleaning.ts` para soportar formatos adicionales:
-- `Enero 2024`, `Ene 2024`, `Ene-24` → parse por nombre de mes en español
-- `Q1 2024`, `1T 2024` → primer día del trimestre
-- `Semana 12 2024` → lunes de esa semana
-- Números seriales (ya implementado)
+**Archivo:** `src/pages/CargaDatos.tsx`
 
-### 6. Normalización de números argentinos
-
-Mejorar `findNumber` para manejar mejor formato `$1.234.567,89` (ya parcialmente implementado, pero verificar edge cases con montos grandes).
+- Antes de subir, validar extensión del archivo
+- Si no es `.xlsx`, `.xls`, `.csv`, `.pdf`, `.png`, `.jpg`, `.jpeg`, `.webp`, `.gif`, `.bmp`, `.doc`, `.docx`, `.xml` → mostrar toast de error claro:
+  - "Formato no soportado: .ods. Los formatos aceptados son: Excel (.xlsx, .xls), CSV (.csv), PDF (.pdf), Imágenes (.png, .jpg), Word (.doc, .docx) y XML (.xml)"
+- En la UI de carga, mostrar los formatos aceptados debajo del área de drag & drop
 
 ## Archivos a modificar
 
 | Archivo | Cambio |
 |---|---|
-| `supabase/functions/process-file/index.ts` | Extender prompt de clasificación para devolver `column_mapping` y guardarlo |
-| `src/hooks/useExtractedData.ts` | Cargar y exponer `column_mapping` por archivo/categoría |
-| `src/lib/field-utils.ts` | Agregar `resolveField` con prioridad mapping > keywords |
-| `src/lib/data-cleaning.ts` | Mejorar `parseDate` con formatos en español y trimestrales |
-| `src/pages/Ventas.tsx` | Usar mappings del hook |
-| `src/pages/Marketing.tsx` | Usar mappings del hook |
-| `src/pages/Dashboard.tsx` | Usar mappings del hook |
-| `src/pages/Finanzas.tsx` | Usar mappings del hook |
-
-## Por qué esto cubre "todos los flancos"
-
-- **Archivos nuevos con columnas raras**: La IA lee los headers reales y dice cuál es cuál. No depende de keywords fijas.
-- **Idioma mixto**: La IA entiende español, inglés, Spanglish, abreviaciones.
-- **Formatos de fecha diversos**: `parseDate` mejorado + la IA identifica cuál columna es fecha.
-- **Formatos numéricos locales**: Ya está parcialmente cubierto, se refuerza.
-- **Fallback seguro**: Si la IA no puede mapear, se cae al keyword matching actual (no se rompe nada).
-- **Costo cero extra**: Se agrega al mismo llamado de clasificación que ya se hace, sin llamadas API adicionales.
-
-## Resultado esperado
-
-Un cliente sube cualquier archivo tabular → la IA clasifica Y mapea columnas → los módulos usan el mapeo directo → los datos se muestran correctamente sin importar cómo se llamen las columnas originales.
+| `supabase/functions/process-file/index.ts` | GPT-4.1 + lógica de cuarentena con re-análisis |
+| `src/lib/field-utils.ts` | Tercer nivel de inferencia contextual |
+| `src/pages/CargaDatos.tsx` | Validación de formatos + UI de cuarentena |
 
