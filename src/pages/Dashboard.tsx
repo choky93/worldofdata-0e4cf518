@@ -340,7 +340,7 @@ export default function Dashboard() {
           <Stagger index={5}>
             <Card>
               <CardHeader className="pb-1">
-                <CardTitle className="text-sm font-semibold text-muted-foreground">Ventas por fecha</CardTitle>
+                <CardTitle className="text-sm font-semibold text-muted-foreground">Ventas por mes</CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="h-56">
