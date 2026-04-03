@@ -191,9 +191,12 @@ export default function Dashboard() {
       <div className="space-y-5 max-w-[1400px]">
         {/* Greeting */}
         <Stagger index={0}>
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight">{getGreeting()}, {name.split(' ')[0]}.</h1>
-            <p className="text-muted-foreground mt-0.5">Resumen de <span className="font-semibold text-foreground">{company}</span></p>
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-2xl font-bold tracking-tight">{getGreeting()}, {name.split(' ')[0]}.</h1>
+              <p className="text-muted-foreground mt-0.5">Resumen de <span className="font-semibold text-foreground">{company}</span></p>
+            </div>
+            <PeriodFilter value={period} onChange={setPeriod} />
           </div>
         </Stagger>
 
