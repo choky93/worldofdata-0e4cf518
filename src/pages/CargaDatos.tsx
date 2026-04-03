@@ -956,6 +956,7 @@ export default function CargaDatos() {
       case 'error': return 'bg-destructive/15 text-destructive';
       case 'queued': return 'bg-muted text-muted-foreground';
       case 'cancelled': return 'bg-muted text-muted-foreground';
+      case 'review': return 'bg-warning/15 text-warning';
       default: return 'bg-warning/15 text-warning';
     }
   };
