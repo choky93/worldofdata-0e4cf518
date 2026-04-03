@@ -12,10 +12,10 @@ import { TrendingUp, Database, Upload, Loader2, ShoppingCart } from 'lucide-reac
 import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 
-function aggregateByDate(ventas: any[]): { day: string; value: number }[] {
+function aggregateByDate(ventas: any[], m?: any): { day: string; value: number }[] {
   const map = new Map<string, number>();
   for (const r of ventas) {
-    const raw = findString(r, FIELD_DATE);
+    const raw = findString(r, FIELD_DATE, m?.date);
     if (!raw) continue;
     let key = raw;
     const d = new Date(raw);
@@ -24,7 +24,7 @@ function aggregateByDate(ventas: any[]): { day: string; value: number }[] {
     } else if (/^\d{2}\/\d{2}\/\d{4}/.test(raw)) {
       key = raw.substring(0, 5);
     }
-    const amt = findNumber(r, FIELD_AMOUNT);
+    const amt = findNumber(r, FIELD_AMOUNT, m?.amount);
     map.set(key, (map.get(key) || 0) + amt);
   }
   return Array.from(map.entries()).slice(-30).map(([day, value]) => ({ day, value }));
