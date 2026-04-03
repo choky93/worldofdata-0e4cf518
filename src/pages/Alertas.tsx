@@ -82,10 +82,10 @@ function buildAlertsFromData(data: ReturnType<typeof useExtractedData>['data'], 
 }
 
 export default function Alertas() {
-  const { data: extractedData, hasData, loading } = useExtractedData();
+  const { data: extractedData, mappings, hasData, loading } = useExtractedData();
   const [readIds, setReadIds] = useState<Set<string>>(new Set());
 
-  const baseAlerts = hasData ? buildAlertsFromData(extractedData) : [];
+  const baseAlerts = hasData ? buildAlertsFromData(extractedData, mappings) : [];
   const alerts = baseAlerts.map(a => ({ ...a, read: readIds.has(a.id) }));
   const unread = alerts.filter(a => !a.read).length;
 

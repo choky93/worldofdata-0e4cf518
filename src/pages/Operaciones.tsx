@@ -4,6 +4,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { formatCurrency } from '@/lib/formatters';
 import { findNumber, findString, FIELD_AMOUNT, FIELD_NAME, FIELD_DATE, FIELD_CLIENT, FIELD_CATEGORY } from '@/lib/field-utils';
+import type { ColumnMapping } from '@/lib/field-utils';
 import { parseDate } from '@/lib/data-cleaning';
 import { useExtractedData } from '@/hooks/useExtractedData';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';

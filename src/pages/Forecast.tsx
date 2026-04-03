@@ -3,59 +3,50 @@ import { Badge } from '@/components/ui/badge';
 import { formatCurrency } from '@/lib/formatters';
 import { findNumber, findString, FIELD_AMOUNT, FIELD_DATE } from '@/lib/field-utils';
 import { useExtractedData } from '@/hooks/useExtractedData';
+import { parseDate } from '@/lib/data-cleaning';
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
 import { Tooltip as UITooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip';
 import { TrendingUp, Upload, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Link } from 'react-router-dom';
 
-function aggregateSalesByMonth(ventas: any[]): { month: string; value: number }[] {
-  const map = new Map<string, number>();
+function aggregateSalesByMonth(ventas: any[], mappedDate?: string, mappedAmount?: string): { month: string; value: number; date: Date }[] {
+  const buckets = new Map<string, { total: number; date: Date }>();
 
   for (const r of ventas) {
-    const raw = findString(r, FIELD_DATE);
+    const raw = findString(r, FIELD_DATE, mappedDate);
     if (!raw) continue;
 
-    let key = '';
-    const d = new Date(raw);
-    if (!isNaN(d.getTime())) {
-      key = d.toLocaleDateString('es-AR', { month: 'short', year: 'numeric' });
-    } else if (/^\d{4}-\d{2}/.test(raw)) {
-      const [year, month] = raw.split('-');
-      const dt = new Date(parseInt(year), parseInt(month) - 1, 1);
-      key = dt.toLocaleDateString('es-AR', { month: 'short', year: 'numeric' });
-    } else if (/^\d{2}\/\d{2}\/\d{4}/.test(raw)) {
-      const [dd, mm, yyyy] = raw.split('/');
-      const dt = new Date(parseInt(yyyy), parseInt(mm) - 1, parseInt(dd));
-      if (!isNaN(dt.getTime())) key = dt.toLocaleDateString('es-AR', { month: 'short', year: 'numeric' });
-    }
+    const d = parseDate(raw);
+    if (!d) continue;
 
-    if (!key) continue;
-    const amount = findNumber(r, FIELD_AMOUNT);
-    map.set(key, (map.get(key) || 0) + amount);
+    const key = d.toLocaleDateString('es-AR', { month: 'short', year: 'numeric' });
+    const amount = findNumber(r, FIELD_AMOUNT, mappedAmount);
+    const existing = buckets.get(key);
+    if (existing) {
+      existing.total += amount;
+    } else {
+      buckets.set(key, { total: amount, date: new Date(d.getFullYear(), d.getMonth(), 1) });
+    }
   }
 
-  return Array.from(map.entries())
-    .sort(([a], [b]) => {
-      // Sort by parsing dates back
-      const parse = (s: string) => new Date(s.replace(/(\w+) (\d{4})/, '$1 1, $2')).getTime();
-      return parse(a) - parse(b);
-    })
-    .map(([month, value]) => ({ month, value }));
+  return Array.from(buckets.entries())
+    .sort(([, a], [, b]) => a.date.getTime() - b.date.getTime())
+    .map(([month, { total, date }]) => ({ month, value: total, date }));
 }
 
-function buildForecast(history: { month: string; value: number }[]) {
+function buildForecast(history: { month: string; value: number; date: Date }[]) {
   if (history.length < 2) return { chartData: history.map(d => ({ ...d, type: 'real' })), projections: null };
 
-  const last = history[history.length - 1].value;
-  const prev = history[history.length - 2].value;
-  const trend = prev > 0 ? (last - prev) / prev : 0;
+  const last = history[history.length - 1];
+  const prev = history[history.length - 2];
+  const trend = prev.value > 0 ? (last.value - prev.value) / prev.value : 0;
 
   const forecastPoints = [1, 2, 3].map(offset => {
-    const lastDate = new Date(history[history.length - 1].month.replace(/(\w+) (\d{4})/, '$1 1, $2'));
-    lastDate.setMonth(lastDate.getMonth() + offset);
-    const month = lastDate.toLocaleDateString('es-AR', { month: 'short', year: 'numeric' });
-    const value = Math.round(last * Math.pow(1 + trend * 0.7, offset));
+    const forecastDate = new Date(last.date);
+    forecastDate.setMonth(forecastDate.getMonth() + offset);
+    const month = forecastDate.toLocaleDateString('es-AR', { month: 'short', year: 'numeric' });
+    const value = Math.round(last.value * Math.pow(1 + trend * 0.7, offset));
     return { month, value, type: 'forecast' };
   });
 
@@ -66,13 +57,13 @@ function buildForecast(history: { month: string; value: number }[]) {
     month: d.month,
     real: d.type === 'real' ? d.value : undefined,
     forecast: d.type === 'forecast' ? d.value :
-      (d.month === history[history.length - 1].month ? d.value : undefined),
+      (d.month === last.month ? d.value : undefined),
   }));
 
   return {
     chartData,
     projections: {
-      currentEstimate: Math.round(last * (1 + trend * 0.7)),
+      currentEstimate: Math.round(last.value * (1 + trend * 0.7)),
       nextMonth: forecastPoints[1]?.value || 0,
       quarterly: forecastPoints.reduce((s, p) => s + p.value, 0),
       trend,
@@ -81,7 +72,8 @@ function buildForecast(history: { month: string; value: number }[]) {
 }
 
 export default function Forecast() {
-  const { data: extractedData, hasData, loading } = useExtractedData();
+  const { data: extractedData, mappings, hasData, loading } = useExtractedData();
+  const mV = mappings.ventas;
 
   if (loading) {
     return (
@@ -96,7 +88,7 @@ export default function Forecast() {
   }
 
   const realVentas = extractedData?.ventas || [];
-  const salesHistory = aggregateSalesByMonth(realVentas);
+  const salesHistory = aggregateSalesByMonth(realVentas, mV?.date, mV?.amount);
   const hasEnoughData = hasData && salesHistory.length >= 2;
 
   if (!hasData || salesHistory.length === 0) {
