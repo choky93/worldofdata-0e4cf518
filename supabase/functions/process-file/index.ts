@@ -523,9 +523,9 @@ serve(async (req) => {
 
       if (batchIndex === 0) {
         // First batch: classify with AI
-        const { category, summary } = await classifyWithAI(headers, cleanedBatch.slice(0, 10), file_name);
+        const { category, summary, column_mapping } = await classifyWithAI(headers, cleanedBatch.slice(0, 10), file_name);
 
-        // Store classification metadata for subsequent batches
+        // Store classification metadata for subsequent batches (including column_mapping)
         await sb.from("file_extracted_data").delete()
           .eq("file_upload_id", fileUploadId)
           .eq("data_category", "_classification");
@@ -533,7 +533,7 @@ serve(async (req) => {
           file_upload_id: fileUploadId,
           company_id: companyId,
           data_category: "_classification",
-          extracted_json: { category, summary },
+          extracted_json: { category, summary, column_mapping },
           chunk_index: 0,
           row_count: 0,
         });
