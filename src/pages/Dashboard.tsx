@@ -104,7 +104,10 @@ function DataSourceBanner({ hasData, loading }: { hasData: boolean; loading: boo
 export default function Dashboard() {
   const { profile, companySettings, companyName } = useAuth();
   const navigate = useNavigate();
-  const { data: extractedData, loading: dataLoading, hasData } = useExtractedData();
+  const { data: extractedData, mappings, loading: dataLoading, hasData } = useExtractedData();
+  const mV = mappings.ventas;
+  const mG = mappings.gastos;
+  const mM = mappings.marketing;
   const [period, setPeriod] = useState<PeriodKey>('all');
   const name = profile?.full_name || 'Usuario';
   const company = companyName || 'tu empresa';
