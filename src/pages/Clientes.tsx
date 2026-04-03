@@ -21,17 +21,17 @@ interface ClientRow {
   avgTicket: number;
 }
 
-function normalizeClients(rawData: any[]): ClientRow[] {
+function normalizeClients(rawData: any[], m?: ColumnMapping): ClientRow[] {
   return rawData.map((r: any, i: number) => {
-    const totalPurchases = findNumber(r, FIELD_TOTAL_PURCHASES);
-    const purchaseCount = Math.round(findNumber(r, FIELD_PURCHASE_COUNT));
-    const avgTicket = purchaseCount > 0 ? totalPurchases / purchaseCount : findNumber(r, ['ticket_promedio', 'promedio']);
+    const totalPurchases = findNumber(r, FIELD_TOTAL_PURCHASES, m?.total_purchases);
+    const purchaseCount = Math.round(findNumber(r, FIELD_PURCHASE_COUNT, m?.purchase_count));
+    const avgTicket = purchaseCount > 0 ? totalPurchases / purchaseCount : findNumber(r, ['ticket_promedio', 'promedio'], m?.avg_ticket);
     return {
       id: r.id || String(i + 1),
-      name: findString(r, FIELD_CLIENT) || `Cliente ${i + 1}`,
+      name: findString(r, FIELD_CLIENT, m?.client) || `Cliente ${i + 1}`,
       totalPurchases,
-      pendingPayment: findNumber(r, FIELD_DEBT),
-      lastPurchase: findString(r, FIELD_LAST_PURCHASE),
+      pendingPayment: findNumber(r, FIELD_DEBT, m?.debt),
+      lastPurchase: findString(r, FIELD_LAST_PURCHASE, m?.last_purchase),
       purchaseCount,
       avgTicket,
     };
