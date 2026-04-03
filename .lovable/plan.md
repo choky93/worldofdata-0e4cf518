@@ -1,62 +1,43 @@
 
-Resumen
 
-- Voy a corregir 4 cosas: fechas Excel persistidas como serial, lectura mensual en Dashboard/Ventas, visibilidad real de Marketing, y reproceso roto por archivos de prueba sin archivo físico.
+# Plan: Arreglar inserts que fallan silenciosamente por constraint único
 
-Diagnóstico confirmado
+## Diagnóstico raíz
 
-- El XLS de ventas sigue guardándose con `Mes: "45231.0"` en `file_extracted_data`; la UI hoy lo puede “dibujar”, pero no queda normalizado en base.
-- El eje hasta 2025 no necesariamente está mal: con 26 períodos desde nov-2023 el rango cae en 2025. El problema es que el producto no aclara que son meses/períodos y no transacciones.
-- El archivo de marketing no quedó “procesado pero oculto”: está en `status=error` con `R2 download failed [404]`.
-- Ese archivo usa `storage_path = test/marketing.csv` (y ventas `test/ventas.xls`), que no coincide con el formato real del uploader; son artefactos de prueba/manuales, por eso reprocesar falla.
-- Además, Marketing puede quedar invisible si la sección depende del onboarding en vez de la data real, y la página actual filtra filas sin `campaign_name`.
+El problema es un **constraint único** en la tabla `file_extracted_data`:
 
-Plan de implementación
+```text
+UNIQUE INDEX idx_unique_file_chunk ON (file_upload_id, chunk_index)
+```
 
-1. Blindar fechas de punta a punta
-- `supabase/functions/process-file/index.ts`: normalizar siempre fechas antes de persistir cada batch, con fallback usando `column_mapping.date` además de keywords, y evitar guardar seriales Excel otra vez.
-- `src/lib/data-cleaning.ts` + `src/lib/formatters.ts`: unificar parser/formatter robusto y dejar de depender de `new Date(raw)` directo.
+Cuando se procesa un archivo, el sistema intenta insertar **3 registros con el mismo `chunk_index: 0`**:
+1. `_classification` → chunk_index 0
+2. `_column_mapping` → chunk_index 0  
+3. Datos reales (batch 0) → chunk_index 0
 
-2. Hacer que Ventas/Dashboard entiendan archivos mensuales
-- `src/pages/Dashboard.tsx`: ordenar por fecha real, cambiar copy a “meses/períodos” cuando corresponda, mostrar rango cargado y usar título dinámico (“Ventas por mes”).
-- `src/pages/Ventas.tsx`: modo de tabla/visualización mensual si el archivo solo trae período + monto; no simular clientes/productos/transacciones.
-- `src/pages/Operaciones.tsx`: reutilizar el parser robusto para orden y render de fechas.
+El segundo y tercer insert **fallan silenciosamente** por violación del constraint. Resultado: `file_extracted_data` queda vacío, el health check detecta "se guardaron 0 de 26 filas", y la UI no muestra nada.
 
-3. Hacer visible Marketing cuando hay datos
-- `src/components/AppSidebar.tsx` y `src/pages/Dashboard.tsx`: la visibilidad del módulo no debe depender solo de onboarding; si existe data de marketing, la sección debe aparecer.
-- `src/pages/Marketing.tsx`: soportar archivos sin `campaign_name` mostrando registros/resumen por fecha en vez de quedar vacío.
+Esto afecta tanto el PATH A (subida desde el navegador) como el PATH C (procesamiento server-side).
 
-4. Arreglar reproceso y limpiar artefactos rotos
-- `src/pages/CargaDatos.tsx`: mostrar un error claro si el archivo físico no existe en storage y evitar venderlo como “reprocesable” cuando falta el objeto.
-- `supabase/functions/r2-download/index.ts` / `supabase/functions/process-file/index.ts`: devolver mensaje semántico para storage 404 (“archivo no encontrado, volvé a subirlo”), no un 500 genérico.
-- Limpiar los registros sintéticos `test/...` y repetir la prueba con subida real por UI, no con inserciones manuales.
+## Solución
 
-5. Validación real y regresión mínima
-- Re-subir el XLS y el CSV desde la UI.
-- Verificar persistencia ISO, chart ordenado, copy mensual correcto, Marketing visible y reproceso sano.
-- Agregar regresiones puntuales para: serial Excel → ISO y storage missing → error claro.
+Usar `chunk_index` negativos para metadata, dejando los positivos para datos reales:
 
-Detalles técnicos
+- `_classification` → `chunk_index: -2`
+- `_column_mapping` → `chunk_index: -1`
+- Datos batch 0 → `chunk_index: 0` (sin conflicto)
 
-- No hace falta cambiar schema ni permisos; el problema es de pipeline, render y visibilidad.
-- Para el sidebar usaré un indicador liviano de categorías disponibles, no una carga pesada de todas las filas.
+## Archivos a modificar
 
-Archivos a tocar
+| Archivo | Cambio |
+|---|---|
+| `supabase/functions/process-file/index.ts` | Cambiar `chunk_index` de metadata a -2 y -1. Actualizar las queries que leen `_classification` y `_column_mapping` para usar los nuevos índices. |
+| `src/pages/CargaDatos.tsx` | Actualizar el health check para excluir `_column_mapping` del conteo (línea 728). |
+| `src/hooks/useExtractedData.ts` | Asegurar que el filtro `not('data_category', 'in', ...)` también excluya `_column_mapping` con chunk negativos (ya funciona porque filtra por `data_category`, no por `chunk_index`). |
 
-- `supabase/functions/process-file/index.ts`
-- `supabase/functions/r2-download/index.ts`
-- `src/lib/data-cleaning.ts`
-- `src/lib/formatters.ts`
-- `src/pages/Dashboard.tsx`
-- `src/pages/Ventas.tsx`
-- `src/pages/Operaciones.tsx`
-- `src/pages/Marketing.tsx`
-- `src/components/AppSidebar.tsx`
-- `src/pages/CargaDatos.tsx`
+## Resultado esperado
 
-Resultado esperado
+- Los datos se guardan correctamente sin conflictos.
+- El health check reporta el conteo real.
+- Dashboard y módulos muestran los datos del archivo.
 
-- Las fechas quedan bien guardadas y bien mostradas.
-- El dashboard deja de hablar de “26 registros” si en realidad son 26 meses.
-- Marketing deja de desaparecer por una mezcla de error + visibilidad.
-- Reprocesar deja de fallar de forma opaca: o funciona, o explica exactamente qué falta.
