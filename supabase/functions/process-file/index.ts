@@ -523,8 +523,8 @@ serve(async (req) => {
         });
 
         // Store first batch
-        await storeRowBatch(sb, rowBatch, headers, category,
-          `${summary} (${totalRows || rowBatch.length} filas)`, fileUploadId, companyId, 0);
+        await storeRowBatch(sb, cleanedBatch, headers, category,
+          `${summary} (${totalRows || cleanedBatch.length} filas)`, fileUploadId, companyId, 0);
 
         await sb.from("file_uploads").update({
           total_chunks: totalBatches,
