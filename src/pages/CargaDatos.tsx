@@ -647,6 +647,11 @@ export default function CargaDatos() {
               parsedRows = fixed.rows;
               parsedHeaders = fixed.headers;
             }
+            // Clean data: convert serial dates + filter summary rows
+            if (parsedRows && parsedHeaders) {
+              parsedRows = cleanParsedRows(parsedRows, parsedHeaders);
+              console.log(`[CargaDatos] CSV after cleaning: ${parsedRows.length} rows`);
+            }
             updateItem({ progress: 80 });
             console.log(`[CargaDatos] Client-side CSV parsed: ${parsedRows?.length ?? 0} rows`);
           } catch (parseErr) {
