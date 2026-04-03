@@ -470,13 +470,14 @@ async function storeRowBatch(
   companyId: string,
   batchIndex: number,
 ): Promise<void> {
-  await sb.from("file_extracted_data")
+  // Delete previous data for this batch (but not metadata)
+  const { error: delErr } = await sb.from("file_extracted_data")
     .delete()
     .eq("file_upload_id", fileUploadId)
-    .eq("chunk_index", batchIndex)
-    .not("data_category", "in", '("_column_mapping","_classification")');
+    .eq("chunk_index", batchIndex);
+  if (delErr) console.error(`[process-file] DELETE batch ${batchIndex} error:`, delErr.message);
 
-  await sb.from("file_extracted_data").insert({
+  const { error: insErr } = await sb.from("file_extracted_data").insert({
     file_upload_id: fileUploadId,
     company_id: companyId,
     data_category: category,
@@ -485,6 +486,11 @@ async function storeRowBatch(
     row_count: rows.length,
     chunk_index: batchIndex,
   });
+  if (insErr) {
+    console.error(`[process-file] ❌ INSERT batch ${batchIndex} FAILED:`, insErr.message, insErr.details);
+    throw new Error(`Failed to store batch ${batchIndex}: ${insErr.message}`);
+  }
+  console.log(`[process-file] ✅ Stored batch ${batchIndex} with ${rows.length} rows (category: ${category})`);
 }
 
 // ─── Process structured tabular data (the new deterministic path) ─
