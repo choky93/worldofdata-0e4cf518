@@ -227,18 +227,16 @@ export default function Ventas() {
             <Table>
               <TableHeader><TableRow>
                 <TableHead>Fecha</TableHead>
-                <TableHead>Cliente</TableHead>
-                <TableHead>Detalle</TableHead>
+                {hasClients && <TableHead>Cliente</TableHead>}
+                {hasProducts && <TableHead>Detalle</TableHead>}
                 <TableHead className="text-right">Monto</TableHead>
               </TableRow></TableHeader>
               <TableBody>
                 {salesHistory.map((s, i) => (
                   <TableRow key={i}>
-                    <TableCell className="tabular-nums">
-                      {s.date !== '—' ? (() => { try { return formatDate(s.date); } catch { return s.date; } })() : '—'}
-                    </TableCell>
-                    <TableCell className="font-medium">{s.client}</TableCell>
-                    <TableCell className="text-muted-foreground">{s.product}</TableCell>
+                    <TableCell className="tabular-nums">{fmtDate(s.date)}</TableCell>
+                    {hasClients && <TableCell className="font-medium">{s.client || '—'}</TableCell>}
+                    {hasProducts && <TableCell className="text-muted-foreground">{s.product || '—'}</TableCell>}
                     <TableCell className="text-right font-medium tabular-nums">{formatCurrency(s.amount)}</TableCell>
                   </TableRow>
                 ))}
