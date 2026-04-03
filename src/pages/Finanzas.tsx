@@ -96,7 +96,7 @@ export default function Finanzas() {
 
   const totalVentasReal = realVentas.reduce((s: number, r: any) => s + findNumber(r, FIELD_AMOUNT, mV?.amount), 0);
   const totalGastosReal = realGastos.reduce((s: number, r: any) => s + findNumber(r, FIELD_AMOUNT, mG?.amount), 0);
-  const totalFacturasReal = realFacturas.reduce((s: number, r: any) => s + findNumber(r, FIELD_AMOUNT), 0);
+  const totalFacturasReal = realFacturas.reduce((s: number, r: any) => s + findNumber(r, FIELD_AMOUNT, mF?.amount), 0);
 
   const hasFinancialData = hasData && (realVentas.length > 0 || realGastos.length > 0 || realFacturas.length > 0);
   const expenses: ExpenseRow[] = hasData && realGastos.length > 0 ? normalizeExpenses(realGastos, mG) : [];
