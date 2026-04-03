@@ -1069,6 +1069,7 @@ export default function CargaDatos() {
                 <SelectItem value="processing">Procesando</SelectItem>
                 <SelectItem value="queued">En cola</SelectItem>
                 <SelectItem value="error">Error</SelectItem>
+                <SelectItem value="review">Pendiente revisión</SelectItem>
                 <SelectItem value="cancelled">Cancelados</SelectItem>
               </SelectContent>
             </Select>
