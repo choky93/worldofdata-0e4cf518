@@ -244,7 +244,7 @@ ${JSON.stringify(sampleRows.slice(0, 10), null, 2)}`;
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      model: "gpt-4o-mini",
+      model: "gpt-4.1",
       messages: [
         { role: "system", content: systemPrompt },
         { role: "user", content },
