@@ -177,9 +177,10 @@ export default function Dashboard() {
       const raw = findString(r, FIELD_DATE, mV?.date);
       if (!raw) continue;
       let key = raw;
-      const d = new Date(raw);
-      if (!isNaN(d.getTime())) {
-        key = d.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit' });
+      // Try parseDate for robust handling (serial strings, Spanish months, etc.)
+      const d = parseDate(raw);
+      if (d) {
+        key = d.toLocaleDateString('es-AR', { month: 'short', year: 'numeric' });
       }
       const amt = findNumber(r, FIELD_AMOUNT, mV?.amount);
       map.set(key, (map.get(key) || 0) + amt);
