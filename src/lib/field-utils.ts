@@ -58,7 +58,7 @@ export function findField(row: Record<string, unknown>, keywords: string[]): unk
  * Find a numeric value from a row using keyword matching.
  * If mappedCol is provided, it takes priority over keywords.
  */
-export function findNumber(row: Record<string, unknown>, keywords: string[], mappedCol?: string | null): number {
+export function findNumber(row: Record<string, unknown>, keywords: string[], mappedCol?: string | null, allRows?: Record<string, unknown>[]): number {
   // Priority 1: use AI-mapped column name directly
   if (mappedCol && row[mappedCol] !== undefined && row[mappedCol] !== null && row[mappedCol] !== '') {
     const v = row[mappedCol];
@@ -66,7 +66,18 @@ export function findNumber(row: Record<string, unknown>, keywords: string[], map
     return parseNumericValue(String(v));
   }
   const val = findField(row, keywords);
-  if (val === null || val === undefined) return 0;
+  if (val === null || val === undefined) {
+    // Level 3: Contextual inference — find most likely numeric column
+    if (allRows && allRows.length > 0) {
+      const inferredCol = inferNumericColumn(row, allRows, keywords);
+      if (inferredCol !== null) {
+        const v = row[inferredCol];
+        if (typeof v === 'number') return isNaN(v) ? 0 : v;
+        if (v !== null && v !== undefined && v !== '') return parseNumericValue(String(v));
+      }
+    }
+    return 0;
+  }
   if (typeof val === 'number') return isNaN(val) ? 0 : val;
   return parseNumericValue(String(val));
 }
