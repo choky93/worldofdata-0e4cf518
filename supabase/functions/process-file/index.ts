@@ -516,7 +516,7 @@ async function processTabularData(
     company_id: companyId,
     data_category: "_column_mapping",
     extracted_json: { category, column_mapping },
-    chunk_index: 0,
+    chunk_index: -1,
     row_count: 0,
   });
 

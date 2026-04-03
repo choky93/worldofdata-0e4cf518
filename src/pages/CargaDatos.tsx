@@ -725,7 +725,7 @@ export default function CargaDatos() {
               .from('file_extracted_data')
               .select('row_count')
               .eq('file_upload_id', dbData.id)
-              .not('data_category', 'in', '("_raw_cache","_classification")');
+              .not('data_category', 'in', '("_raw_cache","_classification","_column_mapping")');
             const savedTotal = savedChunks?.reduce((sum, c) => sum + (c.row_count || 0), 0) || 0;
             if (savedTotal < parsedRows.length * 0.95) {
               console.warn(`[CargaDatos] Health check: saved ${savedTotal} vs sent ${parsedRows.length} rows`);
