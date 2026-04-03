@@ -35,16 +35,16 @@ interface ExpenseRow {
   status: 'paid' | 'pending' | 'overdue';
 }
 
-function normalizeExpenses(rows: any[]): ExpenseRow[] {
+function normalizeExpenses(rows: any[], mG?: Record<string, string>): ExpenseRow[] {
   return rows.map((r: any) => {
-    const statusRaw = findString(r, ['estado', 'status']).toLowerCase();
+    const statusRaw = findString(r, ['estado', 'status'], mG?.status).toLowerCase();
     let status: 'paid' | 'pending' | 'overdue' = 'pending';
     if (statusRaw === 'pagado' || statusRaw === 'paid') status = 'paid';
     else if (statusRaw === 'vencido' || statusRaw === 'overdue') status = 'overdue';
     return {
-      name: findString(r, FIELD_NAME) || 'Gasto',
-      amount: findNumber(r, FIELD_AMOUNT),
-      dueDate: findString(r, ['vencimiento', 'fecha_vencimiento', 'due_date', ...FIELD_DATE]),
+      name: findString(r, FIELD_NAME, mG?.name) || 'Gasto',
+      amount: findNumber(r, FIELD_AMOUNT, mG?.amount),
+      dueDate: findString(r, ['vencimiento', 'fecha_vencimiento', 'due_date', ...FIELD_DATE], mG?.date),
       status,
     };
   });
@@ -98,7 +98,7 @@ export default function Finanzas() {
   const totalFacturasReal = realFacturas.reduce((s: number, r: any) => s + findNumber(r, FIELD_AMOUNT), 0);
 
   const hasFinancialData = hasData && (realVentas.length > 0 || realGastos.length > 0 || realFacturas.length > 0);
-  const expenses: ExpenseRow[] = hasData && realGastos.length > 0 ? normalizeExpenses(realGastos) : [];
+  const expenses: ExpenseRow[] = hasData && realGastos.length > 0 ? normalizeExpenses(realGastos, mG) : [];
 
   return (
     <TooltipProvider>

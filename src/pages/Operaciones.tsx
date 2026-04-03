@@ -4,6 +4,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { formatCurrency } from '@/lib/formatters';
 import { findNumber, findString, FIELD_AMOUNT, FIELD_NAME, FIELD_DATE, FIELD_CLIENT, FIELD_CATEGORY } from '@/lib/field-utils';
+import type { ColumnMapping } from '@/lib/field-utils';
 import { parseDate } from '@/lib/data-cleaning';
 import { useExtractedData } from '@/hooks/useExtractedData';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -22,18 +23,18 @@ interface OpRow {
   category: string;
 }
 
-function normalizeOps(ventas: any[], gastos: any[]): OpRow[] {
+function normalizeOps(ventas: any[], gastos: any[], mV?: ColumnMapping, mG?: ColumnMapping): OpRow[] {
   const ops: OpRow[] = [];
 
   ventas.forEach((r: any, i: number) => {
     ops.push({
       id: `v-${i}`,
       type: 'sale',
-      description: findString(r, FIELD_NAME) || 'Venta',
-      amount: findNumber(r, FIELD_AMOUNT),
-      date: findString(r, FIELD_DATE),
-      counterpart: findString(r, FIELD_CLIENT),
-      category: findString(r, FIELD_CATEGORY) || 'Ventas',
+      description: findString(r, FIELD_NAME, mV?.name) || 'Venta',
+      amount: findNumber(r, FIELD_AMOUNT, mV?.amount),
+      date: findString(r, FIELD_DATE, mV?.date),
+      counterpart: findString(r, FIELD_CLIENT, mV?.client),
+      category: findString(r, FIELD_CATEGORY, mV?.category) || 'Ventas',
     });
   });
 
@@ -41,11 +42,11 @@ function normalizeOps(ventas: any[], gastos: any[]): OpRow[] {
     ops.push({
       id: `g-${i}`,
       type: 'purchase',
-      description: findString(r, FIELD_NAME) || 'Gasto',
-      amount: findNumber(r, FIELD_AMOUNT),
-      date: findString(r, ['vencimiento', ...FIELD_DATE]),
-      counterpart: findString(r, ['proveedor', 'supplier', ...FIELD_CLIENT]),
-      category: findString(r, FIELD_CATEGORY) || 'Gastos',
+      description: findString(r, FIELD_NAME, mG?.name) || 'Gasto',
+      amount: findNumber(r, FIELD_AMOUNT, mG?.amount),
+      date: findString(r, ['vencimiento', ...FIELD_DATE], mG?.date),
+      counterpart: findString(r, ['proveedor', 'supplier', ...FIELD_CLIENT], mG?.client),
+      category: findString(r, FIELD_CATEGORY, mG?.category) || 'Gastos',
     });
   });
 
@@ -68,7 +69,7 @@ function fmtDate(raw: string): string {
 }
 
 export default function Operaciones() {
-  const { data: extractedData, hasData, loading } = useExtractedData();
+  const { data: extractedData, mappings, hasData, loading } = useExtractedData();
   const [filter, setFilter] = useState<FilterType>('all');
 
   if (loading) {
@@ -110,7 +111,7 @@ export default function Operaciones() {
     );
   }
 
-  const allOps = normalizeOps(realVentas, realGastos);
+  const allOps = normalizeOps(realVentas, realGastos, mappings.ventas, mappings.gastos);
   const filtered = filter === 'all' ? allOps : allOps.filter(op => op.type === filter);
   const totalSales = allOps.filter(op => op.type === 'sale').reduce((s, op) => s + op.amount, 0);
   const totalPurchases = allOps.filter(op => op.type === 'purchase').reduce((s, op) => s + op.amount, 0);

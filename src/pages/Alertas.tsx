@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { useExtractedData } from '@/hooks/useExtractedData';
 import { formatDate } from '@/lib/formatters';
 import { findNumber, findString, FIELD_NAME, FIELD_STOCK_QTY, FIELD_STOCK_MIN, FIELD_DEBT } from '@/lib/field-utils';
+import type { CategoryMappings } from '@/hooks/useExtractedData';
 import { Package, Users, Wallet, TrendingUp, Check, Bell, ArrowRight, Upload, Loader2 } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip';
 import { Link } from 'react-router-dom';
@@ -14,21 +15,24 @@ const typeLabels = { stock: 'Stock', clientes: 'Clientes', finanzas: 'Finanzas',
 
 type AlertType = { id: string; type: 'stock' | 'clientes' | 'finanzas' | 'forecast'; priority: 'high' | 'medium' | 'low'; message: string; suggestion?: string; read: boolean; date: string };
 
-function buildAlertsFromData(data: ReturnType<typeof useExtractedData>['data']): AlertType[] {
+function buildAlertsFromData(data: ReturnType<typeof useExtractedData>['data'], mappings: CategoryMappings): AlertType[] {
   const alerts: AlertType[] = [];
   if (!data) return alerts;
 
   const today = new Date().toISOString().split('T')[0];
 
   // Stock alerts
+  const mS = mappings.stock;
+  const mC = mappings.clientes;
+  const mG = mappings.gastos;
   const stockRows = data.stock || [];
   const lowStock = stockRows.filter((r: any) => {
-    const stock = Math.round(findNumber(r, FIELD_STOCK_QTY));
-    const min = Math.round(findNumber(r, FIELD_STOCK_MIN));
+    const stock = Math.round(findNumber(r, FIELD_STOCK_QTY, mS?.stock_qty));
+    const min = Math.round(findNumber(r, FIELD_STOCK_MIN, mS?.stock_min));
     return min > 0 && stock < min;
   });
   if (lowStock.length > 0) {
-    const names = lowStock.slice(0, 3).map((r: any) => findString(r, FIELD_NAME) || 'producto').join(', ');
+    const names = lowStock.slice(0, 3).map((r: any) => findString(r, FIELD_NAME, mS?.name) || 'producto').join(', ');
     alerts.push({
       id: 'stock-low',
       type: 'stock',
@@ -42,9 +46,9 @@ function buildAlertsFromData(data: ReturnType<typeof useExtractedData>['data']):
 
   // Clientes: cobros pendientes
   const clientRows = data.clientes || [];
-  const withDebt = clientRows.filter((r: any) => findNumber(r, FIELD_DEBT) > 0);
+  const withDebt = clientRows.filter((r: any) => findNumber(r, FIELD_DEBT, mC?.debt) > 0);
   if (withDebt.length > 0) {
-    const totalDeuda = withDebt.reduce((s: number, r: any) => s + findNumber(r, FIELD_DEBT), 0);
+    const totalDeuda = withDebt.reduce((s: number, r: any) => s + findNumber(r, FIELD_DEBT, mC?.debt), 0);
     alerts.push({
       id: 'clientes-debt',
       type: 'clientes',
@@ -59,7 +63,7 @@ function buildAlertsFromData(data: ReturnType<typeof useExtractedData>['data']):
   // Gastos: pagos vencidos
   const gastosRows = data.gastos || [];
   const overdue = gastosRows.filter((r: any) => {
-    const status = findString(r, ['estado', 'status']).toLowerCase();
+    const status = findString(r, ['estado', 'status'], mG?.status).toLowerCase();
     return status === 'vencido' || status === 'overdue';
   });
   if (overdue.length > 0) {
@@ -78,10 +82,10 @@ function buildAlertsFromData(data: ReturnType<typeof useExtractedData>['data']):
 }
 
 export default function Alertas() {
-  const { data: extractedData, hasData, loading } = useExtractedData();
+  const { data: extractedData, mappings, hasData, loading } = useExtractedData();
   const [readIds, setReadIds] = useState<Set<string>>(new Set());
 
-  const baseAlerts = hasData ? buildAlertsFromData(extractedData) : [];
+  const baseAlerts = hasData ? buildAlertsFromData(extractedData, mappings) : [];
   const alerts = baseAlerts.map(a => ({ ...a, read: readIds.has(a.id) }));
   const unread = alerts.filter(a => !a.read).length;
 

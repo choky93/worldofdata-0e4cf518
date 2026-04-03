@@ -1,7 +1,9 @@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { formatCurrency, formatPercent } from '@/lib/formatters';
 import { findNumber, findString, FIELD_AMOUNT, FIELD_DATE, FIELD_STOCK_QTY } from '@/lib/field-utils';
+import type { ColumnMapping } from '@/lib/field-utils';
 import { useExtractedData } from '@/hooks/useExtractedData';
+import { parseDate } from '@/lib/data-cleaning';
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
 import { TrendingUp, TrendingDown, Minus, Upload, Loader2, BarChart3 } from 'lucide-react';
 import { Tooltip as UITooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip';
@@ -64,36 +66,32 @@ function MetricChart({ data, title, formatter, tooltip }: {
   );
 }
 
-function aggregateByMonth(rows: any[], fieldKeywords: string[]): { month: string; value: number }[] {
-  const map = new Map<string, number>();
+function aggregateByMonth(rows: any[], fieldKeywords: string[], mappedDate?: string, mappedAmount?: string): { month: string; value: number }[] {
+  const buckets = new Map<string, { total: number; date: Date }>();
   for (const r of rows) {
-    const raw = findString(r, FIELD_DATE);
+    const raw = findString(r, FIELD_DATE, mappedDate);
     if (!raw) continue;
-    let key = '';
-    const d = new Date(raw);
-    if (!isNaN(d.getTime())) {
-      key = d.toLocaleDateString('es-AR', { month: 'short', year: 'numeric' });
-    } else if (/^\d{4}-\d{2}/.test(raw)) {
-      const [year, month] = raw.split('-');
-      const dt = new Date(parseInt(year), parseInt(month) - 1, 1);
-      key = dt.toLocaleDateString('es-AR', { month: 'short', year: 'numeric' });
-    } else if (/^\d{2}\/\d{2}\/\d{4}/.test(raw)) {
-      const [dd, mm, yyyy] = raw.split('/');
-      const dt = new Date(parseInt(yyyy), parseInt(mm) - 1, parseInt(dd));
-      if (!isNaN(dt.getTime())) key = dt.toLocaleDateString('es-AR', { month: 'short', year: 'numeric' });
+    const d = parseDate(raw);
+    if (!d) continue;
+    const key = d.toLocaleDateString('es-AR', { month: 'short', year: 'numeric' });
+    const amount = findNumber(r, fieldKeywords, mappedAmount);
+    const existing = buckets.get(key);
+    if (existing) {
+      existing.total += amount;
+    } else {
+      buckets.set(key, { total: amount, date: new Date(d.getFullYear(), d.getMonth(), 1) });
     }
-    if (!key) continue;
-    const amount = findNumber(r, fieldKeywords);
-    map.set(key, (map.get(key) || 0) + amount);
   }
-  const parseMonthKey = (s: string) => new Date(s.replace(/(\w+) (\d{4})/, '$1 1, $2')).getTime();
-  return Array.from(map.entries())
-    .sort(([a], [b]) => parseMonthKey(a) - parseMonthKey(b))
-    .map(([month, value]) => ({ month, value }));
+  return Array.from(buckets.entries())
+    .sort(([, a], [, b]) => a.date.getTime() - b.date.getTime())
+    .map(([month, { total }]) => ({ month, value: total }));
 }
 
 export default function Metricas() {
-  const { data: extractedData, hasData, loading } = useExtractedData();
+  const { data: extractedData, mappings, hasData, loading } = useExtractedData();
+  const mV = mappings.ventas;
+  const mG = mappings.gastos;
+  const mS = mappings.stock;
 
   if (loading) {
     return (
@@ -111,9 +109,9 @@ export default function Metricas() {
   const realGastos = extractedData?.gastos || [];
   const realStock = extractedData?.stock || [];
 
-  const salesEvolution = aggregateByMonth(realVentas, FIELD_AMOUNT);
-  const gastosEvolution = aggregateByMonth(realGastos, FIELD_AMOUNT);
-  const stockEvolution = aggregateByMonth(realStock, FIELD_STOCK_QTY);
+  const salesEvolution = aggregateByMonth(realVentas, FIELD_AMOUNT, mV?.date, mV?.amount);
+  const gastosEvolution = aggregateByMonth(realGastos, FIELD_AMOUNT, mG?.date, mG?.amount);
+  const stockEvolution = aggregateByMonth(realStock, FIELD_STOCK_QTY, mS?.date, mS?.stock_qty);
 
   const hasCharts = salesEvolution.length >= 2;
   const hasAny = hasData && (realVentas.length > 0 || realGastos.length > 0 || realStock.length > 0);
@@ -146,8 +144,8 @@ export default function Metricas() {
 
   if (!hasCharts) {
     // Has data but not enough for time-series charts — show summary cards
-    const totalVentas = realVentas.reduce((s: number, r: any) => s + findNumber(r, FIELD_AMOUNT), 0);
-    const totalGastos = realGastos.reduce((s: number, r: any) => s + findNumber(r, FIELD_AMOUNT), 0);
+    const totalVentas = realVentas.reduce((s: number, r: any) => s + findNumber(r, FIELD_AMOUNT, mV?.amount), 0);
+    const totalGastos = realGastos.reduce((s: number, r: any) => s + findNumber(r, FIELD_AMOUNT, mG?.amount), 0);
     const margen = totalVentas > 0 ? ((totalVentas - totalGastos) / totalVentas) * 100 : 0;
 
     return (
