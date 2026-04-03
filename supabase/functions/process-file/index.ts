@@ -118,7 +118,50 @@ function fixBrokenHeaders(rows: Record<string, unknown>[]): { rows: Record<strin
   return { rows: remapped, headers: newHeaders };
 }
 
+// ─── Data Cleaning (serial dates + summary rows) ──────────────
+const DATE_KW = ['fecha', 'date', 'periodo', 'mes', 'month', 'dia', 'day'];
+const NAME_KW = ['nombre', 'name', 'producto', 'product', 'campana', 'campaign',
+  'detalle', 'concepto', 'descripcion', 'articulo', 'item', 'cliente', 'client'];
+
+function norm(s: string): string {
+  return s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]/g, '');
+}
+
+function convertSerialDates(rows: Record<string, unknown>[], headers: string[]): void {
+  const dateHeaders = headers.filter(h => DATE_KW.some(kw => norm(h).includes(kw)));
+  if (dateHeaders.length === 0) return;
+  for (const row of rows) {
+    for (const h of dateHeaders) {
+      const val = row[h];
+      if (typeof val === 'number' && val > 1 && val < 200000) {
+        row[h] = new Date((val - 25569) * 86400000).toISOString().split('T')[0];
+      }
+    }
+  }
+}
+
+function filterSummaryRows(rows: Record<string, unknown>[], headers: string[]): Record<string, unknown>[] {
+  const nameHeaders = headers.filter(h => NAME_KW.some(kw => norm(h).includes(kw)));
+  if (nameHeaders.length === 0) return rows;
+  return rows.filter(row => {
+    const allEmpty = nameHeaders.every(h => {
+      const v = row[h];
+      return v === undefined || v === null || String(v ?? '').trim() === '';
+    });
+    if (!allEmpty) return true;
+    const hasNum = Object.values(row).some(v => typeof v === 'number' && v > 0);
+    if (hasNum) { console.log(`[process-file] Filtered summary row`); return false; }
+    return true;
+  });
+}
+
+function cleanRows(rows: Record<string, unknown>[], headers: string[]): Record<string, unknown>[] {
+  convertSerialDates(rows, headers);
+  return filterSummaryRows(rows, headers);
+}
+
 // ─── Helpers ───────────────────────────────────────────────────
+
 function uint8ToBase64(bytes: Uint8Array): string {
   const chunks: string[] = [];
   const chunkSize = 8192;
