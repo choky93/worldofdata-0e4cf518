@@ -105,16 +105,20 @@ export default function Dashboard() {
   const { profile, companySettings, companyName } = useAuth();
   const navigate = useNavigate();
   const { data: extractedData, loading: dataLoading, hasData } = useExtractedData();
+  const [period, setPeriod] = useState<PeriodKey>('all');
   const name = profile?.full_name || 'Usuario';
   const company = companyName || 'tu empresa';
   const showStock = !companySettings || companySettings.has_stock || companySettings.sells_products;
   const showAds = !companySettings || companySettings.uses_meta_ads || companySettings.uses_google_ads;
 
-  const realVentas = extractedData?.ventas || [];
+  const allVentas = extractedData?.ventas || [];
+  const allGastos = extractedData?.gastos || [];
+  const allMarketing = extractedData?.marketing || [];
+  const realVentas = period === 'all' ? allVentas : filterByPeriod(allVentas, FIELD_DATE, period, findString);
   const realStock = extractedData?.stock || [];
-  const realGastos = extractedData?.gastos || [];
+  const realGastos = period === 'all' ? allGastos : filterByPeriod(allGastos, FIELD_DATE, period, findString);
   const realClientes = extractedData?.clientes || [];
-  const realMarketing = extractedData?.marketing || [];
+  const realMarketing = period === 'all' ? allMarketing : filterByPeriod(allMarketing, FIELD_DATE, period, findString);
   const realOtro = extractedData?.otro || [];
 
   const salesTotal = hasData && realVentas.length > 0
