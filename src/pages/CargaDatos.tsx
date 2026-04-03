@@ -1182,7 +1182,7 @@ export default function CargaDatos() {
                             <Trash2 className="h-4 w-4" />
                           </Button>
                         </div>
-                        {firstExtracted && f.status === 'processed' && (
+                        {firstExtracted && (f.status === 'processed' || f.status === 'review') && (
                           <div className="mt-2 ml-8 flex items-start gap-2 text-xs text-muted-foreground bg-muted/30 rounded-md p-2">
                             <CheckCircle2 className="h-3.5 w-3.5 text-success shrink-0 mt-0.5" />
                             <div className="flex-1">
