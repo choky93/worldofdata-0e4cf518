@@ -1,116 +1,109 @@
 
 
-# Auditoría completa: pipeline de subida + visualización
+# Auditoría completa: Pipeline de subida + visualización
 
-## Estado actual
+## Verificación de datos en base
 
-La base de datos está limpia (0 archivos, 0 datos extraídos). No hay logs recientes de `process-file`. El código fue modificado varias veces. Esta auditoría revisa el código actual línea por línea.
+Confirmado en la DB que los datos existen correctamente:
+- **Ventas**: 26 filas, `data_category: ventas`, `chunk_index: 0`, fechas ISO normalizadas (`2023-11-01`)
+- **Marketing**: 6 filas, `data_category: marketing`, `chunk_index: 0`
+- **Column mappings**: 2 registros `_column_mapping` con `chunk_index: -1` (uno para ventas, uno para marketing)
+- **Classification**: ya borrados correctamente (no quedan residuos)
 
-## Veredicto
+Los chunk_index -2/-1/0 funcionan correctamente. Los logs del edge function confirman: `✅ Stored _classification at chunk_index=-2`, `✅ Stored _column_mapping at chunk_index=-1`.
 
-**El pipeline PATH A (subida desde navegador) está correcto.** Los chunk_index negativos para metadata (-2, -1) y positivos para datos (0+) evitan conflictos con el unique index. Los upserts tienen verificación de error. Las fechas se normalizan.
+## BUG ENCONTRADO: Marketing no aparece en sidebar (RAÍZ REAL)
 
-**Hay 3 problemas reales que necesitan corrección:**
+**Problema**: El sidebar llama `useExtractedData()` que crea su propia instancia independiente del hook. El hook hace `fetchData` una sola vez al montar (via `useEffect`). Como el sidebar **se monta una sola vez** (persiste entre navegaciones), si se montó ANTES de que el usuario subiera archivos, la instancia del sidebar tiene datos vacíos (`marketing: []`) y **nunca refetcha**.
 
----
+El Dashboard sí muestra datos porque se re-monta al navegar a él (genera un nuevo `useEffect`).
 
-### PROBLEMA 1: PATH C (`processTabularData`) borra la metadata que acaba de insertar (CRÍTICO)
-
-**Archivo:** `supabase/functions/process-file/index.ts`, líneas 518-535
-
-```text
-Línea 519: DELETE ALL → borra TODO para este file_upload_id
-Línea 523: INSERT _column_mapping → lo acaba de borrar, OK lo reinserta
-Línea 537: storeRowBatch(... batchIndex=0) → OK
+**Condición del sidebar** (línea 53):
 ```
+companySettings.uses_meta_ads || companySettings.uses_google_ads || hasMarketingData
+```
+- `uses_meta_ads: false`, `uses_google_ads: false` (DB confirmado)
+- `hasMarketingData` = `(extractedData?.marketing || []).length > 0` → `false` porque el hook tiene datos stale
 
-**Pero** `storeRowBatch` (línea 474) hace `DELETE .eq("chunk_index", batchIndex)` antes de insertar. Cuando `batchIndex=0`, esto NO borra la metadata porque metadata está en -1 y -2. **Esto está bien ahora.**
+**Resultado**: Marketing nunca aparece en sidebar aunque los datos existen en la DB.
 
-Sin embargo, la línea 519 `DELETE ALL` no distingue — si `processTabularData` se llama en un reproceso donde ya hay datos con metadata, los borra todos y los reinserta correctamente. **Esto funciona.**
+**Mismo problema aplica a Stock**: si se sube un archivo de stock después del montaje del sidebar, no va a aparecer.
 
-**Conclusión: PATH C está OK.** No hay problema aquí.
+### Solución
 
----
+Convertir `useExtractedData` en un React Context compartido (provider). Así todas las instancias comparten el mismo estado. Cuando CargaDatos termina de subir archivos, llama `refetch()` del context, y el sidebar se actualiza automáticamente.
 
-### PROBLEMA 2: Subsequent batches buscan `_classification` que fue borrada (MEDIO)
+## Resto de la auditoría: sin errores críticos
 
-**Archivo:** `supabase/functions/process-file/index.ts`, líneas 713-716 y 728-741
+### Edge function `process-file` — OK
+- **PATH A** (browser batches): chunk_index -2/-1/0+ correctos. Upserts con onConflict. Verificación de error en todos los inserts. `cleanRows` aplica `convertSerialDates` con `mappedDate` del AI. **Correcto.**
+- **PATH B** (legacy preParsed): pasa por `processTabularData`. **Correcto.**
+- **PATH C** (server-side R2): descarga, parsea, pasa por `processTabularData`. Delete-all primero, luego insert _column_mapping, luego batches. **Correcto.**
+- Quarantine re-analysis: detecta mapping insuficiente y re-analiza. **Correcto.**
+- DATE_KW incluye "mes". **Correcto.**
 
-Cuando `totalBatches === 1`, el batch 0 borra `_classification` (línea 714). Esto está bien porque es el último batch.
+### `CargaDatos.tsx` — OK
+- Upload flow: `cleanParsedRows` se aplica tanto en upload (línea 647) como en reprocess (línea 860). **Correcto.**
+- Health check excluye `_column_mapping` y `_classification`. **Correcto.**
+- Multi-sheet Excel: concatena sheets con mismos headers. **Correcto.**
 
-Pero cuando hay múltiples batches, el batch 0 inserta `_classification` en chunk_index=-2. Los batches posteriores (línea 733-741) intentan leer `_classification` para obtener la categoría, y lo encuentran. Luego el último batch lo borra (línea 765). **Esto funciona correctamente.**
+### `useExtractedData.ts` — OK (excepto el singleton issue)
+- Filtro `.not('data_category', 'in', '("_raw_cache","_classification")')` excluye metadata correctamente. **Correcto.**
+- Separación de `_column_mapping` en el loop de procesamiento. **Correcto.**
+- Paginación para superar el límite de 1000 rows. **Correcto.**
 
-**Pero hay un edge case:** Si el frontend envía `explicitCategory` (línea 712, `category: resolvedCategory`), el batch posterior NO necesita leer `_classification`. Si no lo envía, lo lee. El frontend SÍ lo envía (línea 712 de CargaDatos.tsx: `...(bi > 0 && resolvedCategory ? { category: resolvedCategory } : {})`).
+### `Ventas.tsx` — OK
+- `aggregateByDate` ordena por fecha correctamente (sort con Date.getTime). **Correcto.**
+- `aggregateByMonth` ordena por fecha. **Correcto.**
+- Columnas dinámicas (oculta Cliente/Detalle si no hay datos). **Correcto.**
 
-**Conclusión: OK, pero la lectura fallback de `_classification` podría fallar si `resolvedCategory` no se capturó. Es un riesgo menor.**
+### `Dashboard.tsx` — OK
+- Sales chart ordena por fecha con `sort`. **Correcto.**
+- Health radar muestra marketing condicionalmente. **Correcto.**
 
----
+### `Marketing.tsx` — OK
+- `normalizeMarketing` calcula ROAS correctamente. **Correcto.**
+- Fallback de nombre a fecha cuando no hay campaign_name. **Correcto.**
+- Muestra/oculta columnas dinámicamente según datos existentes. **Correcto.**
 
-### PROBLEMA 3 (REAL): El reprocess de Excel en CargaDatos NO aplica `cleanParsedRows` (BUG)
+### `data-cleaning.ts` — OK
+- `parseDate` cubre ISO, dd/mm/yyyy, meses en español, trimestres, semanas, seriales. **Correcto.**
+- `filterByPeriod` funciona con la función `findString` pasada como parámetro. **Correcto.**
 
-**Archivo:** `src/pages/CargaDatos.tsx`, líneas 837-862
+### `field-utils.ts` — OK
+- `findNumber` prioriza mappedCol > keywords > inference. **Correcto.**
+- `parseNumericValue` maneja formatos argentinos (puntos como separadores de miles). **Correcto.**
 
-En el flujo de reprocess (handleReprocess), el código descarga el archivo, lo parsea con SheetJS, aplica `fixBrokenHeaders`, pero **NO aplica `cleanParsedRows`** antes de enviar los batches. Esto significa que:
-- Las fechas seriales de Excel NO se convierten a ISO
-- Las filas de totales/resumen NO se filtran
+## Resumen
 
-Comparar con el flujo de upload (líneas 646-648): allí SÍ aplica `cleanParsedRows`.
+| # | Problema | Severidad | Archivo |
+|---|----------|-----------|---------|
+| 1 | Sidebar `useExtractedData` nunca refetcha → Marketing/Stock invisibles | **Alta** | `src/hooks/useExtractedData.ts`, `src/components/AppSidebar.tsx`, `src/pages/CargaDatos.tsx` |
 
-**Impacto:** Si el usuario reprocesa un archivo Excel, las fechas quedarán como seriales.
-
----
-
-### PROBLEMA 4 (REAL): La función `cleanRows` en el edge function se aplica DESPUÉS del parseo pero NO convierte strings numéricos que ya fueron parseados por el cliente
-
-**Archivo:** `supabase/functions/process-file/index.ts`, línea 653
-
-El cliente (CargaDatos) aplica `cleanParsedRows` que convierte seriales a ISO. Luego envía los rows al edge function. El edge function aplica `cleanRows` otra vez (línea 653), lo cual intenta re-convertir fechas. Pero como el cliente ya convirtió "45231.0" → "2023-11-01", el edge function ve "2023-11-01" y no hace nada (correcto). **Esto está OK.**
-
----
-
-### PROBLEMA 5 (REAL): `useExtractedData` no filtra `_classification` que quedó de archivos multi-batch
-
-**Archivo:** `src/hooks/useExtractedData.ts`, línea 60
-
-El filtro es: `.not('data_category', 'in', '("_raw_cache","_classification")')`. Esto SÍ excluye `_classification`. Pero... la `_classification` se borra al final del último batch (línea 765 del edge function). Si el procesamiento falla a mitad de camino, la `_classification` podría quedar. Sin embargo, la query la excluye. **Esto está OK.**
-
----
-
-### PROBLEMA 6 (REAL): `aggregateByDate` en Ventas.tsx NO ordena por fecha
-
-**Archivo:** `src/pages/Ventas.tsx`, línea 15-29
-
-`aggregateByDate` usa `Map` y `.slice(-30)` pero NO ordena por fecha. Los datos pueden aparecer en cualquier orden. Solo `aggregateByMonth` ordena correctamente (línea 47).
-
-**Impacto:** El gráfico "Ventas por fecha" puede mostrar barras desordenadas.
-
----
-
-## Resumen de correcciones necesarias
-
-| # | Archivo | Problema | Severidad |
-|---|---------|----------|-----------|
-| 1 | `src/pages/CargaDatos.tsx` líneas 837-862 | Reprocess no aplica `cleanParsedRows` | Alta |
-| 2 | `src/pages/Ventas.tsx` líneas 15-29 | `aggregateByDate` no ordena por fecha | Media |
+Solo hay 1 bug real. Todo lo demás funciona correctamente.
 
 ## Plan de implementación
 
-### 1. CargaDatos.tsx — Agregar cleanParsedRows al reprocess
+### 1. Crear `ExtractedDataProvider` context
 
-Después de `fixBrokenHeaders` (línea 855), agregar:
-```typescript
-const cleanedRows = cleanParsedRows(fixedRows, headers);
-```
-Y usar `cleanedRows` en vez de `fixedRows` para los batches.
+Convertir `useExtractedData` en un context provider que se monta en `AppLayout`. Todos los consumidores (`AppSidebar`, `Dashboard`, `Ventas`, `Marketing`, etc.) comparten la misma instancia y los mismos datos.
 
-### 2. Ventas.tsx — Ordenar aggregateByDate
+**Archivo**: `src/hooks/useExtractedData.ts`
+- Agregar `ExtractedDataProvider` y `useExtractedData` como context consumer
+- El provider hace el fetch una vez y expone `data`, `mappings`, `loading`, `hasData`, `refetch`
 
-Cambiar `aggregateByDate` para que almacene el Date junto al valor y ordene antes de retornar, igual que hace `aggregateByMonth`.
+**Archivo**: `src/components/AppLayout.tsx`
+- Envolver el layout en `<ExtractedDataProvider>`
 
-### No se necesitan cambios en:
-- `process-file/index.ts` — la lógica actual es correcta con chunk_index -2/-1/0+
-- `useExtractedData.ts` — los filtros son correctos
-- `Dashboard.tsx` — el chart ordena por fecha correctamente (línea 194)
-- `AppSidebar.tsx` — la visibilidad data-driven es correcta
-- `Marketing.tsx` — el fallback a fecha cuando no hay campaign_name es correcto
+### 2. CargaDatos llama `refetch()` después de subir archivos
+
+**Archivo**: `src/pages/CargaDatos.tsx`
+- Después de `Promise.all(activePromises)` (línea 762), llamar `refetch()` del context
+- Esto actualiza automáticamente el sidebar y cualquier otro consumidor
+
+### Resultado esperado
+- Marketing aparece en el sidebar inmediatamente después de subir un archivo de marketing
+- Stock aparece en el sidebar inmediatamente después de subir un archivo de stock
+- No hay más instancias duplicadas del fetch — un solo fetch compartido
+- Los módulos (Dashboard, Ventas, Marketing) todos ven los mismos datos sin fetches independientes
 
