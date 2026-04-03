@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
+import type { ColumnMapping } from '@/lib/field-utils';
 
 interface ExtractedRecord {
   data_category: string;
@@ -22,9 +23,25 @@ interface AggregatedData {
   otro: any[];
 }
 
+// Merged column mappings per category
+export interface CategoryMappings {
+  ventas: ColumnMapping;
+  gastos: ColumnMapping;
+  stock: ColumnMapping;
+  clientes: ColumnMapping;
+  marketing: ColumnMapping;
+  facturas: ColumnMapping;
+  rrhh: ColumnMapping;
+  otro: ColumnMapping;
+}
+
 export function useExtractedData() {
   const { profile } = useAuth();
   const [data, setData] = useState<AggregatedData | null>(null);
+  const [mappings, setMappings] = useState<CategoryMappings>({
+    ventas: {}, gastos: {}, stock: {}, clientes: {},
+    marketing: {}, facturas: {}, rrhh: {}, otro: {},
+  });
   const [loading, setLoading] = useState(true);
   const [hasData, setHasData] = useState(false);
 
@@ -50,19 +67,41 @@ export function useExtractedData() {
         if (page.length < PAGE) break;
         from += PAGE;
       }
-      const records = allRecords;
 
       const agg: AggregatedData = {
         ventas: [], gastos: [], stock: [], clientes: [],
         marketing: [], facturas: [], rrhh: [], otro: [],
       };
 
-      if (records && records.length > 0) {
-        for (const r of records as ExtractedRecord[]) {
+      const mergedMappings: CategoryMappings = {
+        ventas: {}, gastos: {}, stock: {}, clientes: {},
+        marketing: {}, facturas: {}, rrhh: {}, otro: {},
+      };
+
+      // Separate _column_mapping records from data records
+      const dataRecords: ExtractedRecord[] = [];
+      for (const r of allRecords) {
+        if (r.data_category === '_column_mapping') {
+          const json = r.extracted_json as any;
+          const cat = json?.category as keyof CategoryMappings;
+          const mapping = json?.column_mapping;
+          if (cat && mapping && mergedMappings[cat]) {
+            // Merge (first one wins — most recent due to order)
+            const target = mergedMappings[cat];
+            for (const [k, v] of Object.entries(mapping)) {
+              if (v && !target[k]) target[k] = v as string;
+            }
+          }
+        } else {
+          dataRecords.push(r);
+        }
+      }
+
+      if (dataRecords.length > 0) {
+        for (const r of dataRecords) {
           const cat = r.data_category as keyof AggregatedData;
           const json = r.extracted_json as any;
           const rows = json?.data || [];
-          // Skip empty/broken chunks
           if (!Array.isArray(rows) || rows.length === 0) continue;
           if (agg[cat]) {
             agg[cat].push(...rows);
@@ -76,6 +115,7 @@ export function useExtractedData() {
       }
 
       setData(agg);
+      setMappings(mergedMappings);
     } catch (err) {
       console.error('useExtractedData error:', err);
       setHasData(false);
@@ -88,5 +128,5 @@ export function useExtractedData() {
     fetchData();
   }, [fetchData]);
 
-  return { data, loading, hasData, refetch: fetchData };
+  return { data, mappings, loading, hasData, refetch: fetchData };
 }
