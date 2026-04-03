@@ -1,7 +1,7 @@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { formatCurrency, formatPercent } from '@/lib/formatters';
-import { findNumber, findString, FIELD_NAME, FIELD_STOCK_QTY, FIELD_STOCK_MIN, FIELD_STOCK_MAX, FIELD_PRICE, FIELD_COST } from '@/lib/field-utils';
+import { findNumber, findString, FIELD_NAME, FIELD_STOCK_QTY, FIELD_STOCK_MIN, FIELD_STOCK_MAX, FIELD_PRICE, FIELD_COST, type ColumnMapping } from '@/lib/field-utils';
 import { useExtractedData } from '@/hooks/useExtractedData';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip';
@@ -37,13 +37,13 @@ interface ProductRow {
   supplierLeadDays: number;
 }
 
-function normalizeProducts(rawData: any[]): ProductRow[] {
+function normalizeProducts(rawData: any[], m?: ColumnMapping): ProductRow[] {
   return rawData.map((r: any, i: number) => {
-    const stock = Math.round(findNumber(r, FIELD_STOCK_QTY));
-    const minStock = Math.round(findNumber(r, FIELD_STOCK_MIN));
-    const maxStock = Math.round(findNumber(r, FIELD_STOCK_MAX)) || Math.max(stock * 2, 100);
-    const price = findNumber(r, FIELD_PRICE);
-    const cost = findNumber(r, FIELD_COST);
+    const stock = Math.round(findNumber(r, FIELD_STOCK_QTY, m?.stock_qty));
+    const minStock = Math.round(findNumber(r, FIELD_STOCK_MIN, m?.stock_min));
+    const maxStock = Math.round(findNumber(r, FIELD_STOCK_MAX, m?.stock_max)) || Math.max(stock * 2, 100);
+    const price = findNumber(r, FIELD_PRICE, m?.price);
+    const cost = findNumber(r, FIELD_COST, m?.cost);
 
     let status: 'ok' | 'low' | 'overstock' = 'ok';
     if (minStock > 0 && stock < minStock) status = 'low';
@@ -51,25 +51,26 @@ function normalizeProducts(rawData: any[]): ProductRow[] {
 
     return {
       id: r.id || String(i + 1),
-      name: findString(r, FIELD_NAME) || `Producto ${i + 1}`,
+      name: findString(r, FIELD_NAME, m?.name) || `Producto ${i + 1}`,
       stock,
       minStock,
       maxStock,
       price,
       cost,
       status,
-      avgDailySales: findNumber(r, ['venta_diaria', 'avg_daily_sales']),
-      supplierLeadDays: Math.round(findNumber(r, ['lead_days', 'dias_proveedor'])) || 10,
+      avgDailySales: findNumber(r, ['venta_diaria', 'avg_daily_sales'], m?.avg_daily_sales),
+      supplierLeadDays: Math.round(findNumber(r, ['lead_days', 'dias_proveedor'], m?.lead_days)) || 10,
     };
   });
 }
 
 export default function Stock() {
-  const { data: extractedData, hasData } = useExtractedData();
+  const { data: extractedData, mappings, hasData } = useExtractedData();
+  const mS = mappings.stock;
   const realStock = extractedData?.stock || [];
 
   const useReal = hasData && realStock.length > 0;
-  const products: ProductRow[] = useReal ? normalizeProducts(realStock) : [];
+  const products: ProductRow[] = useReal ? normalizeProducts(realStock, mS) : [];
 
   if (!useReal) {
     return (

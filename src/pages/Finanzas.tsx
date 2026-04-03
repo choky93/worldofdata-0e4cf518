@@ -91,7 +91,8 @@ export default function Finanzas() {
   const allFacturas = extractedData?.facturas || [];
   const realVentas = period === 'all' ? allVentas : filterByPeriod(allVentas, FIELD_DATE, period, (row, kw) => findString(row, kw, mV?.date));
   const realGastos = period === 'all' ? allGastos : filterByPeriod(allGastos, FIELD_DATE, period, (row, kw) => findString(row, kw, mG?.date));
-  const realFacturas = period === 'all' ? allFacturas : filterByPeriod(allFacturas, FIELD_DATE, period, findString);
+  const mF = mappings.facturas;
+  const realFacturas = period === 'all' ? allFacturas : filterByPeriod(allFacturas, FIELD_DATE, period, (row, kw) => findString(row, kw, mF?.date));
 
   const totalVentasReal = realVentas.reduce((s: number, r: any) => s + findNumber(r, FIELD_AMOUNT, mV?.amount), 0);
   const totalGastosReal = realGastos.reduce((s: number, r: any) => s + findNumber(r, FIELD_AMOUNT, mG?.amount), 0);

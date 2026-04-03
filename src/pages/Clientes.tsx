@@ -1,7 +1,8 @@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { formatCurrency, formatDate } from '@/lib/formatters';
-import { findNumber, findString, FIELD_CLIENT, FIELD_TOTAL_PURCHASES, FIELD_DEBT, FIELD_LAST_PURCHASE, FIELD_PURCHASE_COUNT } from '@/lib/field-utils';
+import { findNumber, findString, FIELD_CLIENT, FIELD_TOTAL_PURCHASES, FIELD_DEBT, FIELD_LAST_PURCHASE, FIELD_PURCHASE_COUNT, type ColumnMapping } from '@/lib/field-utils';
+import { parseDate } from '@/lib/data-cleaning';
 import { useExtractedData } from '@/hooks/useExtractedData';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip';
@@ -20,17 +21,17 @@ interface ClientRow {
   avgTicket: number;
 }
 
-function normalizeClients(rawData: any[]): ClientRow[] {
+function normalizeClients(rawData: any[], m?: ColumnMapping): ClientRow[] {
   return rawData.map((r: any, i: number) => {
-    const totalPurchases = findNumber(r, FIELD_TOTAL_PURCHASES);
-    const purchaseCount = Math.round(findNumber(r, FIELD_PURCHASE_COUNT));
-    const avgTicket = purchaseCount > 0 ? totalPurchases / purchaseCount : findNumber(r, ['ticket_promedio', 'promedio']);
+    const totalPurchases = findNumber(r, FIELD_TOTAL_PURCHASES, m?.total_purchases);
+    const purchaseCount = Math.round(findNumber(r, FIELD_PURCHASE_COUNT, m?.purchase_count));
+    const avgTicket = purchaseCount > 0 ? totalPurchases / purchaseCount : findNumber(r, ['ticket_promedio', 'promedio'], m?.avg_ticket);
     return {
       id: r.id || String(i + 1),
-      name: findString(r, FIELD_CLIENT) || `Cliente ${i + 1}`,
+      name: findString(r, FIELD_CLIENT, m?.client) || `Cliente ${i + 1}`,
       totalPurchases,
-      pendingPayment: findNumber(r, FIELD_DEBT),
-      lastPurchase: findString(r, FIELD_LAST_PURCHASE),
+      pendingPayment: findNumber(r, FIELD_DEBT, m?.debt),
+      lastPurchase: findString(r, FIELD_LAST_PURCHASE, m?.last_purchase),
       purchaseCount,
       avgTicket,
     };
@@ -38,7 +39,8 @@ function normalizeClients(rawData: any[]): ClientRow[] {
 }
 
 export default function Clientes() {
-  const { data: extractedData, hasData, loading } = useExtractedData();
+  const { data: extractedData, mappings, hasData, loading } = useExtractedData();
+  const mC = mappings.clientes;
   const realClientes = extractedData?.clientes || [];
   const useReal = hasData && realClientes.length > 0;
 
@@ -77,16 +79,17 @@ export default function Clientes() {
     );
   }
 
-  const clients = normalizeClients(realClientes);
+  const clients = normalizeClients(realClientes, mC);
   const totalPending = clients.reduce((s, c) => s + c.pendingPayment, 0);
   const totalSales = clients.reduce((s, c) => s + c.totalPurchases, 0);
-  const top2Pct = clients.length >= 2 && totalSales > 0
-    ? ((clients[0].totalPurchases + clients[1].totalPurchases) / totalSales * 100).toFixed(0)
+  const sorted = [...clients].sort((a, b) => b.totalPurchases - a.totalPurchases);
+  const top2Pct = sorted.length >= 2 && totalSales > 0
+    ? ((sorted[0].totalPurchases + sorted[1].totalPurchases) / totalSales * 100).toFixed(0)
     : '0';
   const withChurn = clients.filter(c => {
     if (!c.lastPurchase) return false;
-    const d = new Date(c.lastPurchase);
-    if (isNaN(d.getTime())) return false;
+    const d = parseDate(c.lastPurchase);
+    if (!d || isNaN(d.getTime())) return false;
     const daysSince = (Date.now() - d.getTime()) / (1000 * 60 * 60 * 24);
     return daysSince > 30;
   });
