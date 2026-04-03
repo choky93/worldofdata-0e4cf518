@@ -68,7 +68,7 @@ function fmtDate(raw: string): string {
 }
 
 export default function Operaciones() {
-  const { data: extractedData, hasData, loading } = useExtractedData();
+  const { data: extractedData, mappings, hasData, loading } = useExtractedData();
   const [filter, setFilter] = useState<FilterType>('all');
 
   if (loading) {
