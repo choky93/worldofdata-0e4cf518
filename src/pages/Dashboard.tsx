@@ -258,7 +258,7 @@ export default function Dashboard() {
                   {salesTotal !== null ? (
                     <>
                       <p className="kpi-value">{formatCurrency(salesTotal)}</p>
-                      <p className="text-[11px] text-muted-foreground mt-1">{realVentas.length} transacciones</p>
+                      <p className="text-[11px] text-muted-foreground mt-1">{realVentas.length} {realVentas.length === 1 ? 'registro' : 'registros'}</p>
                     </>
                   ) : (
                     <p className="text-sm text-muted-foreground">Sin datos</p>
