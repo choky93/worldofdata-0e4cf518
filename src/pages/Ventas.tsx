@@ -101,12 +101,24 @@ export default function Ventas() {
 
   const salesTotal = realVentas.reduce((sum: number, r: any) => sum + findNumber(r, FIELD_AMOUNT, m?.amount), 0);
 
-  const salesHistory = realVentas.slice(0, 50).map((r: any, i: number) => ({
+  const salesHistory = realVentas.slice(0, 50).map((r: any) => ({
     date: findString(r, FIELD_DATE, m?.date) || '—',
-    client: findString(r, FIELD_CLIENT, m?.client) || '—',
-    product: findString(r, FIELD_NAME, m?.name) || '—',
+    client: findString(r, FIELD_CLIENT, m?.client) || '',
+    product: findString(r, FIELD_NAME, m?.name) || '',
     amount: findNumber(r, FIELD_AMOUNT, m?.amount),
   }));
+
+  // Detect if client/product columns have real data
+  const hasClients = salesHistory.some(s => s.client && s.client !== '—');
+  const hasProducts = salesHistory.some(s => s.product && s.product !== '—');
+
+  // Format date robustly
+  const fmtDate = (raw: string) => {
+    if (raw === '—') return '—';
+    const d = parseDate(raw);
+    if (d) return d.toLocaleDateString('es-AR', { day: '2-digit', month: 'short', year: 'numeric' });
+    return raw;
+  };
 
   const dailyChart = aggregateByDate(realVentas, m);
   const monthlyChart = aggregateByMonth(realVentas, m);
