@@ -792,12 +792,15 @@ serve(async (req) => {
       } else {
         console.log(`[process-file] Legacy preParsed → could not parse rows, using AI extraction`);
         const result = await extractWithAI(content.substring(0, MAX_CONTENT_CHARS), file_name);
-        await sb.from("file_extracted_data").delete().eq("file_upload_id", fileUploadId);
-        await sb.from("file_extracted_data").insert({
-          file_upload_id: fileUploadId, company_id: companyId,
-          data_category: result.category, extracted_json: result.data,
-          summary: result.summary, row_count: result.rowCount, chunk_index: 0,
-        });
+        { const { error: d } = await sb.from("file_extracted_data").delete().eq("file_upload_id", fileUploadId);
+          if (d) console.error('[process-file] DELETE error:', d.message);
+          const { error: e } = await sb.from("file_extracted_data").insert({
+            file_upload_id: fileUploadId, company_id: companyId,
+            data_category: result.category, extracted_json: result.data,
+            summary: result.summary, row_count: result.rowCount, chunk_index: 0,
+          });
+          if (e) console.error('[process-file] ❌ INSERT FAILED:', e.message);
+          else console.log('[process-file] ✅ Stored AI extraction at chunk_index=0'); }
         resultInfo = { category: result.category, summary: result.summary, totalRows: result.rowCount };
       }
 
@@ -829,12 +832,15 @@ serve(async (req) => {
         resultInfo = await processTabularData(sb, allRows, parsedHeaders, file_name, fileUploadId, companyId);
       } else {
         const result = await extractWithAI(text.substring(0, MAX_CONTENT_CHARS), file_name);
-        await sb.from("file_extracted_data").delete().eq("file_upload_id", fileUploadId);
-        await sb.from("file_extracted_data").insert({
-          file_upload_id: fileUploadId, company_id: companyId,
-          data_category: result.category, extracted_json: result.data,
-          summary: result.summary, row_count: result.rowCount, chunk_index: 0,
-        });
+        { const { error: d } = await sb.from("file_extracted_data").delete().eq("file_upload_id", fileUploadId);
+          if (d) console.error('[process-file] DELETE error:', d.message);
+          const { error: e } = await sb.from("file_extracted_data").insert({
+            file_upload_id: fileUploadId, company_id: companyId,
+            data_category: result.category, extracted_json: result.data,
+            summary: result.summary, row_count: result.rowCount, chunk_index: 0,
+          });
+          if (e) console.error('[process-file] ❌ INSERT FAILED:', e.message);
+          else console.log('[process-file] ✅ Stored AI extraction at chunk_index=0'); }
         resultInfo = { category: result.category, summary: result.summary, totalRows: result.rowCount };
       }
 
@@ -970,12 +976,15 @@ serve(async (req) => {
           content = `[PDF muy grande (${(buffer.byteLength / 1024 / 1024).toFixed(1)} MB). Texto parcial: "${pdfResult.text.substring(0, 1000)}". Nombre: "${file_name}".]`;
         }
         const result = await extractWithAI(content, file_name, undefined, undefined, processingMetadata);
-        await sb.from("file_extracted_data").delete().eq("file_upload_id", fileUploadId);
-        await sb.from("file_extracted_data").insert({
-          file_upload_id: fileUploadId, company_id: companyId,
-          data_category: result.category, extracted_json: result.data,
-          summary: result.summary, row_count: result.rowCount, chunk_index: 0,
-        });
+        { const { error: d } = await sb.from("file_extracted_data").delete().eq("file_upload_id", fileUploadId);
+          if (d) console.error('[process-file] DELETE error:', d.message);
+          const { error: e } = await sb.from("file_extracted_data").insert({
+            file_upload_id: fileUploadId, company_id: companyId,
+            data_category: result.category, extracted_json: result.data,
+            summary: result.summary, row_count: result.rowCount, chunk_index: 0,
+          });
+          if (e) console.error('[process-file] ❌ INSERT FAILED:', e.message);
+          else console.log('[process-file] ✅ Stored AI extraction at chunk_index=0'); }
         resultInfo = { category: result.category, summary: result.summary, totalRows: result.rowCount };
       }
 
