@@ -634,7 +634,7 @@ serve(async (req) => {
       // Apply fixBrokenHeaders to CSV too
       if (allRows.length > 0) {
         const fixed = fixBrokenHeaders(allRows);
-        allRows = fixed.rows;
+        allRows = cleanRows(fixed.rows, fixed.headers.length > 0 ? fixed.headers : Object.keys(allRows[0]));
         const parsedHeaders = fixed.headers.length > 0 ? fixed.headers : Object.keys(allRows[0]);
         resultInfo = await processTabularData(sb, allRows, parsedHeaders, file_name, fileUploadId, companyId);
       } else {
