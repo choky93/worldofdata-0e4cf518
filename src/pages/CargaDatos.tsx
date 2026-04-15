@@ -60,7 +60,8 @@ const PAGE_SIZE = 25;
 const MAX_CONCURRENT_UPLOADS = 4;
 const PRESIGN_THRESHOLD = 20 * 1024 * 1024; // 20MB
 const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
-const ROW_BATCH_SIZE = 500; // Rows per batch sent to backend
+const ROW_BATCH_SIZE = 500;
+const RATE_LIMIT_MESSAGE = "Límite de API alcanzado. El archivo será reprocesado automáticamente en unos minutos.";
 
 /**
  * Detect and skip title rows in Excel data parsed by SheetJS.
