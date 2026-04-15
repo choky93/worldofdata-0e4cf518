@@ -511,9 +511,23 @@ export default function CargaDatos() {
     }
   }, [profile?.company_id, role, user?.id, fetchExtractedData, currentPage, searchTerm, statusFilter, typeFilter]);
 
+  // Fetch storage usage
+  const fetchStorageUsage = useCallback(async () => {
+    if (!profile?.company_id) return;
+    const { data, error } = await supabase
+      .from('file_uploads')
+      .select('file_size')
+      .eq('company_id', profile.company_id);
+    if (!error && data) {
+      const total = data.reduce((sum, f) => sum + (f.file_size || 0), 0);
+      setStorageUsedBytes(total);
+    }
+  }, [profile?.company_id]);
+
   useEffect(() => {
     fetchFiles();
-  }, [fetchFiles]);
+    fetchStorageUsage();
+  }, [fetchFiles, fetchStorageUsage]);
 
   // Polling
   useEffect(() => {
