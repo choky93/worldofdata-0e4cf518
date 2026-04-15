@@ -18,6 +18,35 @@ const MAX_EXCEL_FILE_SIZE = 3 * 1024 * 1024;
 const CHUNK_CHARS = 12000;
 const MAX_CHUNKS_PER_INVOCATION = 2;
 
+const RATE_LIMIT_MESSAGE = "Límite de API alcanzado. El archivo será reprocesado automáticamente en unos minutos.";
+const RETRY_DELAYS = [5000, 15000, 30000]; // 5s, 15s, 30s
+
+class RateLimitError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "RateLimitError";
+  }
+}
+
+async function fetchOpenAIWithRetry(url: string, init: RequestInit): Promise<Response> {
+  for (let attempt = 0; attempt <= RETRY_DELAYS.length; attempt++) {
+    const resp = await fetch(url, init);
+    if (resp.ok) return resp;
+    if ((resp.status === 429 || resp.status === 503) && attempt < RETRY_DELAYS.length) {
+      const delay = RETRY_DELAYS[attempt];
+      console.warn(`[process-file] OpenAI ${resp.status}, retrying in ${delay / 1000}s (attempt ${attempt + 1}/${RETRY_DELAYS.length})`);
+      await new Promise(r => setTimeout(r, delay));
+      continue;
+    }
+    if (resp.status === 429 || resp.status === 503) {
+      throw new RateLimitError(`OpenAI rate limit after ${RETRY_DELAYS.length} retries [${resp.status}]`);
+    }
+    const errText = await resp.text();
+    throw new Error(`OpenAI error [${resp.status}]: ${errText}`);
+  }
+  throw new Error("Unreachable");
+}
+
 // ─── R2 Download ───────────────────────────────────────────────
 async function downloadFromR2(storagePath: string): Promise<ArrayBuffer> {
   console.log(`[process-file] Downloading from R2: ${storagePath}`);
@@ -317,7 +346,7 @@ Columnas: ${JSON.stringify(headers)}
 Primeras ${sampleRows.length} filas de ejemplo:
 ${JSON.stringify(sampleRows.slice(0, 10), null, 2)}`;
 
-  const resp = await fetch("https://api.openai.com/v1/chat/completions", {
+  const resp = await fetchOpenAIWithRetry("https://api.openai.com/v1/chat/completions", {
     method: "POST",
     headers: {
       Authorization: `Bearer ${Deno.env.get("OPENAI_API_KEY")!}`,
@@ -334,11 +363,6 @@ ${JSON.stringify(sampleRows.slice(0, 10), null, 2)}`;
       max_tokens: 512,
     }),
   });
-
-  if (!resp.ok) {
-    const errText = await resp.text();
-    throw new Error(`OpenAI classification error [${resp.status}]: ${errText}`);
-  }
 
   const data = await resp.json();
   const raw = data.choices?.[0]?.message?.content || '{}';
@@ -451,7 +475,7 @@ Columnas: ${JSON.stringify(headers)}
 Todas las filas de ejemplo disponibles:
 ${JSON.stringify(sampleRows.slice(0, 20), null, 2)}`;
 
-  const resp = await fetch("https://api.openai.com/v1/chat/completions", {
+  const resp = await fetchOpenAIWithRetry("https://api.openai.com/v1/chat/completions", {
     method: "POST",
     headers: {
       Authorization: `Bearer ${Deno.env.get("OPENAI_API_KEY")!}`,
@@ -468,11 +492,6 @@ ${JSON.stringify(sampleRows.slice(0, 20), null, 2)}`;
       max_tokens: 512,
     }),
   });
-
-  if (!resp.ok) {
-    console.error(`[process-file] Re-analysis API error: ${resp.status}`);
-    return {};
-  }
 
   const data = await resp.json();
   const raw = data.choices?.[0]?.message?.content || '{}';
@@ -671,7 +690,7 @@ FORMATO DE RESPUESTA — SOLO JSON:
     });
   }
 
-  const resp = await fetch("https://api.openai.com/v1/chat/completions", {
+  const resp = await fetchOpenAIWithRetry("https://api.openai.com/v1/chat/completions", {
     method: "POST",
     headers: {
       Authorization: `Bearer ${Deno.env.get("OPENAI_API_KEY")!}`,
@@ -685,11 +704,6 @@ FORMATO DE RESPUESTA — SOLO JSON:
       max_tokens: 4096,
     }),
   });
-
-  if (!resp.ok) {
-    const errText = await resp.text();
-    throw new Error(`OpenAI error [${resp.status}]: ${errText}`);
-  }
 
   const data = await resp.json();
   const raw = data.choices?.[0]?.message?.content || '{}';
