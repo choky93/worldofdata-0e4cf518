@@ -59,7 +59,7 @@ const fileIcons: Record<string, typeof FileText> = { PDF: FileText, CSV: FileSpr
 const PAGE_SIZE = 25;
 const MAX_CONCURRENT_UPLOADS = 4;
 const PRESIGN_THRESHOLD = 20 * 1024 * 1024; // 20MB
-const MAX_FILE_SIZE = 100 * 1024 * 1024; // 100MB
+const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
 const ROW_BATCH_SIZE = 500; // Rows per batch sent to backend
 
 /**
