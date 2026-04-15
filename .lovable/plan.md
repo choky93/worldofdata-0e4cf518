@@ -1,79 +1,83 @@
 
 
-# Auditoría completa: Estado actual de la plataforma
+# Rediseño Visual Completo — Dark Theme Lima/Verde
 
-## Veredicto
+## Resumen
+Cambiar toda la estética de la plataforma a un tema dark con acento amarillo-lima (#c8f135), sin modificar lógica, hooks ni estructura de datos. Solo CSS, colores, tipografía y clases de Tailwind.
 
-**No quedan bugs críticos.** Los fixes anteriores (mappings, parseDate, context provider, top2Pct sort) están todos correctamente implementados. Queda **1 inconsistencia menor** y **1 detalle cosmético**.
+## Archivos a modificar
 
----
+### 1. `src/index.css` — Variables CSS y clases utilitarias
+- Reemplazar todas las CSS variables (`:root` y `.dark`) con la nueva paleta oscura
+- Background: `#0d0d0d`, card: `#1a1a1a`, border: `#2a2a2a`
+- Primary: `#c8f135`, success: `#4ade80`, destructive: `#f87171`
+- Texto: `#f5f5f5` (principal), `#888888` (secundario), `#555555` (terciario)
+- Sidebar: fondo `#111111`, border `#1f1f1f`, active `#1f2a0f`
+- Reemplazar `.sidebar-gradient` con fondo plano `#111111`
+- Nuevas clases para alertas: `.alert-warning`, `.alert-error`, `.alert-success`, `.alert-info` con fondos/bordes oscuros específicos
+- Actualizar shadow tokens a valores para tema oscuro
+- Eliminar modo claro — todo es dark por defecto
 
-## Módulo por módulo
+### 2. `src/components/ui/card.tsx` — Estilo base de cards
+- Cambiar clases por defecto: `bg-[#1a1a1a] border-[#2a2a2a] rounded-xl`
+- Eliminar backdrop-blur y sombras, solo bordes sutiles
+- CardTitle: `text-xs font-medium text-[#888888] uppercase tracking-widest` para labels
 
-| Módulo | Mappings | parseDate | Sort | Context | Veredicto |
-|--------|----------|-----------|------|---------|-----------|
-| Dashboard.tsx | mV, mG, mM | parseDate | sort by date.getTime() | useExtractedData() | OK |
-| Ventas.tsx | m (ventas) | parseDate | sort by date.getTime() | useExtractedData() | OK |
-| Finanzas.tsx | mV, mG, mF | N/A (filterByPeriod) | N/A | useExtractedData() | 1 minor |
-| Stock.tsx | mS | N/A | N/A | useExtractedData() | OK |
-| Clientes.tsx | mC | parseDate (churn) | sorted for top2Pct | useExtractedData() | OK |
-| Forecast.tsx | mV (date, amount) | parseDate | sort by date.getTime() | useExtractedData() | OK |
-| Alertas.tsx | mS, mC, mG | N/A | N/A | useExtractedData() | OK |
-| Metricas.tsx | mV, mG, mS | parseDate | sort by date.getTime() | useExtractedData() | OK |
-| Marketing.tsx | m (marketing) | parseDate | N/A | useExtractedData() | OK |
-| Operaciones.tsx | mV, mG | parseDate | sort descending | useExtractedData() | OK |
-| AppSidebar.tsx | N/A | N/A | N/A | useExtractedData() | OK |
-| useExtractedData.tsx | Context provider | N/A | N/A | Provider | OK |
+### 3. `src/components/ui/button.tsx` — Botones
+- Primario: `bg-[#c8f135] text-[#0d0d0d] font-semibold rounded-lg`
+- Secundario: transparente con `border-[#2a2a2a] text-[#f5f5f5]`
+- Destructivo: `bg-[#2a0a0a] text-[#f87171] border-[#4a1010]`
 
----
+### 4. `src/components/ui/badge.tsx` — Badges
+- `rounded-full` (ya está), ajustar colores para tema dark
 
-## Inconsistencia menor: Finanzas.tsx — totalFacturasReal sin mapping
+### 5. `src/components/ui/table.tsx` — Tablas
+- Filas alternas: `#141414` y `#111111`
+- Header: `text-[#555555] uppercase text-xs tracking-widest`
+- Bordes: `border-b border-[#1f1f1f]`
+- Hover: `bg-[#1f2a0f]`
 
-**Archivo**: `src/pages/Finanzas.tsx`, línea 99
+### 6. `src/components/PeriodFilter.tsx` — Selector de período como pills
+- Reemplazar dropdown por pill buttons horizontales
+- Inactivo: `bg-[#1a1a1a] border-[#2a2a2a] text-[#666666]`
+- Activo: `bg-[#c8f135] text-[#0d0d0d]`
 
-```typescript
-const totalFacturasReal = realFacturas.reduce((s: number, r: any) => s + findNumber(r, FIELD_AMOUNT), 0);
-```
+### 7. `src/components/AppSidebar.tsx` — Sidebar
+- Item inactivo: `text-[#666666]`
+- Item activo: `bg-[#1f2a0f] text-[#c8f135]`
+- Logo con acento lima
 
-Falta `mF?.amount` como tercer argumento. Si la columna de monto de facturas tiene un nombre no estándar mapeado por AI, el total se mostrará como $0.
+### 8. `src/components/AppLayout.tsx` — Header
+- Fondo `#0d0d0d`, border bottom `#1f1f1f`
 
-**Fix**: Cambiar a `findNumber(r, FIELD_AMOUNT, mF?.amount)`.
+### 9. `src/pages/Dashboard.tsx` — Dashboard completo
+- KPI cards con nuevo estilo (label uppercase, número blanco grande)
+- Card destacada (primera) con fondo `#c8f135` y texto `#0d0d0d`
+- Gráfico: gradiente barras `#c8f135` → `#4ade80`, grid `#1f1f1f`, ejes `#555555`
+- Tooltip: fondo `#1a1a1a`, border `#2a2a2a`, números en `#c8f135`
+- Alertas con estilos dark específicos (warning: `#2a1f00`, etc.)
+- Header del módulo con separador `border-b border-[#1f1f1f]`
 
----
+### 10-16. Todos los módulos (Ventas, Marketing, Finanzas, Clientes, Forecast, Alertas, Metricas, Operaciones, Stock, CargaDatos)
+- Aplicar mismo patrón de header: título izq + pills derecha + badge verde
+- KPI cards con label uppercase + número blanco
+- Gráficos con paleta lima/verde
+- Tablas con filas alternas y hover verde oscuro
+- Separador bajo header
 
-## Detalle cosmético: Clientes.tsx — `.sort()` muta el array original
+### 17. `src/components/AICopilot.tsx` — Copilot flotante
+- Adaptar colores al nuevo tema dark
 
-**Archivo**: `src/pages/Clientes.tsx`, línea 97
+### 18. `src/components/ui/sidebar.tsx` — Base sidebar
+- Ajustar variables de color del sidebar
 
-```typescript
-const chartData = clients.sort(...)
-```
+### 19. `index.html` — Forzar dark
+- Agregar `class="dark"` al `<html>` tag para asegurar tema oscuro
 
-`.sort()` muta `clients` in-place. La tabla de abajo (línea 195) termina renderizando en orden descendente por compras. Funciona, pero el comportamiento depende del orden de evaluación. No es un bug — solo una nota de estilo.
-
----
-
-## Todo lo demás está correcto
-
-- **Consistency de totales**: Dashboard, Ventas, Finanzas, Operaciones y Métricas calculan ventas/gastos con el mismo patrón `findNumber(r, FIELD_AMOUNT, mX?.amount)`.
-- **Sidebar visibility**: Compartido vía context, `refetch()` después de upload. Correcto.
-- **Date parsing**: Todos los módulos con fechas usan `parseDate` centralizado. Correcto.
-- **Column mappings**: Todos los módulos consumen mappings del context. Correcto.
-- **Period filter**: Dashboard, Ventas, Finanzas y Marketing usan `filterByPeriod` con wrapper de mappings. Correcto.
-
----
-
-## Plan de implementación
-
-### 1. Finanzas.tsx — Agregar mapping a totalFacturasReal
-
-Cambiar línea 99 de `findNumber(r, FIELD_AMOUNT)` a `findNumber(r, FIELD_AMOUNT, mF?.amount)`.
-
-### Archivos a modificar
-
-| Archivo | Cambio | Severidad |
-|---------|--------|-----------|
-| `src/pages/Finanzas.tsx` | Agregar `mF?.amount` a totalFacturasReal | Baja |
-
-Un solo cambio de una línea. La plataforma está esencialmente libre de errores.
+## Notas técnicas
+- Se eliminará el modo claro — la app será dark-only
+- Los colores se definirán tanto como CSS variables (para componentes shadcn) como clases directas de Tailwind donde sea necesario
+- No se tocan: hooks, contextos, edge functions, lógica de datos, estructura de rutas
+- La fuente Inter ya está importada y configurada
+- Los gráficos de Recharts se estilizarán inline con los nuevos colores
 
