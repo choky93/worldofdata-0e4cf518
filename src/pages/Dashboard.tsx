@@ -441,7 +441,7 @@ export default function Dashboard() {
             {showStock && realStock.length > 0 && (
               <Stagger index={6}>
                 <Link to="/stock">
-                  <Card className="module-border-stock hover:shadow-lg transition-all cursor-pointer h-full">
+                  <Card className="module-border-stock transition-all cursor-pointer h-full hover:border-[#3a3a3a]">
                     <CardContent className="p-4">
                       <div className="flex items-center gap-1.5 text-muted-foreground mb-2">
                         <Package className="h-3.5 w-3.5" />
@@ -457,7 +457,7 @@ export default function Dashboard() {
             {realClientes.length > 0 && (
               <Stagger index={7}>
                 <Link to="/clientes">
-                  <Card className="module-border-clientes hover:shadow-lg transition-all cursor-pointer h-full">
+                  <Card className="module-border-clientes transition-all cursor-pointer h-full hover:border-[#3a3a3a]">
                     <CardContent className="p-4">
                       <div className="flex items-center gap-1.5 text-muted-foreground mb-2">
                         <Users className="h-3.5 w-3.5" />
