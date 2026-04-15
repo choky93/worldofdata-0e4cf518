@@ -500,7 +500,7 @@ export default function CargaDatos() {
       }
       prevErrorIdsRef.current = currentErrorIds;
 
-      const processedIds = records.filter(f => f.status === 'processed' || f.status === 'review').map(f => f.id);
+      const processedIds = records.filter(f => f.status === 'processed' || f.status === 'review' || f.status === 'processed_with_issues').map(f => f.id);
       if (processedIds.length > 0) fetchExtractedData(processedIds);
     } catch (err) {
       console.error('Error fetching files:', err);
@@ -581,13 +581,13 @@ export default function CargaDatos() {
     if (filesToUpload.length === 0) return;
 
     // Validate file formats
-    const SUPPORTED_EXTENSIONS = ['xlsx', 'xls', 'csv', 'pdf', 'png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp', 'doc', 'docx', 'xml', 'txt'];
+    const SUPPORTED_EXTENSIONS = ['xlsx', 'xls', 'xlsm', 'csv', 'pdf', 'png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp', 'doc', 'docx', 'xml', 'txt'];
     const validFiles: File[] = [];
     for (const file of filesToUpload) {
       const ext = file.name.split('.').pop()?.toLowerCase() || '';
       if (!SUPPORTED_EXTENSIONS.includes(ext)) {
-        toast.error(`Formato no soportado: .${ext}`, {
-          description: `Los formatos aceptados son: Excel (.xlsx, .xls), CSV (.csv), PDF (.pdf), Imágenes (.png, .jpg, .webp, .gif, .bmp), Word (.doc, .docx) y XML (.xml)`,
+        toast.error(`Formato no compatible: .${ext}`, {
+          description: `Formatos aceptados: Excel (.xlsx, .xls), CSV (.csv), PDF (.pdf), Imágenes (.jpg, .png, .webp, .gif, .bmp), Word (.doc, .docx) y XML (.xml).`,
           duration: 8000,
         });
         continue;
@@ -644,16 +644,36 @@ export default function CargaDatos() {
 
         // Parse Excel files client-side → send structured row batches
         const ext = item.file.name.split('.').pop()?.toLowerCase() || '';
-        const isExcel = ['xls', 'xlsx'].includes(ext);
+        const isExcel = ['xls', 'xlsx', 'xlsm'].includes(ext);
         const isCsv = ext === 'csv';
         let parsedRows: Record<string, unknown>[] | null = null;
         let parsedHeaders: string[] | null = null;
 
         if (isExcel) {
+          // Warn about macros in .xlsm files
+          if (ext === 'xlsm') {
+            toast.info(`"${item.file.name}" contiene macros que serán ignoradas. Solo se procesarán los datos.`, { duration: 6000 });
+          }
+
           try {
             updateItem({ progress: 72 });
             const buffer = await item.file.arrayBuffer();
-            const wb = XLSX.read(buffer, { type: 'array', dense: true, cellStyles: false, cellNF: false, cellText: false, sheetRows: 50000 });
+            let wb: XLSX.WorkBook;
+            try {
+              wb = XLSX.read(buffer, { type: 'array', dense: true, cellStyles: false, cellNF: false, cellText: false, sheetRows: 50000 });
+            } catch (parseErr: any) {
+              const msg = parseErr?.message || '';
+              if (msg.includes('password') || msg.includes('encrypt') || msg.includes('Password')) {
+                updateItem({ status: 'error', error: 'Archivo protegido con contraseña' });
+                toast.error(`"${item.file.name}" está protegido con contraseña`, {
+                  description: 'Por favor quitá la contraseña antes de subirlo (en Excel: Revisar → Proteger libro → Quitar contraseña).',
+                  duration: 10000,
+                });
+                await processNext();
+                return;
+              }
+              throw parseErr;
+            }
 
             // Parse each sheet independently
             const sheetDataSets: { name: string; rows: Record<string, unknown>[]; headers: string[] }[] = [];
@@ -1210,6 +1230,7 @@ export default function CargaDatos() {
   const statusLabel = (status: string | null) => {
     switch (status) {
       case 'processed': return 'Procesado';
+      case 'processed_with_issues': return 'Procesado con advertencias';
       case 'error': return 'Error';
       case 'queued': return 'En cola';
       case 'processing': return 'Procesando';
@@ -1222,6 +1243,7 @@ export default function CargaDatos() {
   const statusColor = (status: string | null) => {
     switch (status) {
       case 'processed': return 'bg-success/15 text-success';
+      case 'processed_with_issues': return 'bg-warning/15 text-warning';
       case 'error': return 'bg-destructive/15 text-destructive';
       case 'queued': return 'bg-muted text-muted-foreground';
       case 'cancelled': return 'bg-muted text-muted-foreground';
@@ -1260,7 +1282,7 @@ export default function CargaDatos() {
               type="file"
               className="hidden"
               multiple
-              accept=".pdf,.csv,.xls,.xlsx,.png,.jpg,.jpeg,.webp,.gif,.bmp,.doc,.docx,.xml,.txt"
+              accept=".pdf,.csv,.xls,.xlsx,.xlsm,.png,.jpg,.jpeg,.webp,.gif,.bmp,.doc,.docx,.xml,.txt"
               onChange={(e) => {
                 if (e.target.files && e.target.files.length > 0) {
                   uploadFiles(e.target.files);
@@ -1340,6 +1362,7 @@ export default function CargaDatos() {
                 <SelectItem value="queued">En cola</SelectItem>
                 <SelectItem value="error">Error</SelectItem>
                 <SelectItem value="review">Pendiente revisión</SelectItem>
+                <SelectItem value="processed_with_issues">Con advertencias</SelectItem>
                 <SelectItem value="cancelled">Cancelados</SelectItem>
               </SelectContent>
             </Select>
@@ -1393,8 +1416,8 @@ export default function CargaDatos() {
                               {f.created_at ? formatDate(f.created_at) : '—'}
                               {f.file_size ? ` · ${f.file_size > 1024 * 1024 ? `${(f.file_size / 1024 / 1024).toFixed(1)} MB` : `${(f.file_size / 1024).toFixed(0)} KB`}` : ''}
                             </p>
-                            {(f.status === 'error' || f.status === 'review') && f.processing_error && f.processing_error !== RATE_LIMIT_MESSAGE && (
-                              <p className={`text-xs mt-0.5 whitespace-pre-wrap break-words ${f.status === 'review' ? 'text-warning' : 'text-destructive'}`}>{f.processing_error}</p>
+                            {(f.status === 'error' || f.status === 'review' || f.status === 'processed_with_issues') && f.processing_error && f.processing_error !== RATE_LIMIT_MESSAGE && (
+                              <p className={`text-xs mt-0.5 whitespace-pre-wrap break-words ${f.status === 'error' ? 'text-destructive' : 'text-warning'}`}>{f.processing_error}</p>
                             )}
                           </div>
                           <Badge className={`border-0 shrink-0 ${f.status === 'queued' && f.processing_error === RATE_LIMIT_MESSAGE ? 'bg-warning/15 text-warning' : statusColor(f.status)}`}>
@@ -1429,7 +1452,7 @@ export default function CargaDatos() {
                               </Button>
                             </>
                           )}
-                          {(f.status === 'error' || f.status === 'processed' || f.status === 'cancelled' || f.status === 'review') && (
+                          {(f.status === 'error' || f.status === 'processed' || f.status === 'cancelled' || f.status === 'review' || f.status === 'processed_with_issues') && (
                             <Button
                               variant="ghost"
                               size="icon"
@@ -1457,9 +1480,13 @@ export default function CargaDatos() {
                             <Trash2 className="h-4 w-4" />
                           </Button>
                         </div>
-                        {firstExtracted && (f.status === 'processed' || f.status === 'review') && (
-                          <div className="mt-2 ml-8 flex items-start gap-2 text-xs text-muted-foreground bg-muted/30 rounded-md p-2">
-                            <CheckCircle2 className="h-3.5 w-3.5 text-success shrink-0 mt-0.5" />
+                        {firstExtracted && (f.status === 'processed' || f.status === 'review' || f.status === 'processed_with_issues') && (
+                          <div className={`mt-2 ml-8 flex items-start gap-2 text-xs text-muted-foreground rounded-md p-2 ${f.status === 'processed_with_issues' ? 'bg-warning/10 border border-warning/20' : 'bg-muted/30'}`}>
+                            {f.status === 'processed_with_issues' ? (
+                              <AlertTriangle className="h-3.5 w-3.5 text-warning shrink-0 mt-0.5" />
+                            ) : (
+                              <CheckCircle2 className="h-3.5 w-3.5 text-success shrink-0 mt-0.5" />
+                            )}
                             <div className="flex-1">
                               <div className="flex items-center gap-2">
                                 <span className="font-medium text-foreground">

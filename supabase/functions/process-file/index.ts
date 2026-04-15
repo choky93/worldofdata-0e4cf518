@@ -66,6 +66,36 @@ async function downloadFromR2(storagePath: string): Promise<ArrayBuffer> {
   return resp.arrayBuffer();
 }
 
+// ─── Encoding Detection ────────────────────────────────────────
+const LATIN1_ARTIFACTS = /[\u00c3][\u00a1\u00a9\u00ad\u00b1\u00b3\u00ba\u00bc]/g; // Ã© Ã± Ã¡ etc.
+
+function detectAndFixEncoding(buffer: ArrayBuffer): { text: string; encodingWarning: string | null } {
+  let text = new TextDecoder('utf-8', { fatal: false }).decode(buffer);
+  
+  // Check for Latin-1 interpreted as UTF-8 artifacts
+  const artifactMatches = text.match(LATIN1_ARTIFACTS);
+  if (artifactMatches && artifactMatches.length > 3) {
+    console.log(`[process-file] Detected ${artifactMatches.length} Latin-1 encoding artifacts, re-decoding...`);
+    try {
+      text = new TextDecoder('iso-8859-1').decode(buffer);
+      // Check if re-decoded text still has issues
+      const recheck = text.match(LATIN1_ARTIFACTS);
+      if (!recheck || recheck.length < artifactMatches.length) {
+        console.log(`[process-file] Re-decoded with Latin-1 successfully`);
+        return { text, encodingWarning: null };
+      }
+    } catch {
+      // fallback
+    }
+    return { 
+      text, 
+      encodingWarning: "El archivo puede tener problemas de codificación de caracteres. Los nombres con tildes o ñ pueden aparecer incorrectos." 
+    };
+  }
+  
+  return { text, encodingWarning: null };
+}
+
 // ─── CSV Parser (RFC 4180) ─────────────────────────────────────
 function parseCSV(text: string): Record<string, unknown>[] {
   if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
@@ -373,9 +403,10 @@ ${JSON.stringify(sampleRows.slice(0, 10), null, 2)}`;
       category: parsed.category || "otro",
       summary: parsed.summary || "Sin resumen",
       column_mapping: parsed.column_mapping || {},
+      confidence: typeof parsed.confidence === 'number' ? parsed.confidence : 0.8,
     };
   } catch {
-    return { category: "otro", summary: "No se pudo clasificar", column_mapping: {} };
+    return { category: "otro", summary: "No se pudo clasificar", column_mapping: {}, confidence: 0 };
   }
 }
 
@@ -918,7 +949,7 @@ serve(async (req) => {
     if (rowBatch && headers && batchIndex !== undefined && totalBatches !== undefined) {
       if (batchIndex === 0) {
         // First batch: classify with AI
-        let { category, summary, column_mapping } = await classifyWithAI(headers, rowBatch.slice(0, 10), file_name, sheetName);
+        let { category, summary, column_mapping, confidence } = await classifyWithAI(headers, rowBatch.slice(0, 10), file_name, sheetName);
 
         // Apply date normalization using mapped date column
         const mappedDate = column_mapping?.date || null;
@@ -987,7 +1018,17 @@ serve(async (req) => {
             .eq("file_upload_id", fileUploadId)
             .eq("data_category", "_classification");
           const { data: flagCheck } = await sb.from("file_uploads").select("processing_error").eq("id", fileUploadId).single();
-          const finalStatus = flagCheck?.processing_error?.includes("Requiere revisión") ? "review" : "processed";
+          let finalStatus: string;
+          if (flagCheck?.processing_error?.includes("Requiere revisión")) {
+            finalStatus = "review";
+          } else if (confidence < 0.4) {
+            finalStatus = "processed_with_issues";
+            await sb.from("file_uploads").update({ 
+              processing_error: `Clasificación con baja confianza (${Math.round(confidence * 100)}%). Revisá el resumen para verificar que los datos se clasificaron correctamente.` 
+            }).eq("id", fileUploadId);
+          } else {
+            finalStatus = "processed";
+          }
           await sb.from("file_uploads").update({ status: finalStatus, ...(finalStatus === "processed" ? { processing_error: null } : {}) }).eq("id", fileUploadId);
         }
 
@@ -1093,9 +1134,9 @@ serve(async (req) => {
 
     // ─── CSV/TXT: Deterministic row processing ──────────────
     if (['csv', 'txt'].includes(ext)) {
-      const text = new TextDecoder().decode(buffer);
+      const { text, encodingWarning } = detectAndFixEncoding(buffer);
       let allRows = parseCSV(text);
-      console.log(`[process-file] CSV parsed: ${allRows.length} rows`);
+      console.log(`[process-file] CSV parsed: ${allRows.length} rows${encodingWarning ? ' (encoding warning)' : ''}`);
 
       if (allRows.length > 0) {
         const fixed = fixBrokenHeaders(allRows);
@@ -1296,11 +1337,32 @@ serve(async (req) => {
       resultInfo = { category: result.category, summary: result.summary, totalRows: result.rowCount };
     }
 
-    await sb.from("file_uploads").update({ status: "processed", processing_error: null }).eq("id", fileUploadId);
-    console.log(`[process-file] ✅ Completed "${file_name}" - category=${resultInfo.category}, rows=${resultInfo.totalRows}`);
+    // Determine final status: processed_with_issues if zero rows or encoding problems
+    let finalStatus = "processed";
+    let finalError: string | null = null;
+
+    if (resultInfo.totalRows === 0) {
+      finalStatus = "processed_with_issues";
+      finalError = "No se encontraron datos tabulares en este archivo. Revisá el resumen para más detalles.";
+    }
+
+    // Check for encoding warnings (only for CSV/TXT in PATH C)
+    if (['csv', 'txt'].includes(ext)) {
+      const { encodingWarning } = detectAndFixEncoding(buffer);
+      if (encodingWarning && finalStatus === "processed") {
+        finalStatus = "processed_with_issues";
+        finalError = encodingWarning;
+      }
+    }
+
+    await sb.from("file_uploads").update({ 
+      status: finalStatus, 
+      processing_error: finalError,
+    }).eq("id", fileUploadId);
+    console.log(`[process-file] ✅ Completed "${file_name}" - category=${resultInfo.category}, rows=${resultInfo.totalRows}, status=${finalStatus}`);
 
     return new Response(JSON.stringify({
-      success: true, ...resultInfo,
+      success: true, ...resultInfo, status: finalStatus,
     }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
   } catch (error) {
     console.error("[process-file] ❌ Error:", error);
