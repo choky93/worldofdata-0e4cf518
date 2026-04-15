@@ -1,7 +1,9 @@
-import { useState, useEffect, useCallback, createContext, useContext, ReactNode } from 'react';
+import { useState, useEffect, useCallback, useMemo, createContext, useContext, ReactNode } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import type { ColumnMapping } from '@/lib/field-utils';
+import { findString, FIELD_DATE } from '@/lib/field-utils';
+import { extractAvailableMonths } from '@/lib/data-cleaning';
 
 interface ExtractedRecord {
   data_category: string;
@@ -40,6 +42,7 @@ interface ExtractedDataContextValue {
   mappings: CategoryMappings;
   loading: boolean;
   hasData: boolean;
+  availableMonths: string[];
   refetch: () => Promise<void>;
 }
 
@@ -137,8 +140,22 @@ export function ExtractedDataProvider({ children }: { children: ReactNode }) {
     fetchData();
   }, [fetchData]);
 
+  // Compute available months across ventas, gastos, marketing
+  const availableMonths = useMemo(() => {
+    if (!data) return [];
+    const mV = mappings.ventas;
+    const mG = mappings.gastos;
+    const mM = mappings.marketing;
+    const finder = (mapping?: ColumnMapping) => (row: any, kw: string[]) => findString(row, kw, mapping?.date);
+    const months = new Set<string>();
+    for (const m of extractAvailableMonths(data.ventas, FIELD_DATE, finder(mV))) months.add(m);
+    for (const m of extractAvailableMonths(data.gastos, FIELD_DATE, finder(mG))) months.add(m);
+    for (const m of extractAvailableMonths(data.marketing, FIELD_DATE, finder(mM))) months.add(m);
+    return Array.from(months).sort();
+  }, [data, mappings]);
+
   return (
-    <ExtractedDataContext.Provider value={{ data, mappings, loading, hasData, refetch: fetchData }}>
+    <ExtractedDataContext.Provider value={{ data, mappings, loading, hasData, availableMonths, refetch: fetchData }}>
       {children}
     </ExtractedDataContext.Provider>
   );
