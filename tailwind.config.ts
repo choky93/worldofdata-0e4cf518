@@ -17,6 +17,7 @@ export default {
         sans: ['DM Sans', 'system-ui', 'sans-serif'],
         mono: ['DM Mono', 'Fira Code', 'monospace'],
       },
+      colors: {
         border: "hsl(var(--border))",
         input: "hsl(var(--input))",
         ring: "hsl(var(--ring))",
