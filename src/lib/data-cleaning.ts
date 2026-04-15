@@ -290,7 +290,85 @@ export function detectPeriodOverlap(
  * Detect months that have data from more than one file_upload_id.
  * Takes rows tagged with __file_upload_id.
  */
+/**
+ * Detect if rows contain mixed currencies (ARS, USD, EUR).
+ * Scans amount columns for currency symbols/prefixes.
+ */
+const CURRENCY_PATTERNS: { pattern: RegExp; currency: string }[] = [
+  { pattern: /\bARS\b/i, currency: 'ARS' },
+  { pattern: /\bUSD\b/i, currency: 'USD' },
+  { pattern: /\bU\$S\b/i, currency: 'USD' },
+  { pattern: /\bu\$s\b/i, currency: 'USD' },
+  { pattern: /\bUS\$/i, currency: 'USD' },
+  { pattern: /€/, currency: 'EUR' },
+  { pattern: /\bEUR\b/i, currency: 'EUR' },
+];
+
+export function detectCurrencyMix(
+  rows: any[],
+  amountKeywords: string[],
+  findStringFn?: (row: any, kw: string[]) => string
+): boolean {
+  const currencies = new Set<string>();
+
+  for (const row of rows) {
+    // Check all keys that match amount keywords
+    const keys = Object.keys(row);
+    const normalizedKw = amountKeywords.map(k => k.toLowerCase());
+
+    for (const key of keys) {
+      const nk = key.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]/g, '');
+      const isAmountCol = normalizedKw.some(kw => nk.includes(kw));
+      if (!isAmountCol) continue;
+
+      const val = String(row[key] ?? '');
+      for (const { pattern, currency } of CURRENCY_PATTERNS) {
+        if (pattern.test(val)) {
+          currencies.add(currency);
+        }
+      }
+    }
+
+    // Also check via findStringFn if provided
+    if (findStringFn) {
+      const val = findStringFn(row, amountKeywords);
+      if (val) {
+        for (const { pattern, currency } of CURRENCY_PATTERNS) {
+          if (pattern.test(val)) {
+            currencies.add(currency);
+          }
+        }
+      }
+    }
+
+    if (currencies.size > 1) return true;
+  }
+
+  return currencies.size > 1;
+}
+
 export function detectMultiSourcePeriods(
+  taggedRows: { row: any; fileUploadId: string }[],
+  dateKeywords: string[],
+  findStringFn: (row: any, kw: string[]) => string
+): string[] {
+  // month → set of file IDs
+  const monthSources = new Map<string, Set<string>>();
+  for (const { row, fileUploadId } of taggedRows) {
+    const raw = findStringFn(row, dateKeywords);
+    if (!raw) continue;
+    const d = parseDate(raw);
+    if (!d) continue;
+    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    if (!monthSources.has(key)) monthSources.set(key, new Set());
+    monthSources.get(key)!.add(fileUploadId);
+  }
+  const duplicated: string[] = [];
+  for (const [month, sources] of monthSources) {
+    if (sources.size > 1) duplicated.push(month);
+  }
+  return duplicated.sort();
+}
   taggedRows: { row: any; fileUploadId: string }[],
   dateKeywords: string[],
   findStringFn: (row: any, kw: string[]) => string
