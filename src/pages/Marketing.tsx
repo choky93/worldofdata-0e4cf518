@@ -120,14 +120,10 @@ export default function Marketing() {
   const totalClicks = realCampaigns.reduce((s, c) => s + c.clicks, 0);
   const totalConversions = realCampaigns.reduce((s, c) => s + c.conversions, 0);
   const totalReach = realCampaigns.reduce((s, c) => s + c.reach, 0);
-  const totalImpressions = realCampaigns.reduce((s, c) => s + c.impressions, 0);
-
-  // Check if we have campaign names or just date-based rows
-  const hasCampaignNames = realCampaigns.some(c => {
-    const n = c.name;
-    // Check if name looks like a date (our fallback) vs a real campaign name
-    return n && n !== 'Sin nombre' && !parseDate(n);
-  });
+  // Detect which optional fields actually exist in the data
+  const hasConversionsField = fieldExists(filteredMarketing, FIELD_CONVERSIONS, m?.conversions);
+  const hasReachField = fieldExists(filteredMarketing, FIELD_REACH, m?.reach);
+  const hasImpressionsField = fieldExists(filteredMarketing, FIELD_IMPRESSIONS, m?.impressions);
 
   const chartData = realCampaigns.map(c => ({
     name: c.name.length > 14 ? c.name.slice(0, 14) + '…' : c.name,
