@@ -168,7 +168,7 @@ export default function Marketing() {
           </CardContent></Card>
           <Card><CardContent className="pt-6">
             <p className="text-sm text-muted-foreground">Impresiones</p>
-            <p className="text-3xl font-bold tabular-nums">{totalImpressions > 0 ? formatNumber(totalImpressions) : '—'}</p>
+             <p className="text-3xl font-bold tabular-nums">{totalImpressions > 0 ? formatNumber(totalImpressions) : '—'}</p>
           </CardContent></Card>
         </div>
 
