@@ -403,9 +403,10 @@ ${JSON.stringify(sampleRows.slice(0, 10), null, 2)}`;
       category: parsed.category || "otro",
       summary: parsed.summary || "Sin resumen",
       column_mapping: parsed.column_mapping || {},
+      confidence: typeof parsed.confidence === 'number' ? parsed.confidence : 0.8,
     };
   } catch {
-    return { category: "otro", summary: "No se pudo clasificar", column_mapping: {} };
+    return { category: "otro", summary: "No se pudo clasificar", column_mapping: {}, confidence: 0 };
   }
 }
 
