@@ -323,6 +323,17 @@ function UploadQueue({ items, onDismiss }: { items: UploadQueueItem[]; onDismiss
                 <Loader2 className="h-3.5 w-3.5 animate-spin text-primary shrink-0" />
               )}
               <span className="truncate flex-1">{item.file.name}</span>
+              {item.sheetStatuses && item.sheetStatuses.length > 0 && (
+                <span className="text-muted-foreground whitespace-nowrap text-[10px] flex items-center gap-1">
+                  {item.sheetStatuses.map((s, i) => (
+                    <span key={i} className="inline-flex items-center gap-0.5">
+                      {s.status === 'done' ? '✓' : s.status === 'error' ? '✗' : s.status === 'processing' ? '⏳' : '○'}
+                      {s.name}
+                      {i < item.sheetStatuses!.length - 1 ? ',' : ''}
+                    </span>
+                  ))}
+                </span>
+              )}
               {item.status === 'processing' && item.currentChunk !== undefined && item.totalChunks && item.totalChunks > 1 && (
                 <span className="text-muted-foreground whitespace-nowrap">Bloque {item.currentChunk + 1} de {item.totalChunks}</span>
               )}
