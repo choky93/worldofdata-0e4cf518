@@ -66,6 +66,36 @@ async function downloadFromR2(storagePath: string): Promise<ArrayBuffer> {
   return resp.arrayBuffer();
 }
 
+// ─── Encoding Detection ────────────────────────────────────────
+const LATIN1_ARTIFACTS = /[\u00c3][\u00a1\u00a9\u00ad\u00b1\u00b3\u00ba\u00bc]/g; // Ã© Ã± Ã¡ etc.
+
+function detectAndFixEncoding(buffer: ArrayBuffer): { text: string; encodingWarning: string | null } {
+  let text = new TextDecoder('utf-8', { fatal: false }).decode(buffer);
+  
+  // Check for Latin-1 interpreted as UTF-8 artifacts
+  const artifactMatches = text.match(LATIN1_ARTIFACTS);
+  if (artifactMatches && artifactMatches.length > 3) {
+    console.log(`[process-file] Detected ${artifactMatches.length} Latin-1 encoding artifacts, re-decoding...`);
+    try {
+      text = new TextDecoder('iso-8859-1').decode(buffer);
+      // Check if re-decoded text still has issues
+      const recheck = text.match(LATIN1_ARTIFACTS);
+      if (!recheck || recheck.length < artifactMatches.length) {
+        console.log(`[process-file] Re-decoded with Latin-1 successfully`);
+        return { text, encodingWarning: null };
+      }
+    } catch {
+      // fallback
+    }
+    return { 
+      text, 
+      encodingWarning: "El archivo puede tener problemas de codificación de caracteres. Los nombres con tildes o ñ pueden aparecer incorrectos." 
+    };
+  }
+  
+  return { text, encodingWarning: null };
+}
+
 // ─── CSV Parser (RFC 4180) ─────────────────────────────────────
 function parseCSV(text: string): Record<string, unknown>[] {
   if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
