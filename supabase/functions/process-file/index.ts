@@ -252,8 +252,9 @@ async function classifyWithAI(
   headers: string[],
   sampleRows: Record<string, unknown>[],
   fileName: string,
+  sheetName?: string,
 ): Promise<{ category: string; summary: string; column_mapping: Record<string, string | null> }> {
-  console.log(`[process-file] AI classification for "${fileName}" (${headers.length} cols, ${sampleRows.length} sample rows)`);
+  console.log(`[process-file] AI classification for "${fileName}"${sheetName ? ` (hoja: "${sheetName}")` : ''} (${headers.length} cols, ${sampleRows.length} sample rows)`);
 
   const systemPrompt = `Sos un especialista en análisis de datos de PyMEs latinoamericanas. Tu tarea es clasificar archivos de datos de negocios y mapear sus columnas a campos semánticos estándar.
 
@@ -341,7 +342,7 @@ FORMATO DE RESPUESTA — SOLO JSON:
 
 {"category":"...","confidence":0.95,"summary":"descripción breve del archivo y qué contiene","column_mapping":{"amount":"Nombre Exacto Columna","date":"Nombre Exacto Columna",...},"warnings":["lista de advertencias si hay datos ambiguos o columnas que no se pudieron mapear con certeza"]}`;
 
-  const content = `Archivo: "${fileName}"
+  const content = `Archivo: "${fileName}"${sheetName ? `\nHoja de Excel: "${sheetName}" (usá el nombre de la hoja como pista para la categoría)` : ''}
 Columnas: ${JSON.stringify(headers)}
 Primeras ${sampleRows.length} filas de ejemplo:
 ${JSON.stringify(sampleRows.slice(0, 10), null, 2)}`;
@@ -890,10 +891,11 @@ serve(async (req) => {
     const totalBatches = body.totalBatches as number | undefined;
     const totalRows = body.totalRows as number | undefined;
     const explicitCategory = body.category as string | undefined;
+    const sheetName = body.sheetName as string | undefined;
 
     const preParsedData = body.preParsedData;
 
-    console.log(`[process-file] fileUploadId=${fileUploadId}, companyId=${companyId}`);
+    console.log(`[process-file] fileUploadId=${fileUploadId}, companyId=${companyId}${sheetName ? `, sheet="${sheetName}"` : ''}`);
 
     if (!fileUploadId || !companyId) {
       return new Response(JSON.stringify({ error: "Missing fileUploadId or companyId" }), {
@@ -916,7 +918,7 @@ serve(async (req) => {
     if (rowBatch && headers && batchIndex !== undefined && totalBatches !== undefined) {
       if (batchIndex === 0) {
         // First batch: classify with AI
-        let { category, summary, column_mapping } = await classifyWithAI(headers, rowBatch.slice(0, 10), file_name);
+        let { category, summary, column_mapping } = await classifyWithAI(headers, rowBatch.slice(0, 10), file_name, sheetName);
 
         // Apply date normalization using mapped date column
         const mappedDate = column_mapping?.date || null;
