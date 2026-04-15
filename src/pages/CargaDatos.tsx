@@ -41,6 +41,12 @@ interface ExtractedData {
   chunk_index: number;
 }
 
+interface SheetStatus {
+  name: string;
+  status: 'pending' | 'processing' | 'done' | 'error';
+  rows?: number;
+}
+
 interface UploadQueueItem {
   file: File;
   id: string;
@@ -52,6 +58,7 @@ interface UploadQueueItem {
   totalRows?: number;
   processedRows?: number;
   chunksFailed?: number;
+  sheetStatuses?: SheetStatus[];
 }
 
 const fileIcons: Record<string, typeof FileText> = { PDF: FileText, CSV: FileSpreadsheet, XLS: FileSpreadsheet, Imagen: Image };
