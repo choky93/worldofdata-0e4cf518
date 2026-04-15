@@ -949,7 +949,7 @@ serve(async (req) => {
     if (rowBatch && headers && batchIndex !== undefined && totalBatches !== undefined) {
       if (batchIndex === 0) {
         // First batch: classify with AI
-        let { category, summary, column_mapping } = await classifyWithAI(headers, rowBatch.slice(0, 10), file_name, sheetName);
+        let { category, summary, column_mapping, confidence } = await classifyWithAI(headers, rowBatch.slice(0, 10), file_name, sheetName);
 
         // Apply date normalization using mapped date column
         const mappedDate = column_mapping?.date || null;
