@@ -121,7 +121,7 @@ export default function Marketing() {
     return n && n !== 'Sin nombre' && !parseDate(n);
   });
 
-  const chartData = campaigns.map(c => ({
+  const chartData = realCampaigns.map(c => ({
     name: c.name.length > 14 ? c.name.slice(0, 14) + '…' : c.name,
     gasto: c.spend,
     ingresos: c.revenue,
