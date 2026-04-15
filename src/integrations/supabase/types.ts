@@ -14,6 +14,33 @@ export type Database = {
   }
   public: {
     Tables: {
+      cleanup_logs: {
+        Row: {
+          bytes_freed: number
+          company_id: string
+          details: Json | null
+          executed_at: string
+          files_deleted: number
+          id: string
+        }
+        Insert: {
+          bytes_freed?: number
+          company_id: string
+          details?: Json | null
+          executed_at?: string
+          files_deleted?: number
+          id?: string
+        }
+        Update: {
+          bytes_freed?: number
+          company_id?: string
+          details?: Json | null
+          executed_at?: string
+          files_deleted?: number
+          id?: string
+        }
+        Relationships: []
+      }
       companies: {
         Row: {
           created_at: string | null
