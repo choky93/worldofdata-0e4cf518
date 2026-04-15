@@ -13,12 +13,31 @@ type Mode = 'chat' | 'search';
 
 const CHAT_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/ai-chat`;
 
-const suggestions = [
-  '¿Cuál es mi producto más rentable?',
-  '¿Qué cliente me conviene recuperar?',
-  'Dame un resumen de mis ventas del último mes',
-  '¿Cómo está mi stock? ¿Hay algo crítico?',
-  '¿Qué acción concreta me recomendás hoy?',
+const chipGroups = [
+  {
+    label: 'Análisis del negocio',
+    chips: [
+      '¿Cómo vienen las ventas este período?',
+      '¿Cuál fue mi mejor mes y por qué?',
+      '¿Qué producto o servicio me deja más margen?',
+    ],
+  },
+  {
+    label: 'Proyecciones',
+    chips: [
+      '¿Cómo viene el mes que viene?',
+      '¿En qué meses históricamente vendo más?',
+      '¿Cuánto efectivo voy a tener a fin de mes?',
+    ],
+  },
+  {
+    label: 'Acciones recomendadas',
+    chips: [
+      '¿Qué debería hacer esta semana para mejorar resultados?',
+      '¿Hay algo que me esté costando plata sin que me dé cuenta?',
+      '¿Cómo está mi inversión en publicidad?',
+    ],
+  },
 ];
 
 // ─── Streaming chat ───────────────────────────────────────────────
