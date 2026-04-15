@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { KPICard } from '@/components/ui/KPICard';
 import { formatCurrency, formatDate } from '@/lib/formatters';
-import { formatXAxisDate, formatAmount, TOOLTIP_STYLE, AXIS_STYLE } from '@/lib/chart-config';
+import { formatXAxisDate, formatAmount, formatAmountFull, TOOLTIP_STYLE, AXIS_STYLE } from '@/lib/chart-config';
 import { findNumber, findString, FIELD_AMOUNT, FIELD_DATE, FIELD_CLIENT, FIELD_NAME } from '@/lib/field-utils';
 import { useExtractedData } from '@/hooks/useExtractedData';
 import { filterByPeriod, parseDate, type PeriodKey } from '@/lib/data-cleaning';
@@ -59,6 +59,54 @@ function aggregateByMonth(ventas: any[], m?: any): { month: string; value: numbe
   return Array.from(map.entries())
     .sort(([, a], [, b]) => a.date.getTime() - b.date.getTime())
     .map(([month, { value }]) => ({ month, value }));
+// ─── Custom Tooltip ──────────────────────────────────────────────
+function VentasTooltip({ active, payload, label }: any) {
+  if (!active || !payload?.length) return null;
+  const d = new Date(label);
+  const mes = isNaN(d.getTime()) ? label : d.toLocaleDateString('es-AR', {
+    month: 'long', year: 'numeric'
+  }).replace(/^\w/, (c: string) => c.toUpperCase());
+
+  return (
+    <div style={{
+      background: '#1a1a1a',
+      border: '1px solid rgba(255,255,255,0.08)',
+      borderRadius: '10px',
+      padding: '12px 16px',
+      boxShadow: '0 8px 32px rgba(0,0,0,0.6)',
+      minWidth: '160px',
+    }}>
+      <div style={{ fontSize: '11px', color: '#666', marginBottom: '6px', fontWeight: 500 }}>
+        {mes}
+      </div>
+      <div style={{
+        fontSize: '18px',
+        fontWeight: 700,
+        color: '#c8f135',
+        fontFamily: "'DM Mono', monospace",
+        letterSpacing: '-0.02em',
+      }}>
+        {formatAmountFull(payload[0]?.value ?? 0)}
+      </div>
+    </div>
+  );
+}
+
+// ─── Gradient Bar ────────────────────────────────────────────────
+function GradientBar(props: any) {
+  const { x, y, width, height } = props;
+  if (!height || height <= 0) return null;
+  return (
+    <g>
+      <defs>
+        <linearGradient id="barGrad" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="#c8f135" stopOpacity={0.9} />
+          <stop offset="100%" stopColor="#7ab800" stopOpacity={0.6} />
+        </linearGradient>
+      </defs>
+      <rect x={x} y={y} width={width} height={height} fill="url(#barGrad)" rx={3} ry={3} />
+    </g>
+  );
 }
 
 export default function Ventas() {
@@ -159,20 +207,20 @@ export default function Ventas() {
 
         <div className="grid gap-4 lg:grid-cols-2">
           {dailyChart.length >= 2 ? (
-            <Card>
-              <CardHeader><CardTitle className="text-sm text-muted-foreground">Ventas por fecha</CardTitle></CardHeader>
-              <CardContent><div className="h-64">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={dailyChart}>
-                     <CartesianGrid strokeDasharray="3 3" stroke="#1f1f1f" />
-                     <XAxis dataKey="day" tick={AXIS_STYLE.tick} tickFormatter={formatXAxisDate} />
-                     <YAxis tick={AXIS_STYLE.tick} tickFormatter={formatAmount} />
-                     <Tooltip formatter={(v: number) => formatCurrency(v)} labelFormatter={formatXAxisDate} {...TOOLTIP_STYLE} />
-                     <Bar dataKey="value" fill="#c8f135" radius={[4, 4, 0, 0]} opacity={0.85} />
-                  </BarChart>
-                </ResponsiveContainer>
-              </div></CardContent>
-            </Card>
+            <div style={{ background: '#0d0d0d', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.06)', padding: '20px 16px 12px' }}>
+              <div style={{ fontSize: '10px', letterSpacing: '0.1em', textTransform: 'uppercase', color: '#555', marginBottom: '16px', fontWeight: 500, paddingLeft: '4px' }}>
+                Ventas por fecha
+              </div>
+              <ResponsiveContainer width="100%" height={220}>
+                <BarChart data={dailyChart} barCategoryGap="28%">
+                  <CartesianGrid vertical={false} stroke="#1a1a1a" strokeDasharray="0" />
+                  <XAxis dataKey="day" tickFormatter={formatXAxisDate} tick={AXIS_STYLE.tick} axisLine={false} tickLine={false} interval="preserveStartEnd" />
+                  <YAxis tickFormatter={formatAmount} tick={AXIS_STYLE.tick} axisLine={false} tickLine={false} width={52} />
+                  <Tooltip content={<VentasTooltip />} cursor={{ fill: 'rgba(255,255,255,0.02)' }} />
+                  <Bar dataKey="value" shape={<GradientBar />} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
           ) : (
             <Card>
               <CardHeader><CardTitle className="text-sm text-muted-foreground">Ventas por fecha</CardTitle></CardHeader>
@@ -183,26 +231,26 @@ export default function Ventas() {
           )}
 
           {monthlyChart.length >= 2 ? (
-            <Card>
-              <CardHeader><CardTitle className="text-sm text-muted-foreground">Evolución mensual</CardTitle></CardHeader>
-              <CardContent><div className="h-64">
-                <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={monthlyChart}>
-                     <defs>
-                       <linearGradient id="salesMonthlyGrad" x1="0" y1="0" x2="0" y2="1">
-                         <stop offset="5%" stopColor="#c8f135" stopOpacity={0.08} />
-                         <stop offset="95%" stopColor="#c8f135" stopOpacity={0} />
-                       </linearGradient>
-                     </defs>
-                     <CartesianGrid strokeDasharray="3 3" stroke="#1f1f1f" />
-                     <XAxis dataKey="month" tick={AXIS_STYLE.tick} tickFormatter={formatXAxisDate} />
-                     <YAxis tick={AXIS_STYLE.tick} tickFormatter={formatAmount} />
-                     <Tooltip formatter={(v: number) => formatCurrency(v)} labelFormatter={formatXAxisDate} {...TOOLTIP_STYLE} />
-                     <Area type="monotone" dataKey="value" stroke="#c8f135" fill="url(#salesMonthlyGrad)" strokeWidth={2} />
-                  </AreaChart>
-                </ResponsiveContainer>
-              </div></CardContent>
-            </Card>
+            <div style={{ background: '#0d0d0d', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.06)', padding: '20px 16px 12px' }}>
+              <div style={{ fontSize: '10px', letterSpacing: '0.1em', textTransform: 'uppercase', color: '#555', marginBottom: '16px', fontWeight: 500, paddingLeft: '4px' }}>
+                Evolución mensual
+              </div>
+              <ResponsiveContainer width="100%" height={220}>
+                <AreaChart data={monthlyChart}>
+                  <defs>
+                    <linearGradient id="lineGrad" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="#c8f135" stopOpacity={0.15} />
+                      <stop offset="100%" stopColor="#c8f135" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid stroke="#1a1a1a" strokeDasharray="0" />
+                  <XAxis dataKey="month" tickFormatter={formatXAxisDate} tick={AXIS_STYLE.tick} axisLine={false} tickLine={false} interval="preserveStartEnd" />
+                  <YAxis tickFormatter={formatAmount} tick={AXIS_STYLE.tick} axisLine={false} tickLine={false} width={52} />
+                  <Tooltip content={<VentasTooltip />} />
+                  <Area type="monotone" dataKey="value" stroke="#c8f135" strokeWidth={2} fill="url(#lineGrad)" dot={false} activeDot={{ r: 4, fill: '#c8f135', stroke: '#0d0d0d', strokeWidth: 2 }} />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
           ) : (
             <Card>
               <CardHeader><CardTitle className="text-sm text-muted-foreground">Evolución mensual</CardTitle></CardHeader>
