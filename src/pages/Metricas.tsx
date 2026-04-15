@@ -1,5 +1,6 @@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { formatCurrency, formatPercent, formatXAxisDate, formatTooltipDate } from '@/lib/formatters';
+import { formatCurrency, formatPercent } from '@/lib/formatters';
+import { formatXAxisDate, TOOLTIP_STYLE, AXIS_STYLE } from '@/lib/chart-config';
 import { findNumber, findString, FIELD_AMOUNT, FIELD_DATE, FIELD_STOCK_QTY } from '@/lib/field-utils';
 import type { ColumnMapping } from '@/lib/field-utils';
 import { useExtractedData } from '@/hooks/useExtractedData';
@@ -54,9 +55,9 @@ function MetricChart({ data, title, formatter, tooltip }: {
                  </linearGradient>
                </defs>
                <CartesianGrid strokeDasharray="3 3" stroke="#1f1f1f" />
-               <XAxis dataKey="month" tick={{ fontSize: 9, fill: '#555555' }} tickFormatter={formatXAxisDate} />
-               <YAxis tick={{ fontSize: 9, fill: '#555555' }} tickFormatter={(v) => formatter(v)} />
-               <Tooltip formatter={(v: number) => formatter(v)} labelFormatter={formatTooltipDate} contentStyle={{ background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: '8px', color: '#f5f5f5' }} itemStyle={{ color: '#c8f135' }} />
+               <XAxis dataKey="month" tick={AXIS_STYLE.tick} tickFormatter={formatXAxisDate} />
+               <YAxis tick={AXIS_STYLE.tick} tickFormatter={(v) => formatter(v)} />
+               <Tooltip formatter={(v: number) => formatter(v)} labelFormatter={formatXAxisDate} {...TOOLTIP_STYLE} />
                <Area type="monotone" dataKey="value" stroke="#c8f135" fill={`url(#grad-${title.replace(/\s/g, '')})`} strokeWidth={2} />
             </AreaChart>
           </ResponsiveContainer>

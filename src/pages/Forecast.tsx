@@ -1,6 +1,7 @@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { formatCurrency, formatXAxisDate, formatTooltipDate } from '@/lib/formatters';
+import { formatCurrency } from '@/lib/formatters';
+import { formatXAxisDate, formatAmount, TOOLTIP_STYLE, AXIS_STYLE } from '@/lib/chart-config';
 import { findNumber, findString, FIELD_AMOUNT, FIELD_DATE } from '@/lib/field-utils';
 import { useExtractedData } from '@/hooks/useExtractedData';
 import { parseDate } from '@/lib/data-cleaning';
@@ -181,9 +182,9 @@ export default function Forecast() {
               <ResponsiveContainer width="100%" height="100%">
                 <LineChart data={chartData}>
                    <CartesianGrid strokeDasharray="3 3" stroke="#1f1f1f" />
-                   <XAxis dataKey="month" tick={{ fontSize: 10, fill: '#555555' }} tickFormatter={formatXAxisDate} />
-                   <YAxis tick={{ fontSize: 10, fill: '#555555' }} tickFormatter={v => `$${(v / 1000000).toFixed(1)}M`} />
-                   <Tooltip formatter={(v: number) => formatCurrency(v)} labelFormatter={formatTooltipDate} contentStyle={{ background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: '8px', color: '#f5f5f5' }} itemStyle={{ color: '#c8f135' }} />
+                   <XAxis dataKey="month" tick={AXIS_STYLE.tick} tickFormatter={formatXAxisDate} />
+                   <YAxis tick={AXIS_STYLE.tick} tickFormatter={formatAmount} />
+                   <Tooltip formatter={(v: number) => formatCurrency(v)} labelFormatter={formatXAxisDate} {...TOOLTIP_STYLE} />
                    <Line type="monotone" dataKey="real" stroke="#c8f135" strokeWidth={2} dot={{ r: 3, fill: '#c8f135' }} name="Real" connectNulls={false} />
                    <Line type="monotone" dataKey="forecast" stroke="#c8f135" strokeWidth={2} strokeDasharray="6 4" dot={{ r: 3, fill: '#c8f135' }} name="Proyección" connectNulls={false} />
                 </LineChart>

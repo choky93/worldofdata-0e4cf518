@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { KPICard } from '@/components/ui/KPICard';
-import { formatCurrency, formatDate, formatXAxisDate, formatTooltipDate } from '@/lib/formatters';
+import { formatCurrency, formatDate } from '@/lib/formatters';
+import { formatXAxisDate, formatAmount, TOOLTIP_STYLE, AXIS_STYLE } from '@/lib/chart-config';
 import { findNumber, findString, FIELD_AMOUNT, FIELD_DATE, FIELD_CLIENT, FIELD_NAME } from '@/lib/field-utils';
 import { useExtractedData } from '@/hooks/useExtractedData';
 import { filterByPeriod, parseDate, type PeriodKey } from '@/lib/data-cleaning';
@@ -164,9 +165,9 @@ export default function Ventas() {
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={dailyChart}>
                      <CartesianGrid strokeDasharray="3 3" stroke="#1f1f1f" />
-                     <XAxis dataKey="day" tick={{ fontSize: 10, fill: '#555555' }} tickFormatter={formatXAxisDate} />
-                     <YAxis tick={{ fontSize: 10, fill: '#555555' }} tickFormatter={v => `$${(v / 1000).toFixed(0)}k`} />
-                     <Tooltip formatter={(v: number) => formatCurrency(v)} labelFormatter={formatTooltipDate} contentStyle={{ background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: '8px', color: '#f5f5f5' }} itemStyle={{ color: '#c8f135' }} />
+                     <XAxis dataKey="day" tick={AXIS_STYLE.tick} tickFormatter={formatXAxisDate} />
+                     <YAxis tick={AXIS_STYLE.tick} tickFormatter={formatAmount} />
+                     <Tooltip formatter={(v: number) => formatCurrency(v)} labelFormatter={formatXAxisDate} {...TOOLTIP_STYLE} />
                      <Bar dataKey="value" fill="#c8f135" radius={[4, 4, 0, 0]} opacity={0.85} />
                   </BarChart>
                 </ResponsiveContainer>
@@ -194,9 +195,9 @@ export default function Ventas() {
                        </linearGradient>
                      </defs>
                      <CartesianGrid strokeDasharray="3 3" stroke="#1f1f1f" />
-                     <XAxis dataKey="month" tick={{ fontSize: 10, fill: '#555555' }} tickFormatter={formatXAxisDate} />
-                     <YAxis tick={{ fontSize: 10, fill: '#555555' }} tickFormatter={v => `$${(v / 1000000).toFixed(1)}M`} />
-                     <Tooltip formatter={(v: number) => formatCurrency(v)} labelFormatter={formatTooltipDate} contentStyle={{ background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: '8px', color: '#f5f5f5' }} itemStyle={{ color: '#c8f135' }} />
+                     <XAxis dataKey="month" tick={AXIS_STYLE.tick} tickFormatter={formatXAxisDate} />
+                     <YAxis tick={AXIS_STYLE.tick} tickFormatter={formatAmount} />
+                     <Tooltip formatter={(v: number) => formatCurrency(v)} labelFormatter={formatXAxisDate} {...TOOLTIP_STYLE} />
                      <Area type="monotone" dataKey="value" stroke="#c8f135" fill="url(#salesMonthlyGrad)" strokeWidth={2} />
                   </AreaChart>
                 </ResponsiveContainer>
