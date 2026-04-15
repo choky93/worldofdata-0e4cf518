@@ -369,10 +369,6 @@ export function detectMultiSourcePeriods(
   }
   return duplicated.sort();
 }
-  taggedRows: { row: any; fileUploadId: string }[],
-  dateKeywords: string[],
-  findStringFn: (row: any, kw: string[]) => string
-): string[] {
   // month → set of file IDs
   const monthSources = new Map<string, Set<string>>();
   for (const { row, fileUploadId } of taggedRows) {
