@@ -4,7 +4,7 @@ import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/contexts/AuthContext';
-import { formatCurrency, getGreeting, safeDiv } from '@/lib/formatters';
+import { formatCurrency, getGreeting, safeDiv, formatXAxisDate, formatTooltipDate } from '@/lib/formatters';
 import { findNumber, findString, FIELD_AMOUNT, FIELD_SPEND, FIELD_DATE } from '@/lib/field-utils';
 import { parseDate } from '@/lib/data-cleaning';
 import { useExtractedData } from '@/hooks/useExtractedData';

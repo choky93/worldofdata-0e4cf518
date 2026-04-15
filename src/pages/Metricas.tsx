@@ -1,5 +1,5 @@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { formatCurrency, formatPercent } from '@/lib/formatters';
+import { formatCurrency, formatPercent, formatXAxisDate, formatTooltipDate } from '@/lib/formatters';
 import { findNumber, findString, FIELD_AMOUNT, FIELD_DATE, FIELD_STOCK_QTY } from '@/lib/field-utils';
 import type { ColumnMapping } from '@/lib/field-utils';
 import { useExtractedData } from '@/hooks/useExtractedData';
