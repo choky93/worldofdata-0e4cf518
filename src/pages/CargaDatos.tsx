@@ -1282,6 +1282,22 @@ export default function CargaDatos() {
 
       <div className="grid gap-6 lg:grid-cols-3">
         <div className="lg:col-span-2 space-y-4">
+          {/* Storage Usage Bar */}
+          {storageUsedBytes > 0 && (
+            <div className="flex items-center gap-3 p-3 rounded-lg bg-muted/50 border border-border">
+              <BarChart3 className="h-4 w-4 text-muted-foreground shrink-0" />
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-xs font-medium">Almacenamiento</span>
+                  <span className="text-xs text-muted-foreground">
+                    {(storageUsedBytes / 1024 / 1024 / 1024).toFixed(2)} GB de 5 GB
+                  </span>
+                </div>
+                <Progress value={Math.min((storageUsedBytes / MAX_STORAGE_BYTES) * 100, 100)} className="h-1.5" />
+              </div>
+            </div>
+          )}
+
           {/* Status Dashboard */}
           <StatusDashboard files={files} totalCount={totalCount} />
 
