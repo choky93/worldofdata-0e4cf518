@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { KPICard } from '@/components/ui/KPICard';
 import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -285,98 +286,41 @@ export default function Dashboard() {
         <Stagger index={4}>
           <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
             <Link to="/ventas">
-              <Card className="module-border-ventas transition-all cursor-pointer h-full hover:border-[#3a3a3a]">
-                <CardContent className="p-4">
-                  <div className="flex items-center gap-1.5 text-muted-foreground mb-2">
-                    <ShoppingCart className="h-3.5 w-3.5" />
-                    <span className="text-xs font-medium">Ventas</span>
-                  </div>
-                  {salesTotal !== null ? (
-                    <>
-                      <div className="flex items-center gap-1.5">
-                        <p className="kpi-value">{formatCurrency(salesTotal)}</p>
-                        {hasCurrencyMix.ventas && (
-                          <Tooltip>
-                            <TooltipTrigger asChild><span className="text-warning cursor-help">⚠️</span></TooltipTrigger>
-                            <TooltipContent><p className="text-xs">Incluye múltiples monedas</p></TooltipContent>
-                          </Tooltip>
-                        )}
-                      </div>
-                      <p className="text-[11px] text-muted-foreground mt-1">{realVentas.length} {realVentas.length === 1 ? 'período' : 'períodos'}</p>
-                    </>
-                  ) : (
-                    <p className="text-sm text-muted-foreground">Sin datos</p>
-                  )}
-                </CardContent>
-              </Card>
+              <KPICard
+                label="Ventas"
+                value={salesTotal !== null ? formatCurrency(salesTotal) : '—'}
+                subtext={salesTotal !== null ? `${realVentas.length} ${realVentas.length === 1 ? 'período' : 'períodos'}` : 'Sin datos'}
+                accent={salesTotal !== null}
+                icon={<ShoppingCart className="h-4 w-4" />}
+              />
             </Link>
 
             <Link to="/finanzas">
-              <Card className="module-border-finanzas transition-all cursor-pointer h-full hover:border-[#3a3a3a]">
-                <CardContent className="p-4">
-                  <div className="flex items-center gap-1.5 text-muted-foreground mb-2">
-                    <Wallet className="h-3.5 w-3.5" />
-                    <span className="text-xs font-medium">Gastos cargados</span>
-                  </div>
-                  {gastosTotal !== null ? (
-                    <>
-                      <div className="flex items-center gap-1.5">
-                        <p className="kpi-value">{formatCurrency(gastosTotal)}</p>
-                        {hasCurrencyMix.gastos && (
-                          <Tooltip>
-                            <TooltipTrigger asChild><span className="text-warning cursor-help">⚠️</span></TooltipTrigger>
-                            <TooltipContent><p className="text-xs">Incluye múltiples monedas</p></TooltipContent>
-                          </Tooltip>
-                        )}
-                      </div>
-                      <p className="text-[11px] text-muted-foreground mt-1">{realGastos.length} registros</p>
-                    </>
-                  ) : (
-                    <p className="text-sm text-muted-foreground">Sin datos</p>
-                  )}
-                </CardContent>
-              </Card>
+              <KPICard
+                label="Gastos cargados"
+                value={gastosTotal !== null ? formatCurrency(gastosTotal) : '—'}
+                subtext={gastosTotal !== null ? `${realGastos.length} registros` : 'Sin datos'}
+                icon={<Wallet className="h-4 w-4" />}
+              />
             </Link>
 
             <Link to="/finanzas">
-              <Card className="transition-all cursor-pointer h-full hover:border-[#3a3a3a]">
-                <CardContent className="p-4">
-                  <div className="flex items-center gap-1.5 text-muted-foreground mb-2">
-                    <DollarSign className="h-3.5 w-3.5" />
-                    <span className="text-xs font-medium">Resultado neto</span>
-                  </div>
-                  {salesTotal !== null && gastosTotal !== null ? (
-                    <>
-                      <p className={`kpi-value ${salesTotal - gastosTotal >= 0 ? 'text-success' : 'text-destructive'}`}>
-                        {formatCurrency(salesTotal - gastosTotal)}
-                      </p>
-                      <p className="text-[11px] text-muted-foreground mt-1">Ventas − Gastos</p>
-                    </>
-                  ) : (
-                    <p className="text-sm text-muted-foreground">Sin datos</p>
-                  )}
-                </CardContent>
-              </Card>
+              <KPICard
+                label="Resultado neto"
+                value={salesTotal !== null && gastosTotal !== null ? formatCurrency(salesTotal - gastosTotal) : '—'}
+                subtext={salesTotal !== null && gastosTotal !== null ? 'Ventas − Gastos' : 'Sin datos'}
+                icon={<DollarSign className="h-4 w-4" />}
+              />
             </Link>
 
             {showAds && (
               <Link to="/marketing">
-                <Card className="module-border-marketing transition-all cursor-pointer h-full hover:border-[#3a3a3a]">
-                  <CardContent className="p-4">
-                    <div className="flex items-center gap-1.5 text-muted-foreground mb-2">
-                      <Megaphone className="h-3.5 w-3.5" />
-                      <span className="text-xs font-medium">Marketing</span>
-                    </div>
-                    {marketingSpend !== null ? (
-                      <>
-                        <p className="kpi-value">{formatCurrency(marketingSpend)}</p>
-                        <p className="text-[11px] text-muted-foreground mt-1">gasto en publicidad</p>
-                      </>
-                    ) : (
-                      <p className="text-sm text-muted-foreground">Sin datos</p>
-                    )}
-                  </CardContent>
-                </Card>
+                <KPICard
+                  label="Marketing"
+                  value={marketingSpend !== null ? formatCurrency(marketingSpend) : '—'}
+                  subtext={marketingSpend !== null ? 'gasto en publicidad' : 'Sin datos'}
+                  icon={<Megaphone className="h-4 w-4" />}
+                />
               </Link>
             )}
           </div>
