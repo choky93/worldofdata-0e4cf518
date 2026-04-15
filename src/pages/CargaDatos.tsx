@@ -1415,8 +1415,8 @@ export default function CargaDatos() {
                               {f.created_at ? formatDate(f.created_at) : '—'}
                               {f.file_size ? ` · ${f.file_size > 1024 * 1024 ? `${(f.file_size / 1024 / 1024).toFixed(1)} MB` : `${(f.file_size / 1024).toFixed(0)} KB`}` : ''}
                             </p>
-                            {(f.status === 'error' || f.status === 'review') && f.processing_error && f.processing_error !== RATE_LIMIT_MESSAGE && (
-                              <p className={`text-xs mt-0.5 whitespace-pre-wrap break-words ${f.status === 'review' ? 'text-warning' : 'text-destructive'}`}>{f.processing_error}</p>
+                            {(f.status === 'error' || f.status === 'review' || f.status === 'processed_with_issues') && f.processing_error && f.processing_error !== RATE_LIMIT_MESSAGE && (
+                              <p className={`text-xs mt-0.5 whitespace-pre-wrap break-words ${f.status === 'error' ? 'text-destructive' : 'text-warning'}`}>{f.processing_error}</p>
                             )}
                           </div>
                           <Badge className={`border-0 shrink-0 ${f.status === 'queued' && f.processing_error === RATE_LIMIT_MESSAGE ? 'bg-warning/15 text-warning' : statusColor(f.status)}`}>
