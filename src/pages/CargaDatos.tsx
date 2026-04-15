@@ -1526,6 +1526,47 @@ export default function CargaDatos() {
 
         <ContextualAssistant companySettings={companySettings} />
       </div>
+
+      {/* Overlap detection dialog */}
+      <AlertDialog open={!!overlapInfo} onOpenChange={(open) => { if (!open) setOverlapInfo(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5 text-warning" />
+              Datos duplicados detectados
+            </AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-2">
+                <p>
+                  El archivo <strong>"{overlapInfo?.fileName}"</strong> contiene datos de períodos que ya existen:
+                </p>
+                <div className="flex flex-wrap gap-1.5">
+                  {overlapInfo?.overlappingMonths.map(p => {
+                    const [y, m] = p.split('-');
+                    const label = new Date(parseInt(y), parseInt(m) - 1, 1).toLocaleDateString('es-AR', { month: 'long', year: 'numeric' });
+                    return (
+                      <Badge key={p} variant="outline" className="text-warning border-warning/30">
+                        {label}
+                      </Badge>
+                    );
+                  })}
+                </div>
+                <p className="text-muted-foreground">
+                  ¿Querés reemplazar los datos de esos períodos con los del nuevo archivo, o mantener ambos?
+                </p>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setOverlapInfo(null)}>
+              Mantener ambos
+            </AlertDialogCancel>
+            <AlertDialogAction onClick={handleOverlapReplace} className="bg-warning text-warning-foreground hover:bg-warning/90">
+              Reemplazar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
