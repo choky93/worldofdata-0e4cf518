@@ -48,7 +48,7 @@ function normalizeMarketing(rows: any[], m?: any): CampaignRow[] {
 }
 
 export default function Marketing() {
-  const { data: extractedData, mappings, hasData, loading } = useExtractedData();
+  const { data: extractedData, mappings, hasData, loading, availableMonths } = useExtractedData();
   const m = mappings.marketing;
   const [period, setPeriod] = useState<PeriodKey>('all');
   const allMarketing = extractedData?.marketing || [];
@@ -120,7 +120,7 @@ export default function Marketing() {
         <div className="flex items-center justify-between">
           <h1 className="text-2xl font-bold">Marketing — Inversión Publicitaria</h1>
           <div className="flex items-center gap-3">
-            <PeriodFilter value={period} onChange={setPeriod} />
+            <PeriodFilter value={period} onChange={setPeriod} availableMonths={availableMonths} />
             <div className="flex items-center gap-1.5 text-xs text-success bg-success/10 rounded-lg px-3 py-1.5 border border-success/20">
               <Database className="h-3.5 w-3.5" />
               Datos reales ({campaigns.length} {hasCampaignNames ? 'campañas' : 'registros'})
