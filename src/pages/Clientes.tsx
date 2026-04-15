@@ -1,6 +1,7 @@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { formatCurrency, formatDate } from '@/lib/formatters';
+import { formatAmount, TOOLTIP_STYLE, AXIS_STYLE } from '@/lib/chart-config';
 import { findNumber, findString, FIELD_CLIENT, FIELD_TOTAL_PURCHASES, FIELD_DEBT, FIELD_LAST_PURCHASE, FIELD_PURCHASE_COUNT, type ColumnMapping } from '@/lib/field-utils';
 import { parseDate } from '@/lib/data-cleaning';
 import { useExtractedData } from '@/hooks/useExtractedData';
@@ -156,9 +157,9 @@ export default function Clientes() {
                       </linearGradient>
                     </defs>
                      <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#1f1f1f" />
-                     <XAxis type="number" tick={{ fontSize: 10, fill: '#555555' }} tickFormatter={(v) => `$${(v / 1000000).toFixed(1)}M`} />
-                     <YAxis type="category" dataKey="name" tick={{ fontSize: 10, fill: '#555555' }} width={100} />
-                     <RTooltip formatter={(v: number) => formatCurrency(v)} contentStyle={{ background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: '8px', color: '#f5f5f5' }} itemStyle={{ color: '#c8f135' }} />
+                     <XAxis type="number" tick={AXIS_STYLE.tick} tickFormatter={formatAmount} />
+                     <YAxis type="category" dataKey="name" tick={AXIS_STYLE.tick} width={100} />
+                     <RTooltip formatter={(v: number) => formatCurrency(v)} {...TOOLTIP_STYLE} />
                      <Bar dataKey="compras" fill="#c8f135" radius={[0, 4, 4, 0]} />
                    </BarChart>
                 </ResponsiveContainer>

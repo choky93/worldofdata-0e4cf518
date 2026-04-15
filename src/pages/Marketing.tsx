@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { formatCurrency, formatPercent, formatNumber, safeDiv } from '@/lib/formatters';
+import { formatAmount, TOOLTIP_STYLE, AXIS_STYLE } from '@/lib/chart-config';
 import { useExtractedData } from '@/hooks/useExtractedData';
 import { findNumber, findString, FIELD_CAMPAIGN_NAME, FIELD_SPEND, FIELD_REVENUE, FIELD_ROAS, FIELD_CLICKS, FIELD_CTR, FIELD_CONVERSIONS, FIELD_REACH, FIELD_IMPRESSIONS, FIELD_DATE } from '@/lib/field-utils';
 import { filterByPeriod, parseDate, type PeriodKey } from '@/lib/data-cleaning';
@@ -167,9 +168,9 @@ export default function Marketing() {
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={chartData}>
                      <CartesianGrid strokeDasharray="3 3" stroke="#1f1f1f" />
-                     <XAxis dataKey="name" tick={{ fontSize: 11, fill: '#555555' }} />
-                     <YAxis tick={{ fontSize: 10, fill: '#555555' }} tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`} />
-                     <RTooltip formatter={(v: number) => formatCurrency(v)} contentStyle={{ background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: '8px', color: '#f5f5f5' }} itemStyle={{ color: '#c8f135' }} />
+                     <XAxis dataKey="name" tick={AXIS_STYLE.tick} />
+                     <YAxis tick={AXIS_STYLE.tick} tickFormatter={formatAmount} />
+                     <RTooltip formatter={(v: number) => formatCurrency(v)} {...TOOLTIP_STYLE} />
                      <Legend />
                      <Bar dataKey="gasto" name="Gasto" fill="#f87171" opacity={0.7} radius={[2, 2, 0, 0]} />
                      <Bar dataKey="ingresos" name="Ingresos" fill="#c8f135" opacity={0.8} radius={[2, 2, 0, 0]} />
