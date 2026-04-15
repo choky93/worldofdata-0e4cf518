@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { KPICard } from '@/components/ui/KPICard';
 import { formatCurrency, formatDate, formatXAxisDate, formatTooltipDate } from '@/lib/formatters';
 import { findNumber, findString, FIELD_AMOUNT, FIELD_DATE, FIELD_CLIENT, FIELD_NAME } from '@/lib/field-utils';
 import { useExtractedData } from '@/hooks/useExtractedData';
@@ -149,30 +150,10 @@ export default function Ventas() {
         </div>
 
         <div className="grid gap-4 md:grid-cols-4">
-          <Card><CardContent className="pt-6">
-            <p className="text-sm text-muted-foreground">Total cargado</p>
-            <p className="text-3xl font-bold tabular-nums">{formatCurrency(salesTotal)}</p>
-          </CardContent></Card>
-          <Card><CardContent className="pt-6">
-            <p className="text-sm text-muted-foreground">Estimado mensual</p>
-            <p className="text-3xl font-bold tabular-nums">{formatCurrency(estimated)}</p>
-          </CardContent></Card>
-          <Card><CardContent className="pt-6">
-            <p className="text-sm text-muted-foreground">Registros</p>
-            <p className="text-3xl font-bold">{realVentas.length}</p>
-          </CardContent></Card>
-          <Card><CardContent className="pt-6">
-            <p className="text-sm text-muted-foreground flex items-center gap-1">
-              Ticket promedio
-              <UITooltip>
-                <TooltipTrigger asChild><span className="cursor-help">ⓘ</span></TooltipTrigger>
-                <TooltipContent><p className="text-xs">Total / número de registros</p></TooltipContent>
-              </UITooltip>
-            </p>
-            <p className="text-3xl font-bold tabular-nums">
-              {realVentas.length > 0 ? formatCurrency(salesTotal / realVentas.length) : '—'}
-            </p>
-          </CardContent></Card>
+          <KPICard label="Total cargado" value={formatCurrency(salesTotal)} accent />
+          <KPICard label="Estimado mensual" value={formatCurrency(estimated)} trend={20} />
+          <KPICard label="Registros" value={realVentas.length} />
+          <KPICard label="Ticket promedio" value={realVentas.length > 0 ? formatCurrency(salesTotal / realVentas.length) : '—'} />
         </div>
 
         <div className="grid gap-4 lg:grid-cols-2">
