@@ -159,7 +159,23 @@ export default function Dashboard() {
 
   const highlights: string[] = [];
   if (salesTotal !== null) {
-    highlights.push(`Llevás vendido ${formatCurrency(salesTotal)} según tus datos cargados.`);
+    let periodLabel = '';
+    if (period === 'all') {
+      periodLabel = 'Ventas históricas totales';
+    } else if (/^\d{4}$/.test(period)) {
+      periodLabel = `Ventas en ${period}`;
+    } else if (/^\d{4}-Q[1-4]$/.test(period)) {
+      periodLabel = `Ventas en T${period.slice(6)} ${period.slice(0, 4)}`;
+    } else if (/^\d{4}-\d{2}$/.test(period)) {
+      const [y, m] = period.split('-');
+      const monthName = new Date(Number(y), Number(m) - 1, 1)
+        .toLocaleDateString('es-AR', { month: 'long', year: 'numeric' })
+        .replace(/^\w/, c => c.toUpperCase());
+      periodLabel = `Ventas en ${monthName}`;
+    } else {
+      periodLabel = 'Ventas del período';
+    }
+    highlights.push(`${periodLabel}: ${formatCurrency(salesTotal)} según tus datos cargados.`);
   }
   if (gastosTotal !== null && salesTotal !== null) {
     const net = salesTotal - gastosTotal;
