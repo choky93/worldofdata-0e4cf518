@@ -425,9 +425,16 @@ export function AICopilot() {
                     <p className="text-[11px] text-muted-foreground">Tu copiloto de negocios</p>
                   </div>
                 </div>
-                <Button variant="ghost" size="icon" onClick={() => setOpen(false)} className="h-8 w-8">
-                  <X className="h-4 w-4" />
-                </Button>
+                <div className="flex items-center gap-1">
+                  {hasMessages && (
+                    <Button variant="ghost" size="icon" onClick={handleNewConversation} className="h-8 w-8" title="Nueva conversación">
+                      <RotateCcw className="h-4 w-4" />
+                    </Button>
+                  )}
+                  <Button variant="ghost" size="icon" onClick={() => setOpen(false)} className="h-8 w-8">
+                    <X className="h-4 w-4" />
+                  </Button>
+                </div>
               </div>
 
               {/* Mode toggle */}
