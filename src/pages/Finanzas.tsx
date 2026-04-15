@@ -109,7 +109,7 @@ export default function Finanzas() {
           <div className="flex items-center gap-3">
             <PeriodFilter value={period} onChange={setPeriod} availableMonths={availableMonths} />
             {hasFinancialData ? (
-              <div className="flex items-center gap-1.5 text-xs text-success bg-success/10 rounded-lg px-3 py-1.5 border border-success/20">
+              <div className="flex items-center gap-1.5 text-xs alert-success rounded-lg px-3 py-1.5">
                 <Database className="h-3.5 w-3.5" />
                 Datos reales cargados
               </div>
@@ -226,7 +226,7 @@ export default function Finanzas() {
               </Card>
             </div>
 
-            <div className="bg-primary/[0.05] border border-primary/10 rounded-xl px-4 py-3 flex items-start gap-3">
+            <div className="bg-[#1f2a0f] border border-[#2a3a1a] rounded-xl px-4 py-3 flex items-start gap-3">
               <BookOpen className="h-4 w-4 text-primary mt-0.5 shrink-0" />
               <div>
                 <p className="text-sm font-medium">Registro de la realidad económica</p>

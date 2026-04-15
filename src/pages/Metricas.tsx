@@ -47,17 +47,17 @@ function MetricChart({ data, title, formatter, tooltip }: {
         <div className="h-44">
           <ResponsiveContainer width="100%" height="100%">
             <AreaChart data={data}>
-              <defs>
-                <linearGradient id={`grad-${title.replace(/\s/g, '')}`} x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="hsl(var(--primary))" stopOpacity={0.25} />
-                  <stop offset="95%" stopColor="hsl(var(--primary))" stopOpacity={0} />
-                </linearGradient>
-              </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-              <XAxis dataKey="month" tick={{ fontSize: 9 }} />
-              <YAxis tick={{ fontSize: 9 }} tickFormatter={(v) => formatter(v)} />
-              <Tooltip formatter={(v: number) => formatter(v)} />
-              <Area type="monotone" dataKey="value" stroke="hsl(var(--primary))" fill={`url(#grad-${title.replace(/\s/g, '')})`} strokeWidth={2} />
+               <defs>
+                 <linearGradient id={`grad-${title.replace(/\s/g, '')}`} x1="0" y1="0" x2="0" y2="1">
+                   <stop offset="5%" stopColor="#c8f135" stopOpacity={0.08} />
+                   <stop offset="95%" stopColor="#c8f135" stopOpacity={0} />
+                 </linearGradient>
+               </defs>
+               <CartesianGrid strokeDasharray="3 3" stroke="#1f1f1f" />
+               <XAxis dataKey="month" tick={{ fontSize: 9, fill: '#555555' }} />
+               <YAxis tick={{ fontSize: 9, fill: '#555555' }} tickFormatter={(v) => formatter(v)} />
+               <Tooltip formatter={(v: number) => formatter(v)} contentStyle={{ background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: '8px', color: '#f5f5f5' }} itemStyle={{ color: '#c8f135' }} />
+               <Area type="monotone" dataKey="value" stroke="#c8f135" fill={`url(#grad-${title.replace(/\s/g, '')})`} strokeWidth={2} />
             </AreaChart>
           </ResponsiveContainer>
         </div>

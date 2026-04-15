@@ -120,7 +120,7 @@ export default function Operaciones() {
     <div className="space-y-6 max-w-7xl">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold">Operaciones</h1>
-        <div className="flex items-center gap-1.5 text-xs text-success bg-success/10 rounded-lg px-3 py-1.5 border border-success/20">
+        <div className="flex items-center gap-1.5 text-xs alert-success rounded-lg px-3 py-1.5">
           <Database className="h-3.5 w-3.5" />
           {allOps.length} operaciones
         </div>

@@ -107,7 +107,7 @@ export default function Clientes() {
       <div className="space-y-6 max-w-7xl">
         <div className="flex items-center justify-between">
           <h1 className="text-2xl font-bold">Clientes</h1>
-          <div className="flex items-center gap-1.5 text-xs text-success bg-success/10 rounded-lg px-3 py-1.5 border border-success/20">
+          <div className="flex items-center gap-1.5 text-xs alert-success rounded-lg px-3 py-1.5">
             <Database className="h-3.5 w-3.5" />
             Datos reales ({clients.length} clientes)
           </div>
@@ -155,12 +155,12 @@ export default function Clientes() {
                         <stop offset="100%" stopColor="hsl(var(--primary))" stopOpacity={0.4} />
                       </linearGradient>
                     </defs>
-                    <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="hsl(var(--border))" />
-                    <XAxis type="number" tick={{ fontSize: 10 }} tickFormatter={(v) => `$${(v / 1000000).toFixed(1)}M`} />
-                    <YAxis type="category" dataKey="name" tick={{ fontSize: 10 }} width={100} />
-                    <RTooltip formatter={(v: number) => formatCurrency(v)} />
-                    <Bar dataKey="compras" fill="url(#barGrad)" radius={[0, 4, 4, 0]} />
-                  </BarChart>
+                     <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#1f1f1f" />
+                     <XAxis type="number" tick={{ fontSize: 10, fill: '#555555' }} tickFormatter={(v) => `$${(v / 1000000).toFixed(1)}M`} />
+                     <YAxis type="category" dataKey="name" tick={{ fontSize: 10, fill: '#555555' }} width={100} />
+                     <RTooltip formatter={(v: number) => formatCurrency(v)} contentStyle={{ background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: '8px', color: '#f5f5f5' }} itemStyle={{ color: '#c8f135' }} />
+                     <Bar dataKey="compras" fill="#c8f135" radius={[0, 4, 4, 0]} />
+                   </BarChart>
                 </ResponsiveContainer>
               </div>
             </CardContent>
@@ -168,7 +168,7 @@ export default function Clientes() {
         )}
 
         {withChurn.length > 0 && (
-          <div className="bg-destructive/5 border-l-4 border-l-destructive rounded-lg p-4 flex items-start gap-3">
+          <div className="alert-error rounded-lg p-4 flex items-start gap-3 border-l-4 border-l-destructive">
             <AlertTriangle className="h-5 w-5 text-destructive shrink-0 mt-0.5" />
             <div>
               <p className="text-sm font-medium">Clientes sin compras recientes</p>
