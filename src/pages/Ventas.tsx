@@ -21,7 +21,7 @@ function aggregateByDate(ventas: any[], m?: any): { day: string; value: number }
     if (!raw) continue;
     const d = parseDate(raw);
     const key = d
-      ? d.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit' })
+      ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
       : raw;
     const amt = findNumber(r, FIELD_AMOUNT, m?.amount);
     const existing = map.get(key);
