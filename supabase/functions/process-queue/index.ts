@@ -8,8 +8,10 @@ const corsHeaders = {
 };
 
 const BATCH_SIZE = 5;
-const HEAVY_FILE_THRESHOLD = 1 * 1024 * 1024; // 1MB — files above this are "heavy"
-const MAX_HEAVY_PARALLEL = 1; // Only 1 heavy file at a time
+const HEAVY_FILE_THRESHOLD = 1 * 1024 * 1024;
+const MAX_HEAVY_PARALLEL = 1;
+const STUCK_THRESHOLD_MINUTES = 10;
+const INTER_FILE_DELAY_MS = 2000; // 2s pause between files
 const STUCK_THRESHOLD_MINUTES = 10;
 
 serve(async (req) => {
