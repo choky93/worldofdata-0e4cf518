@@ -51,7 +51,7 @@ function normalizeExpenses(rows: any[], mG?: Record<string, string>): ExpenseRow
 }
 
 export default function Finanzas() {
-  const { data: extractedData, mappings, hasData } = useExtractedData();
+  const { data: extractedData, mappings, hasData, availableMonths } = useExtractedData();
   const mV = mappings.ventas;
   const mG = mappings.gastos;
   const [period, setPeriod] = useState<PeriodKey>('all');
