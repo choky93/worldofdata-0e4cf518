@@ -36,7 +36,6 @@ function aggregateByDate(ventas: any[], m?: any): { day: string; value: number }
       if (a.date && b.date) return a.date.getTime() - b.date.getTime();
       return 0;
     })
-    .slice(-30)
     .map(([day, { value }]) => ({ day, value }));
 }
 
@@ -161,7 +160,9 @@ export default function Ventas() {
     );
   }
 
-  const salesTotal = realVentas.reduce((sum: number, r: any) => sum + findNumber(r, FIELD_AMOUNT, m?.amount), 0);
+  const dailyChart = aggregateByDate(realVentas, m);
+  // salesTotal se calcula desde el gráfico para garantizar que card y barras coincidan
+  const salesTotal = dailyChart.reduce((sum, d) => sum + d.value, 0);
 
   const salesHistory = realVentas.slice(0, 50).map((r: any) => ({
     date: findString(r, FIELD_DATE, m?.date) || '—',
