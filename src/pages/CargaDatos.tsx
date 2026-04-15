@@ -12,8 +12,19 @@ import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import * as XLSX from 'xlsx';
-import { cleanParsedRows } from '@/lib/data-cleaning';
+import { cleanParsedRows, detectPeriodOverlap, parseDate } from '@/lib/data-cleaning';
 import { useExtractedData } from '@/hooks/useExtractedData';
+import { findString, FIELD_DATE } from '@/lib/field-utils';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 
 
 interface FileRecord {
@@ -400,7 +411,7 @@ function StatusDashboard({ files, totalCount }: { files: FileRecord[]; totalCoun
 
 export default function CargaDatos() {
   const { user, profile, role, companySettings } = useAuth();
-  const { refetch: refetchExtractedData } = useExtractedData();
+  const { refetch: refetchExtractedData, data: globalExtractedData, mappings: globalMappings } = useExtractedData();
   const [files, setFiles] = useState<FileRecord[]>([]);
   const [totalCount, setTotalCount] = useState(0);
   const [extractedDataMap, setExtractedDataMap] = useState<Record<string, ExtractedData[]>>({});
@@ -413,6 +424,14 @@ export default function CargaDatos() {
   const [urlImportText, setUrlImportText] = useState('');
   const [isImportingUrls, setIsImportingUrls] = useState(false);
   const [showUrlImport, setShowUrlImport] = useState(false);
+
+  // Overlap detection state
+  const [overlapInfo, setOverlapInfo] = useState<{
+    fileUploadId: string;
+    fileName: string;
+    overlappingMonths: string[];
+    category: string;
+  } | null>(null);
 
   // Pagination & filters
   const [currentPage, setCurrentPage] = useState(0);
@@ -895,7 +914,57 @@ export default function CargaDatos() {
 
     await Promise.all(activePromises);
     fetchFiles();
-    refetchExtractedData();
+    await refetchExtractedData();
+
+    // Check for overlap after processing
+    // We need to re-read the extracted data to check for overlaps
+    for (const item of queueItems) {
+      if (item.status !== 'done') continue;
+      try {
+        // Get extracted data for this file
+        const { data: newExtracted } = await supabase
+          .from('file_extracted_data')
+          .select('data_category, extracted_json, file_upload_id')
+          .eq('company_id', profile.company_id!)
+          .not('data_category', 'in', '("_raw_cache","_classification","_column_mapping")')
+          .order('created_at', { ascending: false })
+          .limit(50);
+
+        if (!newExtracted) continue;
+
+        // Group by file_upload_id to find new rows
+        for (const ext of newExtracted) {
+          const cat = ext.data_category as string;
+          if (cat !== 'ventas' && cat !== 'gastos') continue;
+          const json = ext.extracted_json as any;
+          const newRows = json?.data || [];
+          if (!Array.isArray(newRows) || newRows.length === 0) continue;
+
+          // Compare with existing data from global context
+          const existingRows = cat === 'ventas'
+            ? (globalExtractedData?.ventas || [])
+            : (globalExtractedData?.gastos || []);
+
+          // Filter out rows from the same file
+          // We can't easily do this without file tracking, so use the full set
+          const catMapping = cat === 'ventas' ? globalMappings.ventas : globalMappings.gastos;
+          const finder = (row: any, kw: string[]) => findString(row, kw, catMapping?.date);
+          const overlap = detectPeriodOverlap(existingRows, newRows, FIELD_DATE, finder);
+
+          if (overlap.length > 0) {
+            setOverlapInfo({
+              fileUploadId: ext.file_upload_id,
+              fileName: item.file.name,
+              overlappingMonths: overlap,
+              category: cat,
+            });
+            break; // Show one overlap dialog at a time
+          }
+        }
+      } catch (err) {
+        console.warn('[CargaDatos] Overlap check failed:', err);
+      }
+    }
   };
 
   const handleDrop = useCallback((e: React.DragEvent) => {
@@ -1036,8 +1105,64 @@ export default function CargaDatos() {
       setReprocessingId(null);
     }
   };
+  // ─── Handle Overlap Replace ────────────────────────────────
+  const handleOverlapReplace = async () => {
+    if (!overlapInfo || !profile?.company_id) return;
+    try {
+      // Find all other file_upload_ids that contributed data to the same category
+      const { data: allExtracted } = await supabase
+        .from('file_extracted_data')
+        .select('id, file_upload_id, extracted_json')
+        .eq('company_id', profile.company_id)
+        .eq('data_category', overlapInfo.category)
+        .neq('file_upload_id', overlapInfo.fileUploadId);
 
-  // ─── URL Import Handler ───────────────────────────────────
+      if (!allExtracted) { setOverlapInfo(null); return; }
+
+      const catMapping = overlapInfo.category === 'ventas' ? globalMappings.ventas : globalMappings.gastos;
+      const finder = (row: any, kw: string[]) => findString(row, kw, catMapping?.date);
+      const overlapSet = new Set(overlapInfo.overlappingMonths);
+
+      // For each old extracted record, filter out rows from overlapping months
+      for (const ext of allExtracted) {
+        const json = ext.extracted_json as any;
+        const rows = json?.data || [];
+        if (!Array.isArray(rows)) continue;
+
+        const filtered = rows.filter((row: any) => {
+          const raw = finder(row, FIELD_DATE);
+          if (!raw) return true; // keep rows without dates
+          const d = parseDate(raw);
+          if (!d) return true;
+          const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+          return !overlapSet.has(key);
+        });
+
+        if (filtered.length === 0) {
+          // Delete the entire record
+          await supabase.from('file_extracted_data').delete().eq('id', ext.id);
+        } else if (filtered.length < rows.length) {
+          // Update with filtered data
+          await supabase.from('file_extracted_data').update({
+            extracted_json: { ...json, data: filtered },
+            row_count: filtered.length,
+          }).eq('id', ext.id);
+        }
+      }
+
+      toast.success(`Datos de ${overlapInfo.overlappingMonths.map(p => {
+        const [y, m] = p.split('-');
+        return new Date(parseInt(y), parseInt(m) - 1, 1).toLocaleDateString('es-AR', { month: 'long', year: 'numeric' });
+      }).join(', ')} reemplazados con los del nuevo archivo.`);
+      setOverlapInfo(null);
+      refetchExtractedData();
+    } catch (err: any) {
+      toast.error('Error reemplazando datos: ' + err.message);
+      setOverlapInfo(null);
+    }
+  };
+
+
   const handleImportUrls = async () => {
     if (!user || !profile?.company_id || !urlImportText.trim()) return;
     setIsImportingUrls(true);
@@ -1401,6 +1526,47 @@ export default function CargaDatos() {
 
         <ContextualAssistant companySettings={companySettings} />
       </div>
+
+      {/* Overlap detection dialog */}
+      <AlertDialog open={!!overlapInfo} onOpenChange={(open) => { if (!open) setOverlapInfo(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5 text-warning" />
+              Datos duplicados detectados
+            </AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-2">
+                <p>
+                  El archivo <strong>"{overlapInfo?.fileName}"</strong> contiene datos de períodos que ya existen:
+                </p>
+                <div className="flex flex-wrap gap-1.5">
+                  {overlapInfo?.overlappingMonths.map(p => {
+                    const [y, m] = p.split('-');
+                    const label = new Date(parseInt(y), parseInt(m) - 1, 1).toLocaleDateString('es-AR', { month: 'long', year: 'numeric' });
+                    return (
+                      <Badge key={p} variant="outline" className="text-warning border-warning/30">
+                        {label}
+                      </Badge>
+                    );
+                  })}
+                </div>
+                <p className="text-muted-foreground">
+                  ¿Querés reemplazar los datos de esos períodos con los del nuevo archivo, o mantener ambos?
+                </p>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setOverlapInfo(null)}>
+              Mantener ambos
+            </AlertDialogCancel>
+            <AlertDialogAction onClick={handleOverlapReplace} className="bg-warning text-warning-foreground hover:bg-warning/90">
+              Reemplazar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

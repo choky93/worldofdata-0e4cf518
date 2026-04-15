@@ -105,7 +105,7 @@ function DataSourceBanner({ hasData, loading }: { hasData: boolean; loading: boo
 export default function Dashboard() {
   const { profile, companySettings, companyName } = useAuth();
   const navigate = useNavigate();
-  const { data: extractedData, mappings, loading: dataLoading, hasData, availableMonths } = useExtractedData();
+  const { data: extractedData, mappings, loading: dataLoading, hasData, availableMonths, duplicatedPeriods } = useExtractedData();
   const mV = mappings.ventas;
   const mG = mappings.gastos;
   const mM = mappings.marketing;
@@ -213,8 +213,23 @@ export default function Dashboard() {
         {/* Data source banner */}
         <Stagger index={1}>
           <DataSourceBanner hasData={hasData} loading={dataLoading} />
+          {duplicatedPeriods.length > 0 && (
+            <div className="rounded-lg px-4 py-2.5 text-xs flex items-start gap-2 bg-warning/10 text-warning border border-warning/20 mt-2">
+              <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+              <span>
+                <strong>⚠️ Datos posiblemente duplicados:</strong> los períodos{' '}
+                {duplicatedPeriods.map(p => {
+                  const [y, m] = p.split('-');
+                  const d = new Date(parseInt(y), parseInt(m) - 1, 1);
+                  return d.toLocaleDateString('es-AR', { month: 'long', year: 'numeric' });
+                }).join(', ')}{' '}
+                aparecen en más de un archivo cargado. Los totales pueden estar inflados.{' '}
+                <Link to="/carga-datos" className="underline font-medium">Revisá tus archivos en Carga de Datos</Link>.
+              </span>
+            </div>
+          )}
           {realOtro.length > 0 && (
-            <div className="rounded-lg px-4 py-2.5 text-xs flex items-center gap-2 bg-warning/10 text-warning border border-warning/20">
+            <div className="rounded-lg px-4 py-2.5 text-xs flex items-center gap-2 bg-warning/10 text-warning border border-warning/20 mt-2">
               <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
               <span>
                 Hay <strong>{realOtro.length}</strong> filas que no pudieron clasificarse automáticamente. 

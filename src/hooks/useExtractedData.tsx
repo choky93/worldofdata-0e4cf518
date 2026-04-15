@@ -3,7 +3,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import type { ColumnMapping } from '@/lib/field-utils';
 import { findString, FIELD_DATE } from '@/lib/field-utils';
-import { extractAvailableMonths } from '@/lib/data-cleaning';
+import { extractAvailableMonths, detectMultiSourcePeriods } from '@/lib/data-cleaning';
 
 interface ExtractedRecord {
   data_category: string;
@@ -43,6 +43,7 @@ interface ExtractedDataContextValue {
   loading: boolean;
   hasData: boolean;
   availableMonths: string[];
+  duplicatedPeriods: string[];
   refetch: () => Promise<void>;
 }
 
@@ -59,6 +60,7 @@ export function ExtractedDataProvider({ children }: { children: ReactNode }) {
   const [mappings, setMappings] = useState<CategoryMappings>({ ...defaultMappings });
   const [loading, setLoading] = useState(true);
   const [hasData, setHasData] = useState(false);
+  const [taggedVentasRows, setTaggedVentasRows] = useState<{ row: any; fileUploadId: string }[]>([]);
 
   const fetchData = useCallback(async () => {
     if (!profile?.company_id) return;
@@ -86,6 +88,9 @@ export function ExtractedDataProvider({ children }: { children: ReactNode }) {
         ventas: [], gastos: [], stock: [], clientes: [],
         marketing: [], facturas: [], rrhh: [], otro: [],
       };
+
+      // Track rows with their source file for overlap detection
+      const taggedVentas: { row: any; fileUploadId: string }[] = [];
 
       const mergedMappings: CategoryMappings = {
         ventas: {}, gastos: {}, stock: {}, clientes: {},
@@ -117,6 +122,12 @@ export function ExtractedDataProvider({ children }: { children: ReactNode }) {
           if (!Array.isArray(rows) || rows.length === 0) continue;
           if (agg[cat]) {
             agg[cat].push(...rows);
+            // Track ventas rows with source file for overlap detection
+            if (cat === 'ventas') {
+              for (const row of rows) {
+                taggedVentas.push({ row, fileUploadId: r.file_upload_id });
+              }
+            }
           } else {
             agg.otro.push(...rows);
           }
@@ -128,6 +139,7 @@ export function ExtractedDataProvider({ children }: { children: ReactNode }) {
 
       setData(agg);
       setMappings(mergedMappings);
+      setTaggedVentasRows(taggedVentas);
     } catch (err) {
       console.error('useExtractedData error:', err);
       setHasData(false);
@@ -154,8 +166,16 @@ export function ExtractedDataProvider({ children }: { children: ReactNode }) {
     return Array.from(months).sort();
   }, [data, mappings]);
 
+  // Detect periods with data from multiple source files (ventas only for now)
+  const duplicatedPeriods = useMemo(() => {
+    if (!data || taggedVentasRows.length === 0) return [];
+    const mV = mappings.ventas;
+    const finder = (row: any, kw: string[]) => findString(row, kw, mV?.date);
+    return detectMultiSourcePeriods(taggedVentasRows, FIELD_DATE, finder);
+  }, [taggedVentasRows, mappings]);
+
   return (
-    <ExtractedDataContext.Provider value={{ data, mappings, loading, hasData, availableMonths, refetch: fetchData }}>
+    <ExtractedDataContext.Provider value={{ data, mappings, loading, hasData, availableMonths, duplicatedPeriods, refetch: fetchData }}>
       {children}
     </ExtractedDataContext.Provider>
   );
