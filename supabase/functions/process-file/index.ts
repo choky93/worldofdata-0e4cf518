@@ -891,10 +891,11 @@ serve(async (req) => {
     const totalBatches = body.totalBatches as number | undefined;
     const totalRows = body.totalRows as number | undefined;
     const explicitCategory = body.category as string | undefined;
+    const sheetName = body.sheetName as string | undefined;
 
     const preParsedData = body.preParsedData;
 
-    console.log(`[process-file] fileUploadId=${fileUploadId}, companyId=${companyId}`);
+    console.log(`[process-file] fileUploadId=${fileUploadId}, companyId=${companyId}${sheetName ? `, sheet="${sheetName}"` : ''}`);
 
     if (!fileUploadId || !companyId) {
       return new Response(JSON.stringify({ error: "Missing fileUploadId or companyId" }), {
@@ -917,7 +918,7 @@ serve(async (req) => {
     if (rowBatch && headers && batchIndex !== undefined && totalBatches !== undefined) {
       if (batchIndex === 0) {
         // First batch: classify with AI
-        let { category, summary, column_mapping } = await classifyWithAI(headers, rowBatch.slice(0, 10), file_name);
+        let { category, summary, column_mapping } = await classifyWithAI(headers, rowBatch.slice(0, 10), file_name, sheetName);
 
         // Apply date normalization using mapped date column
         const mappedDate = column_mapping?.date || null;
