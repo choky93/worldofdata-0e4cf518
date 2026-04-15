@@ -94,22 +94,34 @@ export default function Marketing() {
   }
 
   const campaigns = normalizeMarketing(filteredMarketing, m);
-  const totalSpend = campaigns.reduce((s, c) => s + c.spend, 0);
-  const totalRevenue = campaigns.reduce((s, c) => s + c.revenue, 0);
+
+  // Excluir filas de resumen/totales del CSV para evitar doble conteo
+  const SUMMARY_NAMES = ['total', 'resumen', 'subtotal', 'nan'];
+  const isSummaryRow = (c: CampaignRow) =>
+    !c.name ||
+    typeof c.name !== 'string' ||
+    c.name.trim() === '' ||
+    c.name === 'Sin nombre' ||
+    SUMMARY_NAMES.includes(c.name.toLowerCase().trim());
+
+  const realCampaigns = campaigns.filter(c => !isSummaryRow(c));
+
+  const totalSpend = realCampaigns.reduce((s, c) => s + c.spend, 0);
+  const totalRevenue = realCampaigns.reduce((s, c) => s + c.revenue, 0);
   const globalRoas = safeDiv(totalRevenue, totalSpend);
-  const totalClicks = campaigns.reduce((s, c) => s + c.clicks, 0);
-  const totalConversions = campaigns.reduce((s, c) => s + c.conversions, 0);
-  const totalReach = campaigns.reduce((s, c) => s + c.reach, 0);
-  const totalImpressions = campaigns.reduce((s, c) => s + c.impressions, 0);
+  const totalClicks = realCampaigns.reduce((s, c) => s + c.clicks, 0);
+  const totalConversions = realCampaigns.reduce((s, c) => s + c.conversions, 0);
+  const totalReach = realCampaigns.reduce((s, c) => s + c.reach, 0);
+  const totalImpressions = realCampaigns.reduce((s, c) => s + c.impressions, 0);
 
   // Check if we have campaign names or just date-based rows
-  const hasCampaignNames = campaigns.some(c => {
+  const hasCampaignNames = realCampaigns.some(c => {
     const n = c.name;
     // Check if name looks like a date (our fallback) vs a real campaign name
     return n && n !== 'Sin nombre' && !parseDate(n);
   });
 
-  const chartData = campaigns.map(c => ({
+  const chartData = realCampaigns.map(c => ({
     name: c.name.length > 14 ? c.name.slice(0, 14) + '…' : c.name,
     gasto: c.spend,
     ingresos: c.revenue,
@@ -124,7 +136,7 @@ export default function Marketing() {
             <PeriodPills value={period} onChange={setPeriod} availableMonths={availableMonths} />
             <div className="flex items-center gap-1.5 text-xs alert-success rounded-lg px-3 py-1.5">
               <Database className="h-3.5 w-3.5" />
-              Datos reales ({campaigns.length} {hasCampaignNames ? 'campañas' : 'registros'})
+              Datos reales ({realCampaigns.length} {hasCampaignNames ? 'campañas' : 'registros'})
             </div>
           </div>
         </div>
@@ -156,7 +168,7 @@ export default function Marketing() {
           </CardContent></Card>
           <Card><CardContent className="pt-6">
             <p className="text-sm text-muted-foreground">Impresiones</p>
-            <p className="text-3xl font-bold tabular-nums">{totalImpressions > 0 ? formatNumber(totalImpressions) : '—'}</p>
+             <p className="text-3xl font-bold tabular-nums">{totalImpressions > 0 ? formatNumber(totalImpressions) : '—'}</p>
           </CardContent></Card>
         </div>
 
@@ -198,7 +210,7 @@ export default function Marketing() {
                 {totalClicks > 0 && <TableHead className="text-right">Clicks</TableHead>}
               </TableRow></TableHeader>
               <TableBody>
-                {campaigns.map((c, i) => (
+                {realCampaigns.map((c, i) => (
                   <TableRow key={i}>
                     <TableCell className="font-medium">{c.name}</TableCell>
                     <TableCell className="text-right tabular-nums">{formatCurrency(c.spend)}</TableCell>
