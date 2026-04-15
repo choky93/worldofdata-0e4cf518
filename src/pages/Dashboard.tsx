@@ -10,7 +10,7 @@ import { findNumber, findString, FIELD_AMOUNT, FIELD_SPEND, FIELD_DATE } from '@
 import { parseDate } from '@/lib/data-cleaning';
 import { useExtractedData } from '@/hooks/useExtractedData';
 import { filterByPeriod, type PeriodKey } from '@/lib/data-cleaning';
-import { PeriodFilter } from '@/components/PeriodFilter';
+import { PeriodPills } from '@/components/ui/PeriodPills';
 import {
   TrendingUp, AlertTriangle, DollarSign, Package, Users,
   Megaphone, ArrowUpRight, ArrowRight, ShoppingCart, Wallet, BarChart3,
@@ -214,7 +214,7 @@ export default function Dashboard() {
               <h1 className="text-2xl font-bold tracking-tight">{getGreeting()}, {name.split(' ')[0]}.</h1>
               <p className="text-muted-foreground mt-0.5">Resumen de <span className="font-semibold text-foreground">{company}</span></p>
             </div>
-            <PeriodFilter value={period} onChange={setPeriod} availableMonths={availableMonths} />
+            <PeriodPills value={period} onChange={setPeriod} availableMonths={availableMonths} />
           </div>
         </Stagger>
 

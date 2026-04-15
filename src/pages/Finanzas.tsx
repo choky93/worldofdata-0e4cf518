@@ -5,7 +5,7 @@ import { formatCurrency, formatDate } from '@/lib/formatters';
 import { findNumber, findString, FIELD_AMOUNT, FIELD_NAME, FIELD_DATE } from '@/lib/field-utils';
 import { useExtractedData } from '@/hooks/useExtractedData';
 import { filterByPeriod, type PeriodKey } from '@/lib/data-cleaning';
-import { PeriodFilter } from '@/components/PeriodFilter';
+import { PeriodPills } from '@/components/ui/PeriodPills';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -107,7 +107,7 @@ export default function Finanzas() {
         <div className="flex items-center justify-between">
           <h1 className="text-2xl font-bold tracking-tight">Finanzas</h1>
           <div className="flex items-center gap-3">
-            <PeriodFilter value={period} onChange={setPeriod} availableMonths={availableMonths} />
+            <PeriodPills value={period} onChange={setPeriod} availableMonths={availableMonths} />
             {hasFinancialData ? (
               <div className="flex items-center gap-1.5 text-xs alert-success rounded-lg px-3 py-1.5">
                 <Database className="h-3.5 w-3.5" />
