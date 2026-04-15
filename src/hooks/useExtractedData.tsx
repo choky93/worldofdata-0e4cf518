@@ -175,8 +175,17 @@ export function ExtractedDataProvider({ children }: { children: ReactNode }) {
     return detectMultiSourcePeriods(taggedVentasRows, FIELD_DATE, finder);
   }, [taggedVentasRows, mappings]);
 
+  // Detect currency mix in ventas and gastos
+  const hasCurrencyMix = useMemo(() => {
+    if (!data) return { ventas: false, gastos: false };
+    return {
+      ventas: data.ventas.length > 0 && detectCurrencyMix(data.ventas, FIELD_AMOUNT),
+      gastos: data.gastos.length > 0 && detectCurrencyMix(data.gastos, FIELD_AMOUNT),
+    };
+  }, [data]);
+
   return (
-    <ExtractedDataContext.Provider value={{ data, mappings, loading, hasData, availableMonths, duplicatedPeriods, refetch: fetchData }}>
+    <ExtractedDataContext.Provider value={{ data, mappings, loading, hasData, availableMonths, duplicatedPeriods, hasCurrencyMix, refetch: fetchData }}>
       {children}
     </ExtractedDataContext.Provider>
   );
