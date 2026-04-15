@@ -180,18 +180,18 @@ export default function Forecast() {
             <div className="h-72">
               <ResponsiveContainer width="100%" height="100%">
                 <LineChart data={chartData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                  <XAxis dataKey="month" tick={{ fontSize: 10 }} />
-                  <YAxis tick={{ fontSize: 10 }} tickFormatter={v => `$${(v / 1000000).toFixed(1)}M`} />
-                  <Tooltip formatter={(v: number) => formatCurrency(v)} />
-                  <Line type="monotone" dataKey="real" stroke="hsl(var(--primary))" strokeWidth={2} dot={{ r: 3 }} name="Real" connectNulls={false} />
-                  <Line type="monotone" dataKey="forecast" stroke="hsl(var(--primary))" strokeWidth={2} strokeDasharray="6 4" dot={{ r: 3 }} name="Proyección" connectNulls={false} />
+                   <CartesianGrid strokeDasharray="3 3" stroke="#1f1f1f" />
+                   <XAxis dataKey="month" tick={{ fontSize: 10, fill: '#555555' }} />
+                   <YAxis tick={{ fontSize: 10, fill: '#555555' }} tickFormatter={v => `$${(v / 1000000).toFixed(1)}M`} />
+                   <Tooltip formatter={(v: number) => formatCurrency(v)} contentStyle={{ background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: '8px', color: '#f5f5f5' }} itemStyle={{ color: '#c8f135' }} />
+                   <Line type="monotone" dataKey="real" stroke="#c8f135" strokeWidth={2} dot={{ r: 3, fill: '#c8f135' }} name="Real" connectNulls={false} />
+                   <Line type="monotone" dataKey="forecast" stroke="#c8f135" strokeWidth={2} strokeDasharray="6 4" dot={{ r: 3, fill: '#c8f135' }} name="Proyección" connectNulls={false} />
                 </LineChart>
               </ResponsiveContainer>
             </div>
             <div className="flex gap-4 mt-2 text-xs text-muted-foreground">
-              <span className="flex items-center gap-1"><span className="w-4 h-0.5 bg-primary inline-block" /> Real</span>
-              <span className="flex items-center gap-1"><span className="w-4 h-0.5 inline-block" style={{ borderTop: '2px dashed hsl(var(--primary))', height: 0, background: 'none' }} /> Proyección</span>
+               <span className="flex items-center gap-1"><span className="w-4 h-0.5 bg-primary inline-block" /> Real</span>
+               <span className="flex items-center gap-1"><span className="w-4 h-0.5 inline-block" style={{ borderTop: '2px dashed #c8f135', height: 0, background: 'none' }} /> Proyección</span>
             </div>
           </CardContent>
         </Card>
