@@ -47,6 +47,11 @@ interface UploadQueueItem {
   progress: number;
   status: 'pending' | 'uploading' | 'processing' | 'done' | 'error';
   error?: string;
+  currentChunk?: number;
+  totalChunks?: number;
+  totalRows?: number;
+  processedRows?: number;
+  chunksFailed?: number;
 }
 
 const fileIcons: Record<string, typeof FileText> = { PDF: FileText, CSV: FileSpreadsheet, XLS: FileSpreadsheet, Imagen: Image };
@@ -54,7 +59,7 @@ const fileIcons: Record<string, typeof FileText> = { PDF: FileText, CSV: FileSpr
 const PAGE_SIZE = 25;
 const MAX_CONCURRENT_UPLOADS = 4;
 const PRESIGN_THRESHOLD = 20 * 1024 * 1024; // 20MB
-const MAX_FILE_SIZE = 100 * 1024 * 1024; // 100MB
+const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
 const ROW_BATCH_SIZE = 500; // Rows per batch sent to backend
 
 /**
@@ -264,7 +269,7 @@ function ContextualAssistant({ companySettings }: { companySettings: any }) {
           </>
         )}
         <p className="text-[10px] text-muted-foreground border-t pt-3 mt-3">
-          Formatos: PDF, CSV, XLS/XLSX, imágenes (capturas de reportes). Máx. 100MB por archivo. Podés subir muchos archivos a la vez.
+          Formatos: PDF, CSV, XLS/XLSX, imágenes (capturas de reportes). Máx. 50MB por archivo. Sin límite de filas — se procesan en bloques automáticamente.
         </p>
       </CardContent>
     </Card>
@@ -310,6 +315,15 @@ function UploadQueue({ items, onDismiss }: { items: UploadQueueItem[]; onDismiss
                 <Loader2 className="h-3.5 w-3.5 animate-spin text-primary shrink-0" />
               )}
               <span className="truncate flex-1">{item.file.name}</span>
+              {item.status === 'processing' && item.currentChunk !== undefined && item.totalChunks && item.totalChunks > 1 && (
+                <span className="text-muted-foreground whitespace-nowrap">Bloque {item.currentChunk + 1} de {item.totalChunks}</span>
+              )}
+              {item.status === 'done' && item.totalRows && item.totalRows > 0 && (
+                <span className="text-success whitespace-nowrap">
+                  {item.totalRows.toLocaleString('es-AR')} filas{item.totalChunks && item.totalChunks > 1 ? ` en ${item.totalChunks} bloques` : ''}
+                  {item.chunksFailed && item.chunksFailed > 0 ? ` (${item.chunksFailed} bloque(s) fallaron)` : ''}
+                </span>
+              )}
               {item.status === 'error' && item.error && (
                 <span className="text-destructive truncate max-w-[200px]">{item.error}</span>
               )}
@@ -479,7 +493,7 @@ export default function CargaDatos() {
   // ─── Upload with presigned URL for large files ────────────
   const uploadFileToStorage = async (file: File, userId: string): Promise<{ storagePath: string }> => {
     if (file.size > MAX_FILE_SIZE) {
-      throw new Error(`Archivo demasiado grande (${(file.size / 1024 / 1024).toFixed(0)}MB). Máximo: 100MB.`);
+      throw new Error(`Este archivo supera el límite de 50MB (${(file.size / 1024 / 1024).toFixed(0)}MB). Para archivos más grandes, exportá el Excel en partes o contactá a soporte.`);
     }
 
     if (file.size > PRESIGN_THRESHOLD) {
@@ -696,33 +710,44 @@ export default function CargaDatos() {
 
         // Send structured row batches to process-file
         if (parsedRows && parsedHeaders && dbData?.id) {
-          updateItem({ progress: 85 });
+          updateItem({ progress: 85, status: 'processing' });
           try {
             const totalBatches = Math.ceil(parsedRows.length / ROW_BATCH_SIZE);
             let resolvedCategory: string | undefined;
+            let chunksFailed = 0;
+            let processedRows = 0;
+
+            updateItem({ totalChunks: totalBatches, totalRows: parsedRows.length, currentChunk: 0 });
+
             for (let bi = 0; bi < totalBatches; bi++) {
+              updateItem({ currentChunk: bi });
               const batchRows = parsedRows.slice(bi * ROW_BATCH_SIZE, (bi + 1) * ROW_BATCH_SIZE);
-              const { data: pfData, error: pfError } = await supabase.functions.invoke('process-file', {
-                body: {
-                  fileUploadId: dbData.id,
-                  companyId: profile.company_id!,
-                  rowBatch: batchRows,
-                  headers: parsedHeaders,
-                  batchIndex: bi,
-                  totalBatches,
-                  totalRows: parsedRows.length,
-                  ...(bi > 0 && resolvedCategory ? { category: resolvedCategory } : {}),
-                },
-              });
-              if (pfError) throw pfError;
-              // Capture category from batch 0 response
-              if (bi === 0 && pfData?.category) {
-                resolvedCategory = pfData.category;
+              try {
+                const { data: pfData, error: pfError } = await supabase.functions.invoke('process-file', {
+                  body: {
+                    fileUploadId: dbData.id,
+                    companyId: profile.company_id!,
+                    rowBatch: batchRows,
+                    headers: parsedHeaders,
+                    batchIndex: bi,
+                    totalBatches,
+                    totalRows: parsedRows.length,
+                    ...(bi > 0 && resolvedCategory ? { category: resolvedCategory } : {}),
+                  },
+                });
+                if (pfError) throw pfError;
+                if (bi === 0 && pfData?.category) {
+                  resolvedCategory = pfData.category;
+                }
+                processedRows += batchRows.length;
+              } catch (chunkErr: any) {
+                chunksFailed++;
+                console.error(`[CargaDatos] Chunk ${bi + 1}/${totalBatches} failed:`, chunkErr);
               }
-              updateItem({ progress: 85 + Math.round((bi + 1) / totalBatches * 14) });
+              updateItem({ progress: 85 + Math.round((bi + 1) / totalBatches * 14), processedRows });
             }
 
-            // Health check: verify saved row count matches sent rows
+            // Health check
             const { data: savedChunks } = await supabase
               .from('file_extracted_data')
               .select('row_count')
@@ -730,26 +755,34 @@ export default function CargaDatos() {
               .not('data_category', 'in', '("_raw_cache","_classification","_column_mapping")');
             const savedTotal = savedChunks?.reduce((sum, c) => sum + (c.row_count || 0), 0) || 0;
             console.log(`[CargaDatos] Health check: saved ${savedTotal} vs sent ${parsedRows.length} rows`);
+
             if (savedTotal === 0) {
               console.error(`[CargaDatos] ❌ Health check FAILED: 0 rows saved out of ${parsedRows.length}`);
               await supabase.from('file_uploads').update({
                 status: 'error',
                 processing_error: `Error: no se guardaron datos (0 de ${parsedRows.length} filas). Intentá reprocesar el archivo.`,
               }).eq('id', dbData.id);
-            } else if (savedTotal < parsedRows.length * 0.95) {
-              console.warn(`[CargaDatos] Health check: saved ${savedTotal} vs sent ${parsedRows.length} rows`);
+              updateItem({ status: 'error', error: `No se guardaron datos (0 de ${parsedRows.length} filas)`, chunksFailed });
+            } else if (chunksFailed > 0) {
               await supabase.from('file_uploads').update({
-                processing_error: `Advertencia: se guardaron ${savedTotal} de ${parsedRows.length} filas`,
+                processing_error: `Se procesaron ${savedTotal.toLocaleString('es-AR')} de ${parsedRows.length.toLocaleString('es-AR')} filas. ${chunksFailed} bloque(s) fallaron — podés reprocesar este archivo.`,
               }).eq('id', dbData.id);
+              updateItem({ status: 'done', progress: 100, chunksFailed, totalRows: savedTotal });
+              toast.warning(`"${item.file.name}": se procesaron ${savedTotal.toLocaleString('es-AR')} de ${parsedRows.length.toLocaleString('es-AR')} filas. ${chunksFailed} bloque(s) fallaron.`, { duration: 8000 });
+            } else {
+              updateItem({ status: 'done', progress: 100, totalRows: savedTotal });
+              toast.success(`"${item.file.name}" procesado correctamente — ${savedTotal.toLocaleString('es-AR')} filas${totalBatches > 1 ? ` en ${totalBatches} bloques` : ''}`);
             }
           } catch (invokeErr: any) {
             await supabase.from('file_uploads').update({ status: 'queued', processing_error: null }).eq('id', dbData.id);
             console.warn('[CargaDatos] Row batch upload failed, queued for server retry:', invokeErr);
+            updateItem({ status: 'done', progress: 100 });
+            toast.info(`"${item.file.name}" re-encolado para procesar en el servidor`);
           }
+        } else {
+          updateItem({ status: 'done', progress: 100 });
+          toast.success(`"${item.file.name}" en cola para procesar`);
         }
-
-        updateItem({ status: 'done', progress: 100 });
-        toast.success(`"${item.file.name}" ${parsedRows ? 'procesando' : 'en cola para procesar'}`);
       } catch (err: any) {
         updateItem({ status: 'error', error: err.message });
       }
@@ -997,7 +1030,7 @@ export default function CargaDatos() {
             )}
             <p className="font-medium">{isUploading ? 'Subiendo archivos...' : 'Arrastrá archivos acá o hacé click para seleccionar'}</p>
             <p className="text-sm text-muted-foreground mt-1">Podés seleccionar muchos a la vez.</p>
-            <p className="text-xs text-muted-foreground mt-2">Formatos aceptados: Excel (.xlsx, .xls), CSV (.csv), PDF (.pdf), Imágenes (.png, .jpg, .webp, .gif, .bmp), Word (.doc, .docx), XML (.xml) — Máx. 100MB por archivo.</p>
+            <p className="text-xs text-muted-foreground mt-2">Formatos aceptados: Excel (.xlsx, .xls), CSV (.csv), PDF (.pdf), Imágenes (.png, .jpg, .webp, .gif, .bmp), Word (.doc, .docx), XML (.xml) — Máx. 50MB por archivo. Sin límite de filas (se procesan automáticamente en bloques).</p>
             <input
               id="file-input"
               type="file"
