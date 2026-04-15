@@ -94,13 +94,25 @@ export default function Marketing() {
   }
 
   const campaigns = normalizeMarketing(filteredMarketing, m);
-  const totalSpend = campaigns.reduce((s, c) => s + c.spend, 0);
-  const totalRevenue = campaigns.reduce((s, c) => s + c.revenue, 0);
+
+  // Excluir filas de resumen/totales del CSV para evitar doble conteo
+  const SUMMARY_NAMES = ['total', 'resumen', 'subtotal', 'nan'];
+  const isSummaryRow = (c: CampaignRow) =>
+    !c.name ||
+    typeof c.name !== 'string' ||
+    c.name.trim() === '' ||
+    c.name === 'Sin nombre' ||
+    SUMMARY_NAMES.includes(c.name.toLowerCase().trim());
+
+  const realCampaigns = campaigns.filter(c => !isSummaryRow(c));
+
+  const totalSpend = realCampaigns.reduce((s, c) => s + c.spend, 0);
+  const totalRevenue = realCampaigns.reduce((s, c) => s + c.revenue, 0);
   const globalRoas = safeDiv(totalRevenue, totalSpend);
-  const totalClicks = campaigns.reduce((s, c) => s + c.clicks, 0);
-  const totalConversions = campaigns.reduce((s, c) => s + c.conversions, 0);
-  const totalReach = campaigns.reduce((s, c) => s + c.reach, 0);
-  const totalImpressions = campaigns.reduce((s, c) => s + c.impressions, 0);
+  const totalClicks = realCampaigns.reduce((s, c) => s + c.clicks, 0);
+  const totalConversions = realCampaigns.reduce((s, c) => s + c.conversions, 0);
+  const totalReach = realCampaigns.reduce((s, c) => s + c.reach, 0);
+  const totalImpressions = realCampaigns.reduce((s, c) => s + c.impressions, 0);
 
   // Check if we have campaign names or just date-based rows
   const hasCampaignNames = campaigns.some(c => {
