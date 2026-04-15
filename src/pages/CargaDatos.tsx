@@ -411,7 +411,7 @@ function StatusDashboard({ files, totalCount }: { files: FileRecord[]; totalCoun
 
 export default function CargaDatos() {
   const { user, profile, role, companySettings } = useAuth();
-  const { refetch: refetchExtractedData } = useExtractedData();
+  const { refetch: refetchExtractedData, data: globalExtractedData, mappings: globalMappings } = useExtractedData();
   const [files, setFiles] = useState<FileRecord[]>([]);
   const [totalCount, setTotalCount] = useState(0);
   const [extractedDataMap, setExtractedDataMap] = useState<Record<string, ExtractedData[]>>({});
@@ -424,6 +424,14 @@ export default function CargaDatos() {
   const [urlImportText, setUrlImportText] = useState('');
   const [isImportingUrls, setIsImportingUrls] = useState(false);
   const [showUrlImport, setShowUrlImport] = useState(false);
+
+  // Overlap detection state
+  const [overlapInfo, setOverlapInfo] = useState<{
+    fileUploadId: string;
+    fileName: string;
+    overlappingMonths: string[];
+    category: string;
+  } | null>(null);
 
   // Pagination & filters
   const [currentPage, setCurrentPage] = useState(0);
