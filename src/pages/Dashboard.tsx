@@ -105,7 +105,7 @@ function DataSourceBanner({ hasData, loading }: { hasData: boolean; loading: boo
 export default function Dashboard() {
   const { profile, companySettings, companyName } = useAuth();
   const navigate = useNavigate();
-  const { data: extractedData, mappings, loading: dataLoading, hasData } = useExtractedData();
+  const { data: extractedData, mappings, loading: dataLoading, hasData, availableMonths } = useExtractedData();
   const mV = mappings.ventas;
   const mG = mappings.gastos;
   const mM = mappings.marketing;
@@ -206,7 +206,7 @@ export default function Dashboard() {
               <h1 className="text-2xl font-bold tracking-tight">{getGreeting()}, {name.split(' ')[0]}.</h1>
               <p className="text-muted-foreground mt-0.5">Resumen de <span className="font-semibold text-foreground">{company}</span></p>
             </div>
-            <PeriodFilter value={period} onChange={setPeriod} />
+            <PeriodFilter value={period} onChange={setPeriod} availableMonths={availableMonths} />
           </div>
         </Stagger>
 
