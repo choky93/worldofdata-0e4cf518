@@ -625,51 +625,131 @@ export default function CargaDatos() {
             const buffer = await item.file.arrayBuffer();
             const wb = XLSX.read(buffer, { type: 'array', dense: true, cellStyles: false, cellNF: false, cellText: false, sheetRows: 50000 });
 
-            // Multi-sheet: detect if sheets have different headers
-            const sheetDataSets: { rows: Record<string, unknown>[]; headers: string[] }[] = [];
+            // Parse each sheet independently
+            const sheetDataSets: { name: string; rows: Record<string, unknown>[]; headers: string[] }[] = [];
             for (const sheetName of wb.SheetNames) {
               const sheet = wb.Sheets[sheetName];
               if (!sheet) continue;
               const sheetRows = XLSX.utils.sheet_to_json(sheet, { defval: '' }) as Record<string, unknown>[];
               if (sheetRows.length === 0) continue;
               const fixed = fixBrokenHeaders(sheetRows);
-              if (fixed.rows.length > 0) {
-                sheetDataSets.push(fixed);
+              // Skip sheets with less than 2 data rows (cover pages, instructions, etc.)
+              if (fixed.rows.length < 2) {
+                console.log(`[CargaDatos] Skipping sheet "${sheetName}" — only ${fixed.rows.length} row(s)`);
+                continue;
               }
+              sheetDataSets.push({ name: sheetName, ...fixed });
             }
 
-            // Check if all sheets share the same headers
             if (sheetDataSets.length > 1) {
-              const firstHeaders = sheetDataSets[0].headers.sort().join('|');
-              const allSame = sheetDataSets.every(s => s.headers.sort().join('|') === firstHeaders);
+              // Check if all sheets share the same headers → concatenate
+              const firstHeaders = [...sheetDataSets[0].headers].sort().join('|');
+              const allSame = sheetDataSets.every(s => [...s.headers].sort().join('|') === firstHeaders);
+
               if (allSame) {
-                // Same headers: concatenate
+                // Same headers: concatenate into single dataset
                 const allRows = sheetDataSets.flatMap(s => s.rows);
                 if (allRows.length > 50000) allRows.length = 50000;
-                parsedRows = allRows;
+                parsedRows = cleanParsedRows(allRows, sheetDataSets[0].headers);
                 parsedHeaders = sheetDataSets[0].headers;
+                console.log(`[CargaDatos] ${sheetDataSets.length} sheets with same headers → concatenated ${parsedRows.length} rows`);
               } else {
-                // Different headers: use first sheet (largest), log warning
-                console.warn(`[CargaDatos] Multi-sheet with different headers detected. Processing each sheet separately.`);
-                // Sort by row count descending, take all
-                sheetDataSets.sort((a, b) => b.rows.length - a.rows.length);
-                // For now, process all sheets concatenated per same-header groups
-                // Simplified: just use all data with fixBrokenHeaders already applied
-                const allRows = sheetDataSets.flatMap(s => s.rows);
-                if (allRows.length > 50000) allRows.length = 50000;
-                parsedRows = allRows;
-                parsedHeaders = sheetDataSets[0].headers;
+                // Different headers: process each sheet as independent file
+                console.log(`[CargaDatos] ${sheetDataSets.length} sheets with different headers → processing independently`);
+                const sheetStatuses: SheetStatus[] = sheetDataSets.map(s => ({ name: s.name, status: 'pending' as const, rows: s.rows.length }));
+                updateItem({ progress: 80, sheetStatuses });
+
+                let totalSheetRows = 0;
+                let sheetsOk = 0;
+                let sheetsFailed = 0;
+
+                for (let si = 0; si < sheetDataSets.length; si++) {
+                  const sd = sheetDataSets[si];
+                  sheetStatuses[si].status = 'processing';
+                  updateItem({ sheetStatuses: [...sheetStatuses] });
+
+                  const sheetFileName = `${item.file.name} — ${sd.name}`;
+                  const cleanedRows = cleanParsedRows(sd.rows, sd.headers);
+                  if (cleanedRows.length < 2) {
+                    sheetStatuses[si].status = 'done';
+                    sheetStatuses[si].rows = 0;
+                    updateItem({ sheetStatuses: [...sheetStatuses] });
+                    continue;
+                  }
+
+                  try {
+                    // Create a separate file_uploads record for this sheet
+                    const { data: sheetDbData, error: sheetDbErr } = await supabase.from('file_uploads').insert({
+                      file_name: sheetFileName,
+                      file_type: detectFileType(item.file.name),
+                      file_size: item.file.size,
+                      status: 'processing',
+                      storage_path: storagePath,
+                      uploaded_by: user.id,
+                      company_id: profile.company_id!,
+                      file_hash: `${fileHash}-sheet-${si}`,
+                    }).select('id').single();
+
+                    if (sheetDbErr || !sheetDbData) throw new Error(sheetDbErr?.message || 'DB insert failed');
+
+                    // Send all batches for this sheet
+                    const sheetTotalBatches = Math.ceil(cleanedRows.length / ROW_BATCH_SIZE);
+                    let resolvedCat: string | undefined;
+                    for (let bi = 0; bi < sheetTotalBatches; bi++) {
+                      const batchRows = cleanedRows.slice(bi * ROW_BATCH_SIZE, (bi + 1) * ROW_BATCH_SIZE);
+                      const { data: pfData, error: pfError } = await supabase.functions.invoke('process-file', {
+                        body: {
+                          fileUploadId: sheetDbData.id,
+                          companyId: profile.company_id!,
+                          rowBatch: batchRows,
+                          headers: sd.headers,
+                          batchIndex: bi,
+                          totalBatches: sheetTotalBatches,
+                          totalRows: cleanedRows.length,
+                          sheetName: sd.name,
+                          ...(bi > 0 && resolvedCat ? { category: resolvedCat } : {}),
+                        },
+                      });
+                      if (pfError) throw pfError;
+                      if (bi === 0 && pfData?.category) resolvedCat = pfData.category;
+                    }
+
+                    totalSheetRows += cleanedRows.length;
+                    sheetsOk++;
+                    sheetStatuses[si].status = 'done';
+                    sheetStatuses[si].rows = cleanedRows.length;
+                  } catch (sheetErr: any) {
+                    console.error(`[CargaDatos] Sheet "${sd.name}" failed:`, sheetErr);
+                    sheetStatuses[si].status = 'error';
+                    sheetsFailed++;
+                  }
+                  updateItem({
+                    sheetStatuses: [...sheetStatuses],
+                    progress: 80 + Math.round(((si + 1) / sheetDataSets.length) * 19),
+                  });
+                }
+
+                // Multi-sheet is done — mark the main upload item
+                if (sheetsFailed === sheetDataSets.length) {
+                  updateItem({ status: 'error', error: 'Todas las hojas fallaron', progress: 100 });
+                } else {
+                  updateItem({
+                    status: 'done',
+                    progress: 100,
+                    totalRows: totalSheetRows,
+                    chunksFailed: sheetsFailed,
+                  });
+                  toast.success(`"${item.file.name}" — ${sheetsOk} hoja(s) procesada(s), ${totalSheetRows.toLocaleString('es-AR')} filas${sheetsFailed > 0 ? `. ${sheetsFailed} hoja(s) con error` : ''}`);
+                }
+                // Skip the normal single-file flow below
+                await processNext();
+                return;
               }
             } else if (sheetDataSets.length === 1) {
               const allRows = sheetDataSets[0].rows;
               if (allRows.length > 50000) allRows.length = 50000;
-              parsedRows = allRows;
+              parsedRows = cleanParsedRows(allRows, sheetDataSets[0].headers);
               parsedHeaders = sheetDataSets[0].headers;
-            }
-            // Clean data: convert serial dates + filter summary rows
-            if (parsedRows && parsedHeaders) {
-              parsedRows = cleanParsedRows(parsedRows, parsedHeaders);
-              console.log(`[CargaDatos] After cleaning: ${parsedRows.length} rows`);
             }
             updateItem({ progress: 80 });
             console.log(`[CargaDatos] Client-side parsed: ${parsedRows?.length ?? 0} rows, ${parsedHeaders?.length ?? 0} cols`);
