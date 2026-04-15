@@ -1304,10 +1304,22 @@ serve(async (req) => {
     console.error("[process-file] ❌ Error:", error);
     const msg = error instanceof Error ? error.message : "Unknown error";
     if (fileUploadId) {
-      try { await sb.from("file_uploads").update({ status: "error", processing_error: msg }).eq("id", fileUploadId); } catch { /* ignore */ }
+      try {
+        if (error instanceof RateLimitError) {
+          console.log(`[process-file] Rate limited — requeueing ${fileUploadId}`);
+          await sb.from("file_uploads").update({
+            status: "queued",
+            processing_error: RATE_LIMIT_MESSAGE,
+            processing_started_at: null,
+          }).eq("id", fileUploadId);
+        } else {
+          await sb.from("file_uploads").update({ status: "error", processing_error: msg }).eq("id", fileUploadId);
+        }
+      } catch { /* ignore */ }
     }
-    return new Response(JSON.stringify({ error: msg }), {
-      status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
+    return new Response(JSON.stringify({ error: msg, rateLimited: error instanceof RateLimitError }), {
+      status: error instanceof RateLimitError ? 429 : 500,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
 });
