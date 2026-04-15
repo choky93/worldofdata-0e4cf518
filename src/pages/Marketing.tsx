@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { formatCurrency, formatPercent, formatNumber, safeDiv } from '@/lib/formatters';
 import { formatAmount, TOOLTIP_STYLE, AXIS_STYLE } from '@/lib/chart-config';
 import { useExtractedData } from '@/hooks/useExtractedData';
-import { findNumber, findString, FIELD_CAMPAIGN_NAME, FIELD_SPEND, FIELD_REVENUE, FIELD_ROAS, FIELD_CLICKS, FIELD_CTR, FIELD_CONVERSIONS, FIELD_REACH, FIELD_IMPRESSIONS, FIELD_DATE } from '@/lib/field-utils';
+import { findNumber, findString, findField, FIELD_CAMPAIGN_NAME, FIELD_SPEND, FIELD_REVENUE, FIELD_ROAS, FIELD_CLICKS, FIELD_CTR, FIELD_CONVERSIONS, FIELD_REACH, FIELD_IMPRESSIONS, FIELD_DATE } from '@/lib/field-utils';
 import { filterByPeriod, parseDate, type PeriodKey } from '@/lib/data-cleaning';
 import { PeriodPills } from '@/components/ui/PeriodPills';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -24,6 +24,14 @@ interface CampaignRow {
   reach: number;
   impressions: number;
   date: string;
+}
+
+/** Check if a field (by keywords or mapping) exists in at least one row */
+function fieldExists(rows: any[], keywords: string[], mappedCol?: string | null): boolean {
+  return rows.some(r => {
+    if (mappedCol && r[mappedCol] !== undefined && r[mappedCol] !== null && String(r[mappedCol]).trim() !== '') return true;
+    return findField(r, keywords) !== null && findField(r, keywords) !== undefined;
+  });
 }
 
 function normalizeMarketing(rows: any[], m?: any): CampaignRow[] {
@@ -114,10 +122,14 @@ export default function Marketing() {
   const totalReach = realCampaigns.reduce((s, c) => s + c.reach, 0);
   const totalImpressions = realCampaigns.reduce((s, c) => s + c.impressions, 0);
 
+  // Detect which optional fields actually exist in the data
+  const hasConversionsField = fieldExists(filteredMarketing, FIELD_CONVERSIONS, m?.conversions);
+  const hasReachField = fieldExists(filteredMarketing, FIELD_REACH, m?.reach);
+  const hasImpressionsField = fieldExists(filteredMarketing, FIELD_IMPRESSIONS, m?.impressions);
+
   // Check if we have campaign names or just date-based rows
   const hasCampaignNames = realCampaigns.some(c => {
     const n = c.name;
-    // Check if name looks like a date (our fallback) vs a real campaign name
     return n && n !== 'Sin nombre' && !parseDate(n);
   });
 
@@ -160,15 +172,15 @@ export default function Marketing() {
           </CardContent></Card>
           <Card><CardContent className="pt-6">
             <p className="text-sm text-muted-foreground">Conversiones</p>
-            <p className="text-3xl font-bold tabular-nums">{totalConversions > 0 ? formatNumber(totalConversions) : '—'}</p>
+            <p className="text-3xl font-bold tabular-nums">{hasConversionsField ? formatNumber(totalConversions) : '—'}</p>
           </CardContent></Card>
           <Card><CardContent className="pt-6">
             <p className="text-sm text-muted-foreground">Alcance</p>
-            <p className="text-3xl font-bold tabular-nums">{totalReach > 0 ? formatNumber(totalReach) : '—'}</p>
+            <p className="text-3xl font-bold tabular-nums">{hasReachField ? formatNumber(totalReach) : '—'}</p>
           </CardContent></Card>
           <Card><CardContent className="pt-6">
             <p className="text-sm text-muted-foreground">Impresiones</p>
-             <p className="text-3xl font-bold tabular-nums">{totalImpressions > 0 ? formatNumber(totalImpressions) : '—'}</p>
+             <p className="text-3xl font-bold tabular-nums">{hasImpressionsField ? formatNumber(totalImpressions) : '—'}</p>
           </CardContent></Card>
         </div>
 
@@ -204,9 +216,9 @@ export default function Marketing() {
                 <TableHead className="text-right">Gasto</TableHead>
                 {totalRevenue > 0 && <TableHead className="text-right">Ingresos</TableHead>}
                 {globalRoas > 0 && <TableHead className="text-right">ROAS</TableHead>}
-                {totalConversions > 0 && <TableHead className="text-right">Conversiones</TableHead>}
-                {totalReach > 0 && <TableHead className="text-right">Alcance</TableHead>}
-                {totalImpressions > 0 && <TableHead className="text-right">Impresiones</TableHead>}
+                {hasConversionsField && <TableHead className="text-right">Conversiones</TableHead>}
+                {hasReachField && <TableHead className="text-right">Alcance</TableHead>}
+                {hasImpressionsField && <TableHead className="text-right">Impresiones</TableHead>}
                 {totalClicks > 0 && <TableHead className="text-right">Clicks</TableHead>}
               </TableRow></TableHeader>
               <TableBody>
@@ -216,9 +228,9 @@ export default function Marketing() {
                     <TableCell className="text-right tabular-nums">{formatCurrency(c.spend)}</TableCell>
                     {totalRevenue > 0 && <TableCell className="text-right tabular-nums">{formatCurrency(c.revenue)}</TableCell>}
                     {globalRoas > 0 && <TableCell className="text-right font-bold tabular-nums">{c.roas > 0 ? `${c.roas}x` : '—'}</TableCell>}
-                    {totalConversions > 0 && <TableCell className="text-right tabular-nums">{c.conversions || '—'}</TableCell>}
-                    {totalReach > 0 && <TableCell className="text-right tabular-nums">{c.reach > 0 ? formatNumber(c.reach) : '—'}</TableCell>}
-                    {totalImpressions > 0 && <TableCell className="text-right tabular-nums">{c.impressions > 0 ? formatNumber(c.impressions) : '—'}</TableCell>}
+                    {hasConversionsField && <TableCell className="text-right tabular-nums">{c.conversions > 0 ? formatNumber(c.conversions) : '0'}</TableCell>}
+                    {hasReachField && <TableCell className="text-right tabular-nums">{c.reach > 0 ? formatNumber(c.reach) : '0'}</TableCell>}
+                    {hasImpressionsField && <TableCell className="text-right tabular-nums">{c.impressions > 0 ? formatNumber(c.impressions) : '0'}</TableCell>}
                     {totalClicks > 0 && <TableCell className="text-right tabular-nums">{c.clicks > 0 ? formatNumber(c.clicks) : '—'}</TableCell>}
                   </TableRow>
                 ))}
