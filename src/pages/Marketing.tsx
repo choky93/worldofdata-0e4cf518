@@ -210,7 +210,7 @@ export default function Marketing() {
                 {totalClicks > 0 && <TableHead className="text-right">Clicks</TableHead>}
               </TableRow></TableHeader>
               <TableBody>
-                {campaigns.map((c, i) => (
+                {realCampaigns.map((c, i) => (
                   <TableRow key={i}>
                     <TableCell className="font-medium">{c.name}</TableCell>
                     <TableCell className="text-right tabular-nums">{formatCurrency(c.spend)}</TableCell>
