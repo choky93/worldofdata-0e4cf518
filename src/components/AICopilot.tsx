@@ -335,7 +335,7 @@ export function AICopilot() {
               animate={{ x: 0, opacity: 1 }}
               exit={{ x: '100%', opacity: 0 }}
               transition={{ type: 'spring', stiffness: 300, damping: 30 }}
-              className="fixed right-0 top-0 bottom-0 w-full sm:max-w-md bg-background border-l border-[#1f1f1f] z-50 flex flex-col">
+              className="fixed right-0 top-0 bottom-0 w-full sm:max-w-md bg-background border-l border-[#1f1f1f] z-50 flex flex-col"
             >
               {/* Header */}
               <div className="flex items-center justify-between px-5 py-4 border-b border-[#1f1f1f]">
