@@ -988,6 +988,15 @@ serve(async (req) => {
         const cleanedBatch = cleanRows(rowBatch, headers, mappedDate);
         console.log(`[process-file] Row batch ${batchIndex + 1}/${totalBatches} for "${file_name}" (${rowBatch.length} → ${cleanedBatch.length} rows after cleaning)`);
 
+        // Detect extreme values
+        const extremeValues = detectExtremeValues(cleanedBatch);
+        if (extremeValues.length > 0) {
+          const warningMsg = `Se encontraron valores inusualmente grandes que podrían ser errores de datos: ${extremeValues.join(', ')}`;
+          console.warn(`[process-file] ⚠️ ${warningMsg}`);
+          summary = `${summary}. ⚠️ ${warningMsg}`;
+          await sb.from("file_uploads").update({ processing_error: warningMsg }).eq("id", fileUploadId);
+        }
+
         // Quarantine check
         if (!isMappingAcceptable(column_mapping, category)) {
           console.log(`[process-file] ⚠️ Mapping insufficient for "${file_name}". Triggering re-analysis...`);
