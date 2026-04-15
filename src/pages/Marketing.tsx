@@ -26,6 +26,14 @@ interface CampaignRow {
   date: string;
 }
 
+/** Check if a field (by keywords or mapping) exists in at least one row */
+function fieldExists(rows: any[], keywords: string[], mappedCol?: string | null): boolean {
+  return rows.some(r => {
+    if (mappedCol && r[mappedCol] !== undefined && r[mappedCol] !== null && String(r[mappedCol]).trim() !== '') return true;
+    return findField(r, keywords) !== null && findField(r, keywords) !== undefined;
+  });
+}
+
 function normalizeMarketing(rows: any[], m?: any): CampaignRow[] {
   return rows.map((r: any) => {
     const spend = findNumber(r, FIELD_SPEND, m?.spend);
