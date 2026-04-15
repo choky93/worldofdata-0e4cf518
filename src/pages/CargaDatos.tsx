@@ -612,6 +612,14 @@ export default function CargaDatos() {
     }
     if (validFiles.length === 0) return;
 
+    // Check storage limit
+    const totalNewSize = validFiles.reduce((sum, f) => sum + f.size, 0);
+    if (storageUsedBytes + totalNewSize > MAX_STORAGE_BYTES) {
+      const usedGB = (storageUsedBytes / 1024 / 1024 / 1024).toFixed(1);
+      toast.error(`Has alcanzado el límite de almacenamiento (5GB). Usás ${usedGB} GB. Eliminá archivos antiguos desde esta página para liberar espacio.`, { duration: 10000 });
+      return;
+    }
+
     const queueItems: UploadQueueItem[] = validFiles.map((file, i) => ({
       file,
       id: `upload-${Date.now()}-${i}`,
