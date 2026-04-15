@@ -710,33 +710,44 @@ export default function CargaDatos() {
 
         // Send structured row batches to process-file
         if (parsedRows && parsedHeaders && dbData?.id) {
-          updateItem({ progress: 85 });
+          updateItem({ progress: 85, status: 'processing' });
           try {
             const totalBatches = Math.ceil(parsedRows.length / ROW_BATCH_SIZE);
             let resolvedCategory: string | undefined;
+            let chunksFailed = 0;
+            let processedRows = 0;
+
+            updateItem({ totalChunks: totalBatches, totalRows: parsedRows.length, currentChunk: 0 });
+
             for (let bi = 0; bi < totalBatches; bi++) {
+              updateItem({ currentChunk: bi });
               const batchRows = parsedRows.slice(bi * ROW_BATCH_SIZE, (bi + 1) * ROW_BATCH_SIZE);
-              const { data: pfData, error: pfError } = await supabase.functions.invoke('process-file', {
-                body: {
-                  fileUploadId: dbData.id,
-                  companyId: profile.company_id!,
-                  rowBatch: batchRows,
-                  headers: parsedHeaders,
-                  batchIndex: bi,
-                  totalBatches,
-                  totalRows: parsedRows.length,
-                  ...(bi > 0 && resolvedCategory ? { category: resolvedCategory } : {}),
-                },
-              });
-              if (pfError) throw pfError;
-              // Capture category from batch 0 response
-              if (bi === 0 && pfData?.category) {
-                resolvedCategory = pfData.category;
+              try {
+                const { data: pfData, error: pfError } = await supabase.functions.invoke('process-file', {
+                  body: {
+                    fileUploadId: dbData.id,
+                    companyId: profile.company_id!,
+                    rowBatch: batchRows,
+                    headers: parsedHeaders,
+                    batchIndex: bi,
+                    totalBatches,
+                    totalRows: parsedRows.length,
+                    ...(bi > 0 && resolvedCategory ? { category: resolvedCategory } : {}),
+                  },
+                });
+                if (pfError) throw pfError;
+                if (bi === 0 && pfData?.category) {
+                  resolvedCategory = pfData.category;
+                }
+                processedRows += batchRows.length;
+              } catch (chunkErr: any) {
+                chunksFailed++;
+                console.error(`[CargaDatos] Chunk ${bi + 1}/${totalBatches} failed:`, chunkErr);
               }
-              updateItem({ progress: 85 + Math.round((bi + 1) / totalBatches * 14) });
+              updateItem({ progress: 85 + Math.round((bi + 1) / totalBatches * 14), processedRows });
             }
 
-            // Health check: verify saved row count matches sent rows
+            // Health check
             const { data: savedChunks } = await supabase
               .from('file_extracted_data')
               .select('row_count')
@@ -744,26 +755,34 @@ export default function CargaDatos() {
               .not('data_category', 'in', '("_raw_cache","_classification","_column_mapping")');
             const savedTotal = savedChunks?.reduce((sum, c) => sum + (c.row_count || 0), 0) || 0;
             console.log(`[CargaDatos] Health check: saved ${savedTotal} vs sent ${parsedRows.length} rows`);
+
             if (savedTotal === 0) {
               console.error(`[CargaDatos] ❌ Health check FAILED: 0 rows saved out of ${parsedRows.length}`);
               await supabase.from('file_uploads').update({
                 status: 'error',
                 processing_error: `Error: no se guardaron datos (0 de ${parsedRows.length} filas). Intentá reprocesar el archivo.`,
               }).eq('id', dbData.id);
-            } else if (savedTotal < parsedRows.length * 0.95) {
-              console.warn(`[CargaDatos] Health check: saved ${savedTotal} vs sent ${parsedRows.length} rows`);
+              updateItem({ status: 'error', error: `No se guardaron datos (0 de ${parsedRows.length} filas)`, chunksFailed });
+            } else if (chunksFailed > 0) {
               await supabase.from('file_uploads').update({
-                processing_error: `Advertencia: se guardaron ${savedTotal} de ${parsedRows.length} filas`,
+                processing_error: `Se procesaron ${savedTotal.toLocaleString('es-AR')} de ${parsedRows.length.toLocaleString('es-AR')} filas. ${chunksFailed} bloque(s) fallaron — podés reprocesar este archivo.`,
               }).eq('id', dbData.id);
+              updateItem({ status: 'done', progress: 100, chunksFailed, totalRows: savedTotal });
+              toast.warning(`"${item.file.name}": se procesaron ${savedTotal.toLocaleString('es-AR')} de ${parsedRows.length.toLocaleString('es-AR')} filas. ${chunksFailed} bloque(s) fallaron.`, { duration: 8000 });
+            } else {
+              updateItem({ status: 'done', progress: 100, totalRows: savedTotal });
+              toast.success(`"${item.file.name}" procesado correctamente — ${savedTotal.toLocaleString('es-AR')} filas${totalBatches > 1 ? ` en ${totalBatches} bloques` : ''}`);
             }
           } catch (invokeErr: any) {
             await supabase.from('file_uploads').update({ status: 'queued', processing_error: null }).eq('id', dbData.id);
             console.warn('[CargaDatos] Row batch upload failed, queued for server retry:', invokeErr);
+            updateItem({ status: 'done', progress: 100 });
+            toast.info(`"${item.file.name}" re-encolado para procesar en el servidor`);
           }
+        } else {
+          updateItem({ status: 'done', progress: 100 });
+          toast.success(`"${item.file.name}" en cola para procesar`);
         }
-
-        updateItem({ status: 'done', progress: 100 });
-        toast.success(`"${item.file.name}" ${parsedRows ? 'procesando' : 'en cola para procesar'}`);
       } catch (err: any) {
         updateItem({ status: 'error', error: err.message });
       }
