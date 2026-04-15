@@ -1326,11 +1326,32 @@ serve(async (req) => {
       resultInfo = { category: result.category, summary: result.summary, totalRows: result.rowCount };
     }
 
-    await sb.from("file_uploads").update({ status: "processed", processing_error: null }).eq("id", fileUploadId);
-    console.log(`[process-file] ✅ Completed "${file_name}" - category=${resultInfo.category}, rows=${resultInfo.totalRows}`);
+    // Determine final status: processed_with_issues if zero rows or encoding problems
+    let finalStatus = "processed";
+    let finalError: string | null = null;
+
+    if (resultInfo.totalRows === 0) {
+      finalStatus = "processed_with_issues";
+      finalError = "No se encontraron datos tabulares en este archivo. Revisá el resumen para más detalles.";
+    }
+
+    // Check for encoding warnings (only for CSV/TXT in PATH C)
+    if (['csv', 'txt'].includes(ext)) {
+      const { encodingWarning } = detectAndFixEncoding(buffer);
+      if (encodingWarning && finalStatus === "processed") {
+        finalStatus = "processed_with_issues";
+        finalError = encodingWarning;
+      }
+    }
+
+    await sb.from("file_uploads").update({ 
+      status: finalStatus, 
+      processing_error: finalError,
+    }).eq("id", fileUploadId);
+    console.log(`[process-file] ✅ Completed "${file_name}" - category=${resultInfo.category}, rows=${resultInfo.totalRows}, status=${finalStatus}`);
 
     return new Response(JSON.stringify({
-      success: true, ...resultInfo,
+      success: true, ...resultInfo, status: finalStatus,
     }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
   } catch (error) {
     console.error("[process-file] ❌ Error:", error);
