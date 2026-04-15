@@ -251,3 +251,64 @@ export function extractAvailableMonths(
   }
   return Array.from(monthSet).sort();
 }
+
+/**
+ * Detect period overlap between rows grouped by file source.
+ * Returns months (YYYY-MM) that appear in more than one file_upload_id.
+ */
+export function detectPeriodOverlap(
+  existingRows: any[],
+  newRows: any[],
+  dateKeywords: string[],
+  findStringFn: (row: any, kw: string[]) => string
+): string[] {
+  const extractMonths = (rows: any[]): Set<string> => {
+    const months = new Set<string>();
+    for (const row of rows) {
+      const raw = findStringFn(row, dateKeywords);
+      if (!raw) continue;
+      const d = parseDate(raw);
+      if (!d) continue;
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      months.add(`${y}-${m}`);
+    }
+    return months;
+  };
+
+  const existingMonths = extractMonths(existingRows);
+  const newMonths = extractMonths(newRows);
+
+  const overlap: string[] = [];
+  for (const m of newMonths) {
+    if (existingMonths.has(m)) overlap.push(m);
+  }
+  return overlap.sort();
+}
+
+/**
+ * Detect months that have data from more than one file_upload_id.
+ * Takes rows tagged with __file_upload_id.
+ */
+export function detectMultiSourcePeriods(
+  taggedRows: { row: any; fileUploadId: string }[],
+  dateKeywords: string[],
+  findStringFn: (row: any, kw: string[]) => string
+): string[] {
+  // month → set of file IDs
+  const monthSources = new Map<string, Set<string>>();
+  for (const { row, fileUploadId } of taggedRows) {
+    const raw = findStringFn(row, dateKeywords);
+    if (!raw) continue;
+    const d = parseDate(raw);
+    if (!d) continue;
+    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    if (!monthSources.has(key)) monthSources.set(key, new Set());
+    monthSources.get(key)!.add(fileUploadId);
+  }
+  const duplicated: string[] = [];
+  for (const [month, sources] of monthSources) {
+    if (sources.size > 1) duplicated.push(month);
+  }
+  return duplicated.sort();
+}

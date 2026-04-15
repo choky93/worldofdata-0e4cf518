@@ -3,7 +3,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import type { ColumnMapping } from '@/lib/field-utils';
 import { findString, FIELD_DATE } from '@/lib/field-utils';
-import { extractAvailableMonths } from '@/lib/data-cleaning';
+import { extractAvailableMonths, detectMultiSourcePeriods } from '@/lib/data-cleaning';
 
 interface ExtractedRecord {
   data_category: string;
