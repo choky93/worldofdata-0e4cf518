@@ -581,13 +581,13 @@ export default function CargaDatos() {
     if (filesToUpload.length === 0) return;
 
     // Validate file formats
-    const SUPPORTED_EXTENSIONS = ['xlsx', 'xls', 'csv', 'pdf', 'png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp', 'doc', 'docx', 'xml', 'txt'];
+    const SUPPORTED_EXTENSIONS = ['xlsx', 'xls', 'xlsm', 'csv', 'pdf', 'png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp', 'doc', 'docx', 'xml', 'txt'];
     const validFiles: File[] = [];
     for (const file of filesToUpload) {
       const ext = file.name.split('.').pop()?.toLowerCase() || '';
       if (!SUPPORTED_EXTENSIONS.includes(ext)) {
-        toast.error(`Formato no soportado: .${ext}`, {
-          description: `Los formatos aceptados son: Excel (.xlsx, .xls), CSV (.csv), PDF (.pdf), Imágenes (.png, .jpg, .webp, .gif, .bmp), Word (.doc, .docx) y XML (.xml)`,
+        toast.error(`Formato no compatible: .${ext}`, {
+          description: `Formatos aceptados: Excel (.xlsx, .xls), CSV (.csv), PDF (.pdf), Imágenes (.jpg, .png, .webp, .gif, .bmp), Word (.doc, .docx) y XML (.xml).`,
           duration: 8000,
         });
         continue;
@@ -644,16 +644,36 @@ export default function CargaDatos() {
 
         // Parse Excel files client-side → send structured row batches
         const ext = item.file.name.split('.').pop()?.toLowerCase() || '';
-        const isExcel = ['xls', 'xlsx'].includes(ext);
+        const isExcel = ['xls', 'xlsx', 'xlsm'].includes(ext);
         const isCsv = ext === 'csv';
         let parsedRows: Record<string, unknown>[] | null = null;
         let parsedHeaders: string[] | null = null;
 
         if (isExcel) {
+          // Warn about macros in .xlsm files
+          if (ext === 'xlsm') {
+            toast.info(`"${item.file.name}" contiene macros que serán ignoradas. Solo se procesarán los datos.`, { duration: 6000 });
+          }
+
           try {
             updateItem({ progress: 72 });
             const buffer = await item.file.arrayBuffer();
-            const wb = XLSX.read(buffer, { type: 'array', dense: true, cellStyles: false, cellNF: false, cellText: false, sheetRows: 50000 });
+            let wb: XLSX.WorkBook;
+            try {
+              wb = XLSX.read(buffer, { type: 'array', dense: true, cellStyles: false, cellNF: false, cellText: false, sheetRows: 50000 });
+            } catch (parseErr: any) {
+              const msg = parseErr?.message || '';
+              if (msg.includes('password') || msg.includes('encrypt') || msg.includes('Password')) {
+                updateItem({ status: 'error', error: 'Archivo protegido con contraseña' });
+                toast.error(`"${item.file.name}" está protegido con contraseña`, {
+                  description: 'Por favor quitá la contraseña antes de subirlo (en Excel: Revisar → Proteger libro → Quitar contraseña).',
+                  duration: 10000,
+                });
+                await processNext();
+                return;
+              }
+              throw parseErr;
+            }
 
             // Parse each sheet independently
             const sheetDataSets: { name: string; rows: Record<string, unknown>[]; headers: string[] }[] = [];
