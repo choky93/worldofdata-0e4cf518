@@ -139,12 +139,12 @@ export default function Ventas() {
       <div className="space-y-6 max-w-7xl">
         <div className="flex items-center justify-between">
           <h1 className="text-2xl font-bold">Ventas</h1>
-          <div className="flex items-center gap-3">
-            <PeriodFilter value={period} onChange={setPeriod} availableMonths={availableMonths} />
-            <div className="flex items-center gap-1.5 text-xs text-success bg-success/10 rounded-lg px-3 py-1.5 border border-success/20">
-              <Database className="h-3.5 w-3.5" />
-              Datos reales ({realVentas.length} registros)
-            </div>
+            <div className="flex items-center gap-3">
+              <PeriodFilter value={period} onChange={setPeriod} availableMonths={availableMonths} />
+              <div className="flex items-center gap-1.5 text-xs alert-success rounded-lg px-3 py-1.5">
+                <Database className="h-3.5 w-3.5" />
+                Datos reales ({realVentas.length} registros)
+              </div>
           </div>
         </div>
 
@@ -182,11 +182,11 @@ export default function Ventas() {
               <CardContent><div className="h-64">
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={dailyChart}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                    <XAxis dataKey="day" tick={{ fontSize: 10 }} />
-                    <YAxis tick={{ fontSize: 10 }} tickFormatter={v => `$${(v / 1000).toFixed(0)}k`} />
-                    <Tooltip formatter={(v: number) => formatCurrency(v)} />
-                    <Bar dataKey="value" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} opacity={0.85} />
+                     <CartesianGrid strokeDasharray="3 3" stroke="#1f1f1f" />
+                     <XAxis dataKey="day" tick={{ fontSize: 10, fill: '#555555' }} />
+                     <YAxis tick={{ fontSize: 10, fill: '#555555' }} tickFormatter={v => `$${(v / 1000).toFixed(0)}k`} />
+                     <Tooltip formatter={(v: number) => formatCurrency(v)} contentStyle={{ background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: '8px', color: '#f5f5f5' }} itemStyle={{ color: '#c8f135' }} />
+                     <Bar dataKey="value" fill="#c8f135" radius={[4, 4, 0, 0]} opacity={0.85} />
                   </BarChart>
                 </ResponsiveContainer>
               </div></CardContent>
@@ -206,17 +206,17 @@ export default function Ventas() {
               <CardContent><div className="h-64">
                 <ResponsiveContainer width="100%" height="100%">
                   <AreaChart data={monthlyChart}>
-                    <defs>
-                      <linearGradient id="salesMonthlyGrad" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="hsl(var(--primary))" stopOpacity={0.3} />
-                        <stop offset="95%" stopColor="hsl(var(--primary))" stopOpacity={0} />
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                    <XAxis dataKey="month" tick={{ fontSize: 10 }} />
-                    <YAxis tick={{ fontSize: 10 }} tickFormatter={v => `$${(v / 1000000).toFixed(1)}M`} />
-                    <Tooltip formatter={(v: number) => formatCurrency(v)} />
-                    <Area type="monotone" dataKey="value" stroke="hsl(var(--primary))" fill="url(#salesMonthlyGrad)" strokeWidth={2} />
+                     <defs>
+                       <linearGradient id="salesMonthlyGrad" x1="0" y1="0" x2="0" y2="1">
+                         <stop offset="5%" stopColor="#c8f135" stopOpacity={0.08} />
+                         <stop offset="95%" stopColor="#c8f135" stopOpacity={0} />
+                       </linearGradient>
+                     </defs>
+                     <CartesianGrid strokeDasharray="3 3" stroke="#1f1f1f" />
+                     <XAxis dataKey="month" tick={{ fontSize: 10, fill: '#555555' }} />
+                     <YAxis tick={{ fontSize: 10, fill: '#555555' }} tickFormatter={v => `$${(v / 1000000).toFixed(1)}M`} />
+                     <Tooltip formatter={(v: number) => formatCurrency(v)} contentStyle={{ background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: '8px', color: '#f5f5f5' }} itemStyle={{ color: '#c8f135' }} />
+                     <Area type="monotone" dataKey="value" stroke="#c8f135" fill="url(#salesMonthlyGrad)" strokeWidth={2} />
                   </AreaChart>
                 </ResponsiveContainer>
               </div></CardContent>
