@@ -342,7 +342,7 @@ FORMATO DE RESPUESTA — SOLO JSON:
 
 {"category":"...","confidence":0.95,"summary":"descripción breve del archivo y qué contiene","column_mapping":{"amount":"Nombre Exacto Columna","date":"Nombre Exacto Columna",...},"warnings":["lista de advertencias si hay datos ambiguos o columnas que no se pudieron mapear con certeza"]}`;
 
-  const content = `Archivo: "${fileName}"
+  const content = `Archivo: "${fileName}"${sheetName ? `\nHoja de Excel: "${sheetName}" (usá el nombre de la hoja como pista para la categoría)` : ''}
 Columnas: ${JSON.stringify(headers)}
 Primeras ${sampleRows.length} filas de ejemplo:
 ${JSON.stringify(sampleRows.slice(0, 10), null, 2)}`;
