@@ -1105,8 +1105,64 @@ export default function CargaDatos() {
       setReprocessingId(null);
     }
   };
+  // ─── Handle Overlap Replace ────────────────────────────────
+  const handleOverlapReplace = async () => {
+    if (!overlapInfo || !profile?.company_id) return;
+    try {
+      // Find all other file_upload_ids that contributed data to the same category
+      const { data: allExtracted } = await supabase
+        .from('file_extracted_data')
+        .select('id, file_upload_id, extracted_json')
+        .eq('company_id', profile.company_id)
+        .eq('data_category', overlapInfo.category)
+        .neq('file_upload_id', overlapInfo.fileUploadId);
 
-  // ─── URL Import Handler ───────────────────────────────────
+      if (!allExtracted) { setOverlapInfo(null); return; }
+
+      const catMapping = overlapInfo.category === 'ventas' ? globalMappings.ventas : globalMappings.gastos;
+      const finder = (row: any, kw: string[]) => findString(row, kw, catMapping?.date);
+      const overlapSet = new Set(overlapInfo.overlappingMonths);
+
+      // For each old extracted record, filter out rows from overlapping months
+      for (const ext of allExtracted) {
+        const json = ext.extracted_json as any;
+        const rows = json?.data || [];
+        if (!Array.isArray(rows)) continue;
+
+        const filtered = rows.filter((row: any) => {
+          const raw = finder(row, FIELD_DATE);
+          if (!raw) return true; // keep rows without dates
+          const d = parseDate(raw);
+          if (!d) return true;
+          const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+          return !overlapSet.has(key);
+        });
+
+        if (filtered.length === 0) {
+          // Delete the entire record
+          await supabase.from('file_extracted_data').delete().eq('id', ext.id);
+        } else if (filtered.length < rows.length) {
+          // Update with filtered data
+          await supabase.from('file_extracted_data').update({
+            extracted_json: { ...json, data: filtered },
+            row_count: filtered.length,
+          }).eq('id', ext.id);
+        }
+      }
+
+      toast.success(`Datos de ${overlapInfo.overlappingMonths.map(p => {
+        const [y, m] = p.split('-');
+        return new Date(parseInt(y), parseInt(m) - 1, 1).toLocaleDateString('es-AR', { month: 'long', year: 'numeric' });
+      }).join(', ')} reemplazados con los del nuevo archivo.`);
+      setOverlapInfo(null);
+      refetchExtractedData();
+    } catch (err: any) {
+      toast.error('Error reemplazando datos: ' + err.message);
+      setOverlapInfo(null);
+    }
+  };
+
+
   const handleImportUrls = async () => {
     if (!user || !profile?.company_id || !urlImportText.trim()) return;
     setIsImportingUrls(true);
