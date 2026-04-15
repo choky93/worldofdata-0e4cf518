@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { formatCurrency, formatPercent, formatNumber } from '@/lib/formatters';
+import { formatCurrency, formatPercent, formatNumber, safeDiv } from '@/lib/formatters';
 import { useExtractedData } from '@/hooks/useExtractedData';
 import { findNumber, findString, FIELD_CAMPAIGN_NAME, FIELD_SPEND, FIELD_REVENUE, FIELD_ROAS, FIELD_CLICKS, FIELD_CTR, FIELD_CONVERSIONS, FIELD_REACH, FIELD_IMPRESSIONS, FIELD_DATE } from '@/lib/field-utils';
 import { filterByPeriod, parseDate, type PeriodKey } from '@/lib/data-cleaning';
@@ -29,7 +29,7 @@ function normalizeMarketing(rows: any[], m?: any): CampaignRow[] {
   return rows.map((r: any) => {
     const spend = findNumber(r, FIELD_SPEND, m?.spend);
     const revenue = findNumber(r, FIELD_REVENUE, m?.revenue);
-    const roas = spend > 0 ? (revenue > 0 ? revenue / spend : findNumber(r, FIELD_ROAS, m?.roas)) : findNumber(r, FIELD_ROAS, m?.roas);
+    const roas = spend > 0 ? (revenue > 0 ? safeDiv(revenue, spend) : findNumber(r, FIELD_ROAS, m?.roas)) : findNumber(r, FIELD_ROAS, m?.roas);
     const rawDate = findString(r, FIELD_DATE, m?.date);
     const d = parseDate(rawDate);
     return {
@@ -95,7 +95,7 @@ export default function Marketing() {
   const campaigns = normalizeMarketing(filteredMarketing, m);
   const totalSpend = campaigns.reduce((s, c) => s + c.spend, 0);
   const totalRevenue = campaigns.reduce((s, c) => s + c.revenue, 0);
-  const globalRoas = totalSpend > 0 ? totalRevenue / totalSpend : 0;
+  const globalRoas = safeDiv(totalRevenue, totalSpend);
   const totalClicks = campaigns.reduce((s, c) => s + c.clicks, 0);
   const totalConversions = campaigns.reduce((s, c) => s + c.conversions, 0);
   const totalReach = campaigns.reduce((s, c) => s + c.reach, 0);
