@@ -43,6 +43,7 @@ interface ExtractedDataContextValue {
   loading: boolean;
   hasData: boolean;
   availableMonths: string[];
+  duplicatedPeriods: string[];
   refetch: () => Promise<void>;
 }
 
