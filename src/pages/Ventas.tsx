@@ -184,7 +184,8 @@ export default function Ventas() {
 
   const dailyChart = aggregateByDate(realVentas, m);
   const monthlyChart = aggregateByMonth(realVentas, m);
-  const estimated = Math.round(salesTotal * 1.2);
+  const monthCount = monthlyChart.length || 1;
+  const promedioMensual = Math.round(salesTotal / monthCount);
 
   return (
     <TooltipProvider>
@@ -202,7 +203,7 @@ export default function Ventas() {
 
         <div className="grid gap-4 md:grid-cols-4">
           <KPICard label="Total cargado" value={formatCurrency(salesTotal)} accent />
-          <KPICard label="Estimado mensual" value={formatCurrency(estimated)} trend={20} />
+          <KPICard label="Promedio mensual" value={formatCurrency(promedioMensual)} />
           <KPICard label="Registros" value={realVentas.length} />
           <KPICard label="Ticket promedio" value={realVentas.length > 0 ? formatCurrency(salesTotal / realVentas.length) : '—'} />
         </div>
