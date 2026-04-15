@@ -172,15 +172,15 @@ export default function Marketing() {
           </CardContent></Card>
           <Card><CardContent className="pt-6">
             <p className="text-sm text-muted-foreground">Conversiones</p>
-            <p className="text-3xl font-bold tabular-nums">{totalConversions > 0 ? formatNumber(totalConversions) : '—'}</p>
+            <p className="text-3xl font-bold tabular-nums">{hasConversionsField ? formatNumber(totalConversions) : '—'}</p>
           </CardContent></Card>
           <Card><CardContent className="pt-6">
             <p className="text-sm text-muted-foreground">Alcance</p>
-            <p className="text-3xl font-bold tabular-nums">{totalReach > 0 ? formatNumber(totalReach) : '—'}</p>
+            <p className="text-3xl font-bold tabular-nums">{hasReachField ? formatNumber(totalReach) : '—'}</p>
           </CardContent></Card>
           <Card><CardContent className="pt-6">
             <p className="text-sm text-muted-foreground">Impresiones</p>
-             <p className="text-3xl font-bold tabular-nums">{totalImpressions > 0 ? formatNumber(totalImpressions) : '—'}</p>
+             <p className="text-3xl font-bold tabular-nums">{hasImpressionsField ? formatNumber(totalImpressions) : '—'}</p>
           </CardContent></Card>
         </div>
 
