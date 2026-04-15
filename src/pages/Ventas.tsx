@@ -5,7 +5,7 @@ import { formatCurrency, formatDate, formatXAxisDate, formatTooltipDate } from '
 import { findNumber, findString, FIELD_AMOUNT, FIELD_DATE, FIELD_CLIENT, FIELD_NAME } from '@/lib/field-utils';
 import { useExtractedData } from '@/hooks/useExtractedData';
 import { filterByPeriod, parseDate, type PeriodKey } from '@/lib/data-cleaning';
-import { PeriodFilter } from '@/components/PeriodFilter';
+import { PeriodPills } from '@/components/ui/PeriodPills';
 import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Tooltip as UITooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip';
@@ -141,7 +141,7 @@ export default function Ventas() {
         <div className="flex items-center justify-between">
           <h1 className="text-2xl font-bold">Ventas</h1>
             <div className="flex items-center gap-3">
-              <PeriodFilter value={period} onChange={setPeriod} availableMonths={availableMonths} />
+              <PeriodPills value={period} onChange={setPeriod} availableMonths={availableMonths} />
               <div className="flex items-center gap-1.5 text-xs alert-success rounded-lg px-3 py-1.5">
                 <Database className="h-3.5 w-3.5" />
                 Datos reales ({realVentas.length} registros)

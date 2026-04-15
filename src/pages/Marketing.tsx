@@ -4,7 +4,7 @@ import { formatCurrency, formatPercent, formatNumber, safeDiv } from '@/lib/form
 import { useExtractedData } from '@/hooks/useExtractedData';
 import { findNumber, findString, FIELD_CAMPAIGN_NAME, FIELD_SPEND, FIELD_REVENUE, FIELD_ROAS, FIELD_CLICKS, FIELD_CTR, FIELD_CONVERSIONS, FIELD_REACH, FIELD_IMPRESSIONS, FIELD_DATE } from '@/lib/field-utils';
 import { filterByPeriod, parseDate, type PeriodKey } from '@/lib/data-cleaning';
-import { PeriodFilter } from '@/components/PeriodFilter';
+import { PeriodPills } from '@/components/ui/PeriodPills';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { TrendingUp, Upload, Database, Loader2, Megaphone } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip as RTooltip, ResponsiveContainer, CartesianGrid, Legend } from 'recharts';
@@ -120,7 +120,7 @@ export default function Marketing() {
         <div className="flex items-center justify-between">
           <h1 className="text-2xl font-bold">Marketing — Inversión Publicitaria</h1>
           <div className="flex items-center gap-3">
-            <PeriodFilter value={period} onChange={setPeriod} availableMonths={availableMonths} />
+            <PeriodPills value={period} onChange={setPeriod} availableMonths={availableMonths} />
             <div className="flex items-center gap-1.5 text-xs alert-success rounded-lg px-3 py-1.5">
               <Database className="h-3.5 w-3.5" />
               Datos reales ({campaigns.length} {hasCampaignNames ? 'campañas' : 'registros'})
