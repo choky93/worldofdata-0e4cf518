@@ -178,6 +178,35 @@ export type Database = {
           },
         ]
       }
+      copilot_conversations: {
+        Row: {
+          company_id: string
+          id: string
+          messages: Json
+          updated_at: string
+        }
+        Insert: {
+          company_id: string
+          id?: string
+          messages?: Json
+          updated_at?: string
+        }
+        Update: {
+          company_id?: string
+          id?: string
+          messages?: Json
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "copilot_conversations_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: true
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       diagnostic_results: {
         Row: {
           company_id: string
