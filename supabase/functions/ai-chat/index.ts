@@ -153,7 +153,8 @@ async function fetchMarketContext(query: string, industry: string): Promise<stri
 }
 
 // ── System prompt ───────────────────────────────────────────────
-function buildSystemPrompt(businessContext: string, marketContext: string, companyName?: string): string {
+function buildSystemPrompt(businessContext: string, marketContext: string, context?: Record<string, any>): string {
+  const companyName = context?.companyName;
   return [
     `Sos un analista de datos senior que trabaja DENTRO de la empresa${companyName ? ` "${companyName}"` : ""}. Sos parte del equipo. Conocés el negocio de adentro.`,
     "",
@@ -275,7 +276,7 @@ serve(async (req) => {
       }
     }
 
-    const systemContent = buildSystemPrompt(businessContext, marketContext, context?.companyName);
+    const systemContent = buildSystemPrompt(businessContext, marketContext, context);
 
     const response = await fetch(OPENAI_URL, {
       method: "POST",
