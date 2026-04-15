@@ -395,14 +395,14 @@ export default function Dashboard() {
                     <AreaChart data={salesChartData}>
                       <defs>
                         <linearGradient id="salesGrad" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="0%" stopColor="hsl(var(--primary))" stopOpacity={0.25} />
-                          <stop offset="100%" stopColor="hsl(var(--primary))" stopOpacity={0} />
+                          <stop offset="0%" stopColor="#c8f135" stopOpacity={0.08} />
+                          <stop offset="100%" stopColor="#c8f135" stopOpacity={0} />
                         </linearGradient>
                       </defs>
-                      <XAxis dataKey="day" tick={{ fontSize: 11 }} axisLine={false} tickLine={false} />
-                      <YAxis tick={{ fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`} />
-                      <RTooltip formatter={(v: number) => formatCurrency(v)} />
-                      <Area type="monotone" dataKey="value" stroke="hsl(var(--primary))" fill="url(#salesGrad)" strokeWidth={2.5} />
+                      <XAxis dataKey="day" tick={{ fontSize: 11, fill: '#555555' }} axisLine={false} tickLine={false} />
+                      <YAxis tick={{ fontSize: 11, fill: '#555555' }} axisLine={false} tickLine={false} tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`} />
+                      <RTooltip formatter={(v: number) => formatCurrency(v)} contentStyle={{ background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: '8px', color: '#f5f5f5' }} itemStyle={{ color: '#c8f135' }} />
+                      <Area type="monotone" dataKey="value" stroke="#c8f135" fill="url(#salesGrad)" strokeWidth={2.5} />
                     </AreaChart>
                   </ResponsiveContainer>
                 </div>
