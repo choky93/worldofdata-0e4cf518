@@ -60,6 +60,7 @@ export function ExtractedDataProvider({ children }: { children: ReactNode }) {
   const [mappings, setMappings] = useState<CategoryMappings>({ ...defaultMappings });
   const [loading, setLoading] = useState(true);
   const [hasData, setHasData] = useState(false);
+  const [taggedVentasRows, setTaggedVentasRows] = useState<{ row: any; fileUploadId: string }[]>([]);
 
   const fetchData = useCallback(async () => {
     if (!profile?.company_id) return;
