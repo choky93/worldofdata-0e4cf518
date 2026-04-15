@@ -216,9 +216,9 @@ export default function Marketing() {
                 <TableHead className="text-right">Gasto</TableHead>
                 {totalRevenue > 0 && <TableHead className="text-right">Ingresos</TableHead>}
                 {globalRoas > 0 && <TableHead className="text-right">ROAS</TableHead>}
-                {totalConversions > 0 && <TableHead className="text-right">Conversiones</TableHead>}
-                {totalReach > 0 && <TableHead className="text-right">Alcance</TableHead>}
-                {totalImpressions > 0 && <TableHead className="text-right">Impresiones</TableHead>}
+                {hasConversionsField && <TableHead className="text-right">Conversiones</TableHead>}
+                {hasReachField && <TableHead className="text-right">Alcance</TableHead>}
+                {hasImpressionsField && <TableHead className="text-right">Impresiones</TableHead>}
                 {totalClicks > 0 && <TableHead className="text-right">Clicks</TableHead>}
               </TableRow></TableHeader>
               <TableBody>
@@ -228,9 +228,9 @@ export default function Marketing() {
                     <TableCell className="text-right tabular-nums">{formatCurrency(c.spend)}</TableCell>
                     {totalRevenue > 0 && <TableCell className="text-right tabular-nums">{formatCurrency(c.revenue)}</TableCell>}
                     {globalRoas > 0 && <TableCell className="text-right font-bold tabular-nums">{c.roas > 0 ? `${c.roas}x` : '—'}</TableCell>}
-                    {totalConversions > 0 && <TableCell className="text-right tabular-nums">{c.conversions || '—'}</TableCell>}
-                    {totalReach > 0 && <TableCell className="text-right tabular-nums">{c.reach > 0 ? formatNumber(c.reach) : '—'}</TableCell>}
-                    {totalImpressions > 0 && <TableCell className="text-right tabular-nums">{c.impressions > 0 ? formatNumber(c.impressions) : '—'}</TableCell>}
+                    {hasConversionsField && <TableCell className="text-right tabular-nums">{c.conversions > 0 ? formatNumber(c.conversions) : '0'}</TableCell>}
+                    {hasReachField && <TableCell className="text-right tabular-nums">{c.reach > 0 ? formatNumber(c.reach) : '0'}</TableCell>}
+                    {hasImpressionsField && <TableCell className="text-right tabular-nums">{c.impressions > 0 ? formatNumber(c.impressions) : '0'}</TableCell>}
                     {totalClicks > 0 && <TableCell className="text-right tabular-nums">{c.clicks > 0 ? formatNumber(c.clicks) : '—'}</TableCell>}
                   </TableRow>
                 ))}
