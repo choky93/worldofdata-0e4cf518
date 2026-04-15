@@ -8,9 +8,128 @@ const corsHeaders = {
 };
 
 const OPENAI_URL = "https://api.openai.com/v1/chat/completions";
-const MAX_CONTEXT_CHARS = 30000; // truncate extracted data if too large
+const MAX_CONTEXT_CHARS = 4000;
 
-// ── Fetch full company context including raw extracted data ──────
+// ── Helpers ─────────────────────────────────────────────────────
+function fmtARS(n: number): string {
+  if (Math.abs(n) >= 1_000_000) return "$" + (n / 1_000_000).toLocaleString("es-AR", { maximumFractionDigits: 1 }) + "M";
+  if (Math.abs(n) >= 1_000) return "$" + (n / 1_000).toLocaleString("es-AR", { maximumFractionDigits: 0 }) + "k";
+  return "$" + n.toLocaleString("es-AR", { maximumFractionDigits: 0 });
+}
+
+function shortMonth(dateStr: string): string {
+  try {
+    const d = new Date(dateStr + (dateStr.length <= 7 ? "-01" : ""));
+    return d.toLocaleDateString("es-AR", { month: "short", year: "2-digit" }).replace(".", "");
+  } catch { return dateStr; }
+}
+
+function findNumber(row: Record<string, unknown>, keywords: string[]): number | null {
+  for (const [k, v] of Object.entries(row)) {
+    const lk = k.toLowerCase();
+    if (keywords.some(kw => lk.includes(kw))) {
+      const n = Number(v);
+      if (!isNaN(n)) return n;
+    }
+  }
+  return null;
+}
+
+function findDate(row: Record<string, unknown>): string | null {
+  for (const [k, v] of Object.entries(row)) {
+    const lk = k.toLowerCase();
+    if (lk.includes("fecha") || lk.includes("date") || lk.includes("mes") || lk.includes("periodo")) {
+      if (typeof v === "string" && v.length >= 7) return v;
+    }
+  }
+  return null;
+}
+
+// ── Summarize ventas ────────────────────────────────────────────
+function summarizeSales(rows: Record<string, unknown>[]): string {
+  const monthly = new Map<string, number>();
+  let total = 0;
+  for (const r of rows) {
+    const amt = findNumber(r, ["total", "monto", "venta", "importe", "ingreso", "revenue", "amount"]);
+    if (amt == null) continue;
+    total += amt;
+    const date = findDate(r);
+    const key = date ? date.slice(0, 7) : "sin-fecha";
+    monthly.set(key, (monthly.get(key) || 0) + amt);
+  }
+  if (total === 0) return "VENTAS: Sin datos de montos.";
+
+  const sorted = [...monthly.entries()].filter(([k]) => k !== "sin-fecha").sort((a, b) => a[0].localeCompare(b[0]));
+  const best = sorted.reduce((a, b) => b[1] > a[1] ? b : a, sorted[0]);
+  const worst = sorted.reduce((a, b) => b[1] < a[1] ? b : a, sorted[0]);
+  const avg = sorted.length > 0 ? sorted.reduce((s, e) => s + e[1], 0) / sorted.length : 0;
+  const last3 = sorted.slice(-3);
+  const last3Avg = last3.length > 0 ? last3.reduce((s, e) => s + e[1], 0) / last3.length : 0;
+  const trendPct = avg > 0 ? Math.round(((last3Avg - avg) / avg) * 100) : 0;
+  const trend = trendPct >= 0 ? `por encima del promedio (+${trendPct}%)` : `por debajo del promedio (${trendPct}%)`;
+  const last6 = sorted.slice(-6).reverse().map(([k, v]) => `${shortMonth(k)} ${fmtARS(v)}`).join(", ");
+  const noDate = monthly.get("sin-fecha");
+
+  let text = `VENTAS: Total histórico ${fmtARS(total)}. Mejor mes: ${shortMonth(best[0])} (${fmtARS(best[1])}). Peor mes: ${shortMonth(worst[0])} (${fmtARS(worst[1])}). Promedio mensual: ${fmtARS(avg)}. Tendencia últimos 3 meses: ${trend}.`;
+  if (last6) text += ` Últimos 6 meses: ${last6}.`;
+  if (noDate) text += ` Ventas sin fecha asignada: ${fmtARS(noDate)}.`;
+  return text;
+}
+
+// ── Summarize marketing ─────────────────────────────────────────
+function summarizeMarketing(rows: Record<string, unknown>[]): string {
+  let totalSpend = 0, totalConv = 0, roasSum = 0, roasCount = 0;
+  let bestRoas: { name: string; val: number } | null = null;
+  let worstRoas: { name: string; val: number } | null = null;
+
+  for (const r of rows) {
+    const spend = findNumber(r, ["gasto", "spend", "inversion", "inversión", "costo", "cost"]);
+    const conv = findNumber(r, ["conversion", "conversiones"]);
+    const roas = findNumber(r, ["roas", "retorno"]);
+    const name = (r["campaña"] || r["campaign"] || r["nombre"] || r["canal"] || "") as string;
+
+    if (spend != null) totalSpend += spend;
+    if (conv != null) totalConv += conv;
+    if (roas != null) {
+      roasSum += roas;
+      roasCount++;
+      if (!bestRoas || roas > bestRoas.val) bestRoas = { name: name || "sin nombre", val: roas };
+      if (!worstRoas || roas < worstRoas.val) worstRoas = { name: name || "sin nombre", val: roas };
+    }
+  }
+  if (totalSpend === 0 && totalConv === 0 && roasCount === 0) return "MARKETING: Sin datos de campañas.";
+
+  const parts = [`MARKETING: Gasto total ${fmtARS(totalSpend)}.`];
+  if (roasCount > 0) parts.push(`ROAS promedio: ${(roasSum / roasCount).toFixed(2)}.`);
+  if (bestRoas) parts.push(`Mejor ROAS: "${bestRoas.name}" (${bestRoas.val.toFixed(2)}).`);
+  if (worstRoas && worstRoas.name !== bestRoas?.name) parts.push(`Peor ROAS: "${worstRoas.name}" (${worstRoas.val.toFixed(2)}).`);
+  if (totalConv > 0) parts.push(`Total conversiones: ${totalConv.toLocaleString("es-AR")}.`);
+  return parts.join(" ");
+}
+
+// ── Summarize gastos ────────────────────────────────────────────
+function summarizeExpenses(rows: Record<string, unknown>[], salesTotal: number): string {
+  let total = 0;
+  for (const r of rows) {
+    const amt = findNumber(r, ["total", "monto", "gasto", "importe", "amount", "costo", "cost"]);
+    if (amt != null) total += amt;
+  }
+  if (total === 0) return "GASTOS: Sin datos de gastos.";
+  let text = `GASTOS: Total del período ${fmtARS(total)}.`;
+  if (salesTotal > 0) {
+    const net = salesTotal - total;
+    text += ` Resultado neto estimado: ${fmtARS(net)} (margen ${Math.round((net / salesTotal) * 100)}%).`;
+  }
+  return text;
+}
+
+// ── Summarize other categories ──────────────────────────────────
+function summarizeOther(category: string, rows: Record<string, unknown>[], summary: string | null): string {
+  const text = summary ? `${category.toUpperCase()}: ${summary} (${rows.length} registros).` : `${category.toUpperCase()}: ${rows.length} registros cargados.`;
+  return text;
+}
+
+// ── Fetch full company context with pre-calculated summaries ────
 async function fetchCompanyContext(companyId: string): Promise<string> {
   const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
   const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -47,13 +166,13 @@ async function fetchCompanyContext(companyId: string): Promise<string> {
     parts.push(`Diagnóstico: madurez ${diag.maturity_classification || "?"}, dolor principal: ${diag.pain_point || "?"}, mejora potencial: ${diag.potential_improvement_pct || 0}%, indicadores prioritarios: ${diag.priority_indicators?.join(", ") || "ninguno"}.`);
   }
 
-  // Extracted data — fetch FULL json, not just summaries
+  // Extracted data — fetch and summarize
   const { data: extracted } = await sb
     .from("file_extracted_data")
     .select("data_category, summary, row_count, extracted_json, created_at")
     .eq("company_id", companyId)
     .order("created_at", { ascending: false })
-    .limit(8);
+    .limit(20);
 
   // Failed file uploads
   const { data: failedFiles } = await sb
@@ -62,41 +181,69 @@ async function fetchCompanyContext(companyId: string): Promise<string> {
     .eq("company_id", companyId)
     .eq("status", "error")
     .order("created_at", { ascending: false })
-    .limit(10);
+    .limit(5);
 
   if (failedFiles?.length) {
-    parts.push("\n=== ARCHIVOS CON ERROR DE PROCESAMIENTO ===");
-    for (const f of failedFiles) {
-      parts.push(`- "${f.file_name}" (${f.file_type}): ${f.processing_error || "sin detalle"}`);
-    }
+    parts.push("ARCHIVOS CON ERROR: " + failedFiles.map(f => `"${f.file_name}": ${f.processing_error || "sin detalle"}`).join("; ") + ".");
   }
 
   if (extracted?.length) {
-    parts.push(`\n=== DATOS REALES EXTRAÍDOS DE LOS ARCHIVOS DEL NEGOCIO ===`);
-    let totalChars = 0;
+    // Group rows by category
+    const byCategory = new Map<string, { rows: Record<string, unknown>[]; summary: string | null }>();
     for (const e of extracted) {
-      const header = `\n## ${e.data_category.toUpperCase()} (${e.row_count || 0} registros)`;
-      const summary = e.summary ? `Resumen: ${e.summary}` : "";
-      let dataStr = "";
-      try {
-        dataStr = JSON.stringify(e.extracted_json, null, 0);
-        // Truncate individual dataset if too large
-        if (dataStr.length > 8000) {
-          dataStr = dataStr.slice(0, 8000) + "... [datos truncados]";
-        }
-      } catch { dataStr = "[error parseando datos]"; }
+      const cat = e.data_category.toLowerCase();
+      const existing = byCategory.get(cat) || { rows: [], summary: null };
+      const json = e.extracted_json;
+      const arr = Array.isArray(json) ? json : (json && typeof json === "object" && "rows" in (json as Record<string,unknown>)) ? (json as Record<string,unknown>).rows as Record<string,unknown>[] : [json as Record<string,unknown>];
+      existing.rows.push(...arr);
+      if (!existing.summary && e.summary) existing.summary = e.summary;
+      byCategory.set(cat, existing);
+    }
 
-      const block = `${header}\n${summary}\nDatos:\n${dataStr}`;
-      if (totalChars + block.length > MAX_CONTEXT_CHARS) {
-        parts.push("\n[... más datos disponibles pero truncados por límite de contexto]");
-        break;
+    let salesTotal = 0;
+
+    // Ventas
+    const ventas = byCategory.get("ventas");
+    if (ventas) {
+      const s = summarizeSales(ventas.rows);
+      parts.push(s);
+      // Extract total for net calc
+      const match = s.match(/Total histórico \$([0-9.,]+[Mk]?)/);
+      if (ventas.rows.length) {
+        for (const r of ventas.rows) {
+          const amt = findNumber(r, ["total", "monto", "venta", "importe", "ingreso", "revenue", "amount"]);
+          if (amt != null) salesTotal += amt;
+        }
       }
-      parts.push(block);
-      totalChars += block.length;
+      byCategory.delete("ventas");
+    }
+
+    // Marketing
+    const mkt = byCategory.get("marketing");
+    if (mkt) {
+      parts.push(summarizeMarketing(mkt.rows));
+      byCategory.delete("marketing");
+    }
+
+    // Gastos
+    const gastos = byCategory.get("gastos");
+    if (gastos) {
+      parts.push(summarizeExpenses(gastos.rows, salesTotal));
+      byCategory.delete("gastos");
+    }
+
+    // Other categories
+    for (const [cat, data] of byCategory) {
+      parts.push(summarizeOther(cat, data.rows, data.summary));
     }
   }
 
-  return parts.join("\n");
+  // Enforce max context size
+  let result = parts.join("\n");
+  if (result.length > MAX_CONTEXT_CHARS) {
+    result = result.slice(0, MAX_CONTEXT_CHARS - 30) + "\n[contexto truncado por límite]";
+  }
+  return result;
 }
 
 // ── Detect if the question needs external market context ────────
