@@ -1,3 +1,120 @@
+/* ============================================================
+   EL SOCIO — DESIGN SYSTEM
+   Import this in your main index.css or globals.css
+   ============================================================ */
+
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap');
+
+:root {
+  /* Core palette */
+  --bg-base:        #080808;
+  --bg-surface:     #0f0f0f;
+  --bg-card:        #141414;
+  --bg-card-hover:  #1a1a1a;
+  --bg-raised:      #1e1e1e;
+
+  /* Borders */
+  --border-subtle:  rgba(255,255,255,0.05);
+  --border-default: rgba(255,255,255,0.08);
+  --border-strong:  rgba(255,255,255,0.14);
+
+  /* Accent — lima */
+  --accent:         #c8f135;
+  --accent-dim:     rgba(200,241,53,0.12);
+  --accent-glow:    rgba(200,241,53,0.25);
+  --accent-text:    #0d0d0d;
+
+  /* Semantic */
+  --positive:       #4ade80;
+  --positive-dim:   rgba(74,222,128,0.10);
+  --negative:       #f87171;
+  --negative-dim:   rgba(248,113,113,0.10);
+  --warning:        #fbbf24;
+  --warning-dim:    rgba(251,191,36,0.10);
+  --info:           #60a5fa;
+  --info-dim:       rgba(96,165,250,0.10);
+
+  /* Text */
+  --text-primary:   #f0f0f0;
+  --text-secondary: #777777;
+  --text-tertiary:  #444444;
+  --text-accent:    #c8f135;
+
+  /* Fonts */
+  --font-sans:  'DM Sans', system-ui, sans-serif;
+  --font-mono:  'DM Mono', 'Fira Code', monospace;
+
+  /* Radii */
+  --radius-sm:  6px;
+  --radius-md:  10px;
+  --radius-lg:  14px;
+  --radius-xl:  18px;
+
+  /* Shadows */
+  --shadow-card: 0 1px 0 var(--border-subtle), inset 0 1px 0 rgba(255,255,255,0.03);
+  --shadow-accent: 0 0 24px var(--accent-glow);
+  --shadow-popup: 0 8px 32px rgba(0,0,0,0.6), 0 1px 0 var(--border-default);
+}
+
+/* Base overrides */
+*, *::before, *::after { box-sizing: border-box; }
+
+body {
+  font-family: var(--font-sans);
+  background: var(--bg-base);
+  color: var(--text-primary);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Noise texture utility */
+.noise::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.03'/%3E%3C/svg%3E");
+  pointer-events: none;
+  opacity: 0.4;
+}
+
+/* Subtle dot grid background */
+.grid-bg {
+  background-image: radial-gradient(circle, var(--border-subtle) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+
+/* Glow pulse animation */
+@keyframes glow-pulse {
+  0%, 100% { box-shadow: 0 0 12px var(--accent-glow); }
+  50%       { box-shadow: 0 0 28px var(--accent-glow), 0 0 48px rgba(200,241,53,0.10); }
+}
+
+/* Number count up animation */
+@keyframes count-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.animate-count { animation: count-in 0.4s ease forwards; }
+
+/* Shimmer for loading states */
+@keyframes shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position:  200% 0; }
+}
+
+.skeleton {
+  background: linear-gradient(90deg, var(--bg-card) 25%, var(--bg-raised) 50%, var(--bg-card) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.6s infinite;
+  border-radius: var(--radius-sm);
+}
+
+/* Scrollbar */
+::-webkit-scrollbar       { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 2px; }
+
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap');
 
 @tailwind base;
