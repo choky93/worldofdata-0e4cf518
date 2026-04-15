@@ -59,6 +59,8 @@ function aggregateByMonth(ventas: any[], m?: any): { month: string; value: numbe
   return Array.from(map.entries())
     .sort(([, a], [, b]) => a.date.getTime() - b.date.getTime())
     .map(([month, { value }]) => ({ month, value }));
+}
+
 // ─── Custom Tooltip ──────────────────────────────────────────────
 function VentasTooltip({ active, payload, label }: any) {
   if (!active || !payload?.length) return null;
