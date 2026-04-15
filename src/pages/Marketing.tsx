@@ -136,7 +136,7 @@ export default function Marketing() {
             <PeriodPills value={period} onChange={setPeriod} availableMonths={availableMonths} />
             <div className="flex items-center gap-1.5 text-xs alert-success rounded-lg px-3 py-1.5">
               <Database className="h-3.5 w-3.5" />
-              Datos reales ({campaigns.length} {hasCampaignNames ? 'campañas' : 'registros'})
+              Datos reales ({realCampaigns.length} {hasCampaignNames ? 'campañas' : 'registros'})
             </div>
           </div>
         </div>
