@@ -252,8 +252,9 @@ async function classifyWithAI(
   headers: string[],
   sampleRows: Record<string, unknown>[],
   fileName: string,
+  sheetName?: string,
 ): Promise<{ category: string; summary: string; column_mapping: Record<string, string | null> }> {
-  console.log(`[process-file] AI classification for "${fileName}" (${headers.length} cols, ${sampleRows.length} sample rows)`);
+  console.log(`[process-file] AI classification for "${fileName}"${sheetName ? ` (hoja: "${sheetName}")` : ''} (${headers.length} cols, ${sampleRows.length} sample rows)`);
 
   const systemPrompt = `Sos un especialista en análisis de datos de PyMEs latinoamericanas. Tu tarea es clasificar archivos de datos de negocios y mapear sus columnas a campos semánticos estándar.
 
