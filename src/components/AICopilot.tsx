@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { MessageCircle, X, Send, Sparkles, Loader2, AlertCircle, Globe, MessageSquare, ExternalLink } from 'lucide-react';
+import { MessageCircle, X, Send, Sparkles, Loader2, AlertCircle, Globe, MessageSquare, ExternalLink, RotateCcw } from 'lucide-react';
+import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { APP_NAME } from '@/lib/constants';
 import { useAuth } from '@/contexts/AuthContext';
