@@ -115,7 +115,7 @@ export default function Marketing() {
   const totalImpressions = realCampaigns.reduce((s, c) => s + c.impressions, 0);
 
   // Check if we have campaign names or just date-based rows
-  const hasCampaignNames = campaigns.some(c => {
+  const hasCampaignNames = realCampaigns.some(c => {
     const n = c.name;
     // Check if name looks like a date (our fallback) vs a real campaign name
     return n && n !== 'Sin nombre' && !parseDate(n);
