@@ -105,7 +105,7 @@ function DataSourceBanner({ hasData, loading }: { hasData: boolean; loading: boo
 export default function Dashboard() {
   const { profile, companySettings, companyName } = useAuth();
   const navigate = useNavigate();
-  const { data: extractedData, mappings, loading: dataLoading, hasData, availableMonths, duplicatedPeriods } = useExtractedData();
+  const { data: extractedData, mappings, loading: dataLoading, hasData, availableMonths, duplicatedPeriods, hasCurrencyMix } = useExtractedData();
   const mV = mappings.ventas;
   const mG = mappings.gastos;
   const mM = mappings.marketing;
@@ -225,6 +225,15 @@ export default function Dashboard() {
                 }).join(', ')}{' '}
                 aparecen en más de un archivo cargado. Los totales pueden estar inflados.{' '}
                 <Link to="/carga-datos" className="underline font-medium">Revisá tus archivos en Carga de Datos</Link>.
+              </span>
+            </div>
+          )}
+          {(hasCurrencyMix.ventas || hasCurrencyMix.gastos) && (
+            <div className="rounded-lg px-4 py-2.5 text-xs flex items-start gap-2 bg-warning/10 text-warning border border-warning/20 mt-2">
+              <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+              <span>
+                <strong>⚠️ Múltiples monedas detectadas</strong> en {[hasCurrencyMix.ventas && 'ventas', hasCurrencyMix.gastos && 'gastos'].filter(Boolean).join(' y ')}.
+                Los totales mostrados pueden no ser precisos. Recomendamos cargar archivos separados por moneda.
               </span>
             </div>
           )}
