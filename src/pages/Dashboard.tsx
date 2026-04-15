@@ -285,7 +285,7 @@ export default function Dashboard() {
         <Stagger index={4}>
           <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
             <Link to="/ventas">
-              <Card className="module-border-ventas hover:shadow-lg transition-all cursor-pointer h-full">
+              <Card className="module-border-ventas transition-all cursor-pointer h-full hover:border-[#3a3a3a]">
                 <CardContent className="p-4">
                   <div className="flex items-center gap-1.5 text-muted-foreground mb-2">
                     <ShoppingCart className="h-3.5 w-3.5" />
@@ -312,7 +312,7 @@ export default function Dashboard() {
             </Link>
 
             <Link to="/finanzas">
-              <Card className="module-border-finanzas hover:shadow-lg transition-all cursor-pointer h-full">
+              <Card className="module-border-finanzas transition-all cursor-pointer h-full hover:border-[#3a3a3a]">
                 <CardContent className="p-4">
                   <div className="flex items-center gap-1.5 text-muted-foreground mb-2">
                     <Wallet className="h-3.5 w-3.5" />
@@ -339,7 +339,7 @@ export default function Dashboard() {
             </Link>
 
             <Link to="/finanzas">
-              <Card className="hover:shadow-lg transition-all cursor-pointer h-full">
+              <Card className="transition-all cursor-pointer h-full hover:border-[#3a3a3a]">
                 <CardContent className="p-4">
                   <div className="flex items-center gap-1.5 text-muted-foreground mb-2">
                     <DollarSign className="h-3.5 w-3.5" />
@@ -361,7 +361,7 @@ export default function Dashboard() {
 
             {showAds && (
               <Link to="/marketing">
-                <Card className="module-border-marketing hover:shadow-lg transition-all cursor-pointer h-full">
+                <Card className="module-border-marketing transition-all cursor-pointer h-full hover:border-[#3a3a3a]">
                   <CardContent className="p-4">
                     <div className="flex items-center gap-1.5 text-muted-foreground mb-2">
                       <Megaphone className="h-3.5 w-3.5" />
