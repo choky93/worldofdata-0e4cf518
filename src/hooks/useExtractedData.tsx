@@ -166,8 +166,16 @@ export function ExtractedDataProvider({ children }: { children: ReactNode }) {
     return Array.from(months).sort();
   }, [data, mappings]);
 
+  // Detect periods with data from multiple source files (ventas only for now)
+  const duplicatedPeriods = useMemo(() => {
+    if (!data || taggedVentasRows.length === 0) return [];
+    const mV = mappings.ventas;
+    const finder = (row: any, kw: string[]) => findString(row, kw, mV?.date);
+    return detectMultiSourcePeriods(taggedVentasRows, FIELD_DATE, finder);
+  }, [taggedVentasRows, mappings]);
+
   return (
-    <ExtractedDataContext.Provider value={{ data, mappings, loading, hasData, availableMonths, refetch: fetchData }}>
+    <ExtractedDataContext.Provider value={{ data, mappings, loading, hasData, availableMonths, duplicatedPeriods, refetch: fetchData }}>
       {children}
     </ExtractedDataContext.Provider>
   );
