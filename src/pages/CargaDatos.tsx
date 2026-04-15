@@ -1230,6 +1230,7 @@ export default function CargaDatos() {
   const statusLabel = (status: string | null) => {
     switch (status) {
       case 'processed': return 'Procesado';
+      case 'processed_with_issues': return 'Procesado con advertencias';
       case 'error': return 'Error';
       case 'queued': return 'En cola';
       case 'processing': return 'Procesando';
@@ -1242,6 +1243,7 @@ export default function CargaDatos() {
   const statusColor = (status: string | null) => {
     switch (status) {
       case 'processed': return 'bg-success/15 text-success';
+      case 'processed_with_issues': return 'bg-warning/15 text-warning';
       case 'error': return 'bg-destructive/15 text-destructive';
       case 'queued': return 'bg-muted text-muted-foreground';
       case 'cancelled': return 'bg-muted text-muted-foreground';
