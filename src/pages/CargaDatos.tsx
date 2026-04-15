@@ -1072,6 +1072,15 @@ export default function CargaDatos() {
     if (!profile?.company_id) return;
     setReprocessingId(file.id);
     try {
+      // Audit log
+      supabase.from('audit_logs').insert({
+        company_id: profile.company_id,
+        user_id: user?.id,
+        action: 'file_reprocessed',
+        resource_type: 'file_upload',
+        resource_id: file.id,
+        metadata: { file_name: file.file_name },
+      }).then(() => {});
       await supabase.from('file_extracted_data').delete().eq('file_upload_id', file.id);
       
       const ext = file.file_name.split('.').pop()?.toLowerCase() || '';
