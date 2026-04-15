@@ -1018,7 +1018,17 @@ serve(async (req) => {
             .eq("file_upload_id", fileUploadId)
             .eq("data_category", "_classification");
           const { data: flagCheck } = await sb.from("file_uploads").select("processing_error").eq("id", fileUploadId).single();
-          const finalStatus = flagCheck?.processing_error?.includes("Requiere revisión") ? "review" : "processed";
+          let finalStatus: string;
+          if (flagCheck?.processing_error?.includes("Requiere revisión")) {
+            finalStatus = "review";
+          } else if (confidence < 0.4) {
+            finalStatus = "processed_with_issues";
+            await sb.from("file_uploads").update({ 
+              processing_error: `Clasificación con baja confianza (${Math.round(confidence * 100)}%). Revisá el resumen para verificar que los datos se clasificaron correctamente.` 
+            }).eq("id", fileUploadId);
+          } else {
+            finalStatus = "processed";
+          }
           await sb.from("file_uploads").update({ status: finalStatus, ...(finalStatus === "processed" ? { processing_error: null } : {}) }).eq("id", fileUploadId);
         }
 
