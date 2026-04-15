@@ -4,7 +4,7 @@ import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/contexts/AuthContext';
-import { formatCurrency, getGreeting } from '@/lib/formatters';
+import { formatCurrency, getGreeting, safeDiv } from '@/lib/formatters';
 import { findNumber, findString, FIELD_AMOUNT, FIELD_SPEND, FIELD_DATE } from '@/lib/field-utils';
 import { parseDate } from '@/lib/data-cleaning';
 import { useExtractedData } from '@/hooks/useExtractedData';
@@ -19,6 +19,13 @@ import { AreaChart, Area, XAxis, YAxis, Tooltip as RTooltip, ResponsiveContainer
 import { Link, useNavigate } from 'react-router-dom';
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip';
 import { motion, AnimatePresence } from 'framer-motion';
+
+// ─── Safe format helper ──────────────────────────────────────────
+
+function safeFmt(value: number | null, formatter: (v: number) => string, fallback = '—'): string {
+  if (value === null || isNaN(value) || !isFinite(value)) return fallback;
+  return formatter(value);
+}
 
 // ─── Health Radar ────────────────────────────────────────────────────
 function StatusIcon({ status }: { status: 'ok' | 'warning' | 'critical' }) {

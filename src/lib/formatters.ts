@@ -71,3 +71,12 @@ export function getGreeting(): string {
   if (hour < 18) return 'Buenas tardes';
   return 'Buenas noches';
 }
+
+/**
+ * Safe division — returns fallback on zero, NaN, or Infinity.
+ */
+export function safeDiv(numerator: number, denominator: number, fallback = 0): number {
+  if (!denominator || isNaN(denominator) || !isFinite(denominator)) return fallback;
+  const result = numerator / denominator;
+  return isFinite(result) ? result : fallback;
+}

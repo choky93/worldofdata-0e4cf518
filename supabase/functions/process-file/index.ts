@@ -765,6 +765,22 @@ FORMATO DE RESPUESTA — SOLO JSON:
   };
 }
 
+// ─── Extreme value detection ──────────────────────────────────
+const EXTREME_THRESHOLD = 999_999_999_999;
+
+function detectExtremeValues(rows: Record<string, unknown>[]): string[] {
+  const extremeValues: string[] = [];
+  for (const row of rows) {
+    for (const [key, val] of Object.entries(row)) {
+      if (typeof val === 'number' && (val > EXTREME_THRESHOLD || val < -EXTREME_THRESHOLD)) {
+        extremeValues.push(`${key}: ${val}`);
+        if (extremeValues.length >= 10) return extremeValues; // Cap at 10
+      }
+    }
+  }
+  return extremeValues;
+}
+
 // ─── Deterministic row storage ────────────────────────────────
 async function storeRowBatch(
   sb: ReturnType<typeof createClient>,
@@ -818,6 +834,18 @@ async function processTabularData(
   const mappedDate = column_mapping?.date || null;
   convertSerialDates(allRows, headers, mappedDate);
 
+  // Detect extreme values
+  const extremeValues = detectExtremeValues(allRows);
+  let finalSummary = summary;
+  if (extremeValues.length > 0) {
+    const warningMsg = `Se encontraron valores inusualmente grandes que podrían ser errores de datos: ${extremeValues.join(', ')}`;
+    console.warn(`[process-file] ⚠️ ${warningMsg}`);
+    finalSummary = `${summary}. ⚠️ ${warningMsg}`;
+    await sb.from("file_uploads").update({
+      processing_error: warningMsg,
+    }).eq("id", fileUploadId);
+  }
+
   const totalBatches = Math.ceil(allRows.length / BATCH_SIZE);
   console.log(`[process-file] Storing ${allRows.length} rows in ${totalBatches} batch(es)`);
 
@@ -843,13 +871,13 @@ async function processTabularData(
   for (let i = 0; i < totalBatches; i++) {
     const batchRows = allRows.slice(i * BATCH_SIZE, (i + 1) * BATCH_SIZE);
     await storeRowBatch(sb, batchRows, headers, category,
-      i === 0 ? `${summary} (${allRows.length} filas en ${totalBatches} lotes)` : summary,
+      i === 0 ? `${finalSummary} (${allRows.length} filas en ${totalBatches} lotes)` : finalSummary,
       fileUploadId, companyId, i);
   }
 
   await sb.from("file_uploads").update({ total_chunks: totalBatches }).eq("id", fileUploadId);
 
-  return { category, summary, totalRows: allRows.length };
+  return { category, summary: finalSummary, totalRows: allRows.length };
 }
 
 // ─── Text chunking for non-tabular content (PDF, etc.) ────────
@@ -959,6 +987,15 @@ serve(async (req) => {
         const mappedDate = column_mapping?.date || null;
         const cleanedBatch = cleanRows(rowBatch, headers, mappedDate);
         console.log(`[process-file] Row batch ${batchIndex + 1}/${totalBatches} for "${file_name}" (${rowBatch.length} → ${cleanedBatch.length} rows after cleaning)`);
+
+        // Detect extreme values
+        const extremeValues = detectExtremeValues(cleanedBatch);
+        if (extremeValues.length > 0) {
+          const warningMsg = `Se encontraron valores inusualmente grandes que podrían ser errores de datos: ${extremeValues.join(', ')}`;
+          console.warn(`[process-file] ⚠️ ${warningMsg}`);
+          summary = `${summary}. ⚠️ ${warningMsg}`;
+          await sb.from("file_uploads").update({ processing_error: warningMsg }).eq("id", fileUploadId);
+        }
 
         // Quarantine check
         if (!isMappingAcceptable(column_mapping, category)) {
