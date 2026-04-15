@@ -121,7 +121,7 @@ export default function Marketing() {
           <h1 className="text-2xl font-bold">Marketing — Inversión Publicitaria</h1>
           <div className="flex items-center gap-3">
             <PeriodFilter value={period} onChange={setPeriod} availableMonths={availableMonths} />
-            <div className="flex items-center gap-1.5 text-xs text-success bg-success/10 rounded-lg px-3 py-1.5 border border-success/20">
+            <div className="flex items-center gap-1.5 text-xs alert-success rounded-lg px-3 py-1.5">
               <Database className="h-3.5 w-3.5" />
               Datos reales ({campaigns.length} {hasCampaignNames ? 'campañas' : 'registros'})
             </div>
@@ -166,13 +166,13 @@ export default function Marketing() {
               <div className="h-52">
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={chartData}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                    <XAxis dataKey="name" tick={{ fontSize: 11 }} />
-                    <YAxis tick={{ fontSize: 10 }} tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`} />
-                    <RTooltip formatter={(v: number) => formatCurrency(v)} />
-                    <Legend />
-                    <Bar dataKey="gasto" name="Gasto" fill="hsl(var(--destructive))" opacity={0.7} radius={[2, 2, 0, 0]} />
-                    <Bar dataKey="ingresos" name="Ingresos" fill="hsl(var(--primary))" opacity={0.8} radius={[2, 2, 0, 0]} />
+                     <CartesianGrid strokeDasharray="3 3" stroke="#1f1f1f" />
+                     <XAxis dataKey="name" tick={{ fontSize: 11, fill: '#555555' }} />
+                     <YAxis tick={{ fontSize: 10, fill: '#555555' }} tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`} />
+                     <RTooltip formatter={(v: number) => formatCurrency(v)} contentStyle={{ background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: '8px', color: '#f5f5f5' }} itemStyle={{ color: '#c8f135' }} />
+                     <Legend />
+                     <Bar dataKey="gasto" name="Gasto" fill="#f87171" opacity={0.7} radius={[2, 2, 0, 0]} />
+                     <Bar dataKey="ingresos" name="Ingresos" fill="#c8f135" opacity={0.8} radius={[2, 2, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
               </div>
