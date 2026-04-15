@@ -1123,9 +1123,9 @@ serve(async (req) => {
 
     // ─── CSV/TXT: Deterministic row processing ──────────────
     if (['csv', 'txt'].includes(ext)) {
-      const text = new TextDecoder().decode(buffer);
+      const { text, encodingWarning } = detectAndFixEncoding(buffer);
       let allRows = parseCSV(text);
-      console.log(`[process-file] CSV parsed: ${allRows.length} rows`);
+      console.log(`[process-file] CSV parsed: ${allRows.length} rows${encodingWarning ? ' (encoding warning)' : ''}`);
 
       if (allRows.length > 0) {
         const fixed = fixBrokenHeaders(allRows);
