@@ -20,6 +20,18 @@ import { Link, useNavigate } from 'react-router-dom';
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip';
 import { motion, AnimatePresence } from 'framer-motion';
 
+// ─── Safe division helper ────────────────────────────────────────
+function safeDiv(numerator: number, denominator: number, fallback = 0): number {
+  if (!denominator || isNaN(denominator) || !isFinite(denominator)) return fallback;
+  const result = numerator / denominator;
+  return isFinite(result) ? result : fallback;
+}
+
+function safeFmt(value: number | null, formatter: (v: number) => string, fallback = '—'): string {
+  if (value === null || isNaN(value) || !isFinite(value)) return fallback;
+  return formatter(value);
+}
+
 // ─── Health Radar ────────────────────────────────────────────────────
 function StatusIcon({ status }: { status: 'ok' | 'warning' | 'critical' }) {
   if (status === 'ok') return <CheckCircle2 className="h-4 w-4 text-success" />;

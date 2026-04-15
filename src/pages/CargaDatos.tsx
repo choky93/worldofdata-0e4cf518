@@ -943,6 +943,14 @@ export default function CargaDatos() {
           }
         } else {
           updateItem({ status: 'done', progress: 100 });
+          // Audit log for upload
+          supabase.from('audit_logs').insert({
+            company_id: profile!.company_id,
+            user_id: user!.id,
+            action: 'file_uploaded',
+            resource_type: 'file_upload',
+            metadata: { file_name: item.file.name, file_size: item.file.size },
+          }).then(() => {});
           toast.success(`"${item.file.name}" en cola para procesar`);
         }
       } catch (err: any) {
@@ -1030,6 +1038,15 @@ export default function CargaDatos() {
       await supabase.from('file_extracted_data').delete().eq('file_upload_id', file.id);
       const { error } = await supabase.from('file_uploads').delete().eq('id', file.id);
       if (error) throw error;
+      // Audit log
+      await supabase.from('audit_logs').insert({
+        company_id: profile?.company_id,
+        user_id: user?.id,
+        action: 'file_deleted',
+        resource_type: 'file_upload',
+        resource_id: file.id,
+        metadata: { file_name: file.file_name, file_size: file.file_size },
+      }).then(() => {});
       toast.success('Archivo eliminado');
       setFiles(prev => prev.filter(f => f.id !== file.id));
       setExtractedDataMap(prev => { const next = { ...prev }; delete next[file.id]; return next; });
