@@ -493,7 +493,7 @@ export default function CargaDatos() {
   // ─── Upload with presigned URL for large files ────────────
   const uploadFileToStorage = async (file: File, userId: string): Promise<{ storagePath: string }> => {
     if (file.size > MAX_FILE_SIZE) {
-      throw new Error(`Archivo demasiado grande (${(file.size / 1024 / 1024).toFixed(0)}MB). Máximo: 100MB.`);
+      throw new Error(`Este archivo supera el límite de 50MB (${(file.size / 1024 / 1024).toFixed(0)}MB). Para archivos más grandes, exportá el Excel en partes o contactá a soporte.`);
     }
 
     if (file.size > PRESIGN_THRESHOLD) {
