@@ -286,7 +286,15 @@ export default function Dashboard() {
                   </div>
                   {salesTotal !== null ? (
                     <>
-                      <p className="kpi-value">{formatCurrency(salesTotal)}</p>
+                      <div className="flex items-center gap-1.5">
+                        <p className="kpi-value">{formatCurrency(salesTotal)}</p>
+                        {hasCurrencyMix.ventas && (
+                          <Tooltip>
+                            <TooltipTrigger asChild><span className="text-warning cursor-help">⚠️</span></TooltipTrigger>
+                            <TooltipContent><p className="text-xs">Incluye múltiples monedas</p></TooltipContent>
+                          </Tooltip>
+                        )}
+                      </div>
                       <p className="text-[11px] text-muted-foreground mt-1">{realVentas.length} {realVentas.length === 1 ? 'período' : 'períodos'}</p>
                     </>
                   ) : (
@@ -305,7 +313,15 @@ export default function Dashboard() {
                   </div>
                   {gastosTotal !== null ? (
                     <>
-                      <p className="kpi-value">{formatCurrency(gastosTotal)}</p>
+                      <div className="flex items-center gap-1.5">
+                        <p className="kpi-value">{formatCurrency(gastosTotal)}</p>
+                        {hasCurrencyMix.gastos && (
+                          <Tooltip>
+                            <TooltipTrigger asChild><span className="text-warning cursor-help">⚠️</span></TooltipTrigger>
+                            <TooltipContent><p className="text-xs">Incluye múltiples monedas</p></TooltipContent>
+                          </Tooltip>
+                        )}
+                      </div>
                       <p className="text-[11px] text-muted-foreground mt-1">{realGastos.length} registros</p>
                     </>
                   ) : (
