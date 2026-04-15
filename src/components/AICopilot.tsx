@@ -13,12 +13,31 @@ type Mode = 'chat' | 'search';
 
 const CHAT_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/ai-chat`;
 
-const suggestions = [
-  '¿Cuál es mi producto más rentable?',
-  '¿Qué cliente me conviene recuperar?',
-  'Dame un resumen de mis ventas del último mes',
-  '¿Cómo está mi stock? ¿Hay algo crítico?',
-  '¿Qué acción concreta me recomendás hoy?',
+const chipGroups = [
+  {
+    label: 'Análisis del negocio',
+    chips: [
+      '¿Cómo vienen las ventas este período?',
+      '¿Cuál fue mi mejor mes y por qué?',
+      '¿Qué producto o servicio me deja más margen?',
+    ],
+  },
+  {
+    label: 'Proyecciones',
+    chips: [
+      '¿Cómo viene el mes que viene?',
+      '¿En qué meses históricamente vendo más?',
+      '¿Cuánto efectivo voy a tener a fin de mes?',
+    ],
+  },
+  {
+    label: 'Acciones recomendadas',
+    chips: [
+      '¿Qué debería hacer esta semana para mejorar resultados?',
+      '¿Hay algo que me esté costando plata sin que me dé cuenta?',
+      '¿Cómo está mi inversión en publicidad?',
+    ],
+  },
 ];
 
 // ─── Streaming chat ───────────────────────────────────────────────
@@ -391,12 +410,25 @@ export function AICopilot() {
                         : 'Preguntame sobre ventas, finanzas, clientes o cualquier aspecto de tu negocio.'}
                     </p>
                     {mode === 'chat' && (
-                      <div className="space-y-2 text-left">
-                        {suggestions.map((s, i) => (
-                          <motion.button key={i} initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.3 + i * 0.06 }}
-                            onClick={() => sendMessage(s)}
-                            className="w-full bg-card border border-border rounded-lg px-4 py-2.5 text-sm text-muted-foreground hover:bg-accent hover:text-foreground transition-colors text-left"
-                          >{s}</motion.button>
+                      <div className="space-y-4 text-left">
+                        {chipGroups.map((group, gi) => (
+                          <div key={gi}>
+                            <p className="text-[11px] font-medium text-muted-foreground/60 uppercase tracking-wider mb-2">{group.label}</p>
+                            <div className="flex flex-wrap gap-1.5">
+                              {group.chips.map((chip, ci) => (
+                                <motion.button
+                                  key={ci}
+                                  initial={{ opacity: 0, y: 8 }}
+                                  animate={{ opacity: 1, y: 0 }}
+                                  transition={{ delay: 0.3 + gi * 0.1 + ci * 0.04 }}
+                                  onClick={() => sendMessage(chip)}
+                                  className="bg-[#1a1a1a] border border-[#2a2a2a] rounded-full px-3 py-1.5 text-xs text-muted-foreground hover:border-primary/50 hover:text-primary transition-colors"
+                                >
+                                  {chip}
+                                </motion.button>
+                              ))}
+                            </div>
+                          </div>
                         ))}
                       </div>
                     )}
