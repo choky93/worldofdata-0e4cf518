@@ -49,8 +49,8 @@ function TickerBar({ highlights }: { highlights: string[] }) {
   if (highlights.length === 0) return null;
 
   return (
-    <div className="bg-primary/[0.06] rounded-xl px-4 py-3 overflow-hidden relative flex items-center border border-primary/10">
-      <div className="h-6 w-6 rounded-full bg-primary/10 flex items-center justify-center shrink-0 mr-3">
+    <div className="bg-[#1f2a0f] rounded-xl px-4 py-3 overflow-hidden relative flex items-center border border-[#2a3a1a]">
+      <div className="h-6 w-6 rounded-full bg-primary/20 flex items-center justify-center shrink-0 mr-3">
         <ArrowUpRight className="h-3.5 w-3.5 text-primary" />
       </div>
       <AnimatePresence mode="wait">
@@ -71,7 +71,7 @@ function TickerBar({ highlights }: { highlights: string[] }) {
             <button
               key={i}
               onClick={() => setCurrentIndex(i)}
-              className={`w-1.5 h-1.5 rounded-full transition-all ${i === currentIndex ? 'bg-primary w-4' : 'bg-primary/20'}`}
+              className={`w-1.5 h-1.5 rounded-full transition-all ${i === currentIndex ? 'bg-primary w-4' : 'bg-[#333]'}`}
             />
           ))}
         </div>
@@ -97,7 +97,7 @@ function Stagger({ children, index }: { children: React.ReactNode; index: number
 function DataSourceBanner({ hasData, loading }: { hasData: boolean; loading: boolean }) {
   if (loading) return null;
   return (
-    <div className={`rounded-lg px-4 py-2.5 text-xs flex items-center gap-2 ${hasData ? 'bg-success/10 text-success border border-success/20' : 'bg-muted text-muted-foreground border border-border'}`}>
+    <div className={`rounded-lg px-4 py-2.5 text-xs flex items-center gap-2 ${hasData ? 'alert-success' : 'bg-card text-muted-foreground border border-border'}`}>
       <Database className="h-3.5 w-3.5 shrink-0" />
       {hasData ? (
         <span>Mostrando datos reales extraídos de tus archivos cargados</span>
@@ -221,7 +221,7 @@ export default function Dashboard() {
         <Stagger index={1}>
           <DataSourceBanner hasData={hasData} loading={dataLoading} />
           {duplicatedPeriods.length > 0 && (
-            <div className="rounded-lg px-4 py-2.5 text-xs flex items-start gap-2 bg-warning/10 text-warning border border-warning/20 mt-2">
+            <div className="rounded-lg px-4 py-2.5 text-xs flex items-start gap-2 alert-warning mt-2">
               <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
               <span>
                 <strong>⚠️ Datos posiblemente duplicados:</strong> los períodos{' '}
@@ -236,7 +236,7 @@ export default function Dashboard() {
             </div>
           )}
           {(hasCurrencyMix.ventas || hasCurrencyMix.gastos) && (
-            <div className="rounded-lg px-4 py-2.5 text-xs flex items-start gap-2 bg-warning/10 text-warning border border-warning/20 mt-2">
+            <div className="rounded-lg px-4 py-2.5 text-xs flex items-start gap-2 alert-warning mt-2">
               <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
               <span>
                 <strong>⚠️ Múltiples monedas detectadas</strong> en {[hasCurrencyMix.ventas && 'ventas', hasCurrencyMix.gastos && 'gastos'].filter(Boolean).join(' y ')}.
@@ -245,7 +245,7 @@ export default function Dashboard() {
             </div>
           )}
           {realOtro.length > 0 && (
-            <div className="rounded-lg px-4 py-2.5 text-xs flex items-center gap-2 bg-warning/10 text-warning border border-warning/20 mt-2">
+            <div className="rounded-lg px-4 py-2.5 text-xs flex items-center gap-2 alert-warning mt-2">
               <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
               <span>
                 Hay <strong>{realOtro.length}</strong> filas que no pudieron clasificarse automáticamente. 
@@ -269,7 +269,7 @@ export default function Dashboard() {
               <button
                 key={dim.key}
                 onClick={() => navigate(dim.url)}
-                className={`module-border-${dim.key} rounded-xl bg-card/70 backdrop-blur-sm border border-border/50 p-3 text-left hover:shadow-md transition-all duration-200 hover:-translate-y-0.5`}
+                className={`module-border-${dim.key} rounded-xl bg-card border border-border p-3 text-left transition-all duration-200 hover:border-[#3a3a3a]`}
               >
                 <div className="flex items-center gap-1.5 mb-1.5">
                   <StatusIcon status={dim.status} />
