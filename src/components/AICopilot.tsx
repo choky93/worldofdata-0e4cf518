@@ -279,6 +279,31 @@ export function AICopilot() {
     currentPeriodLabel,
   };
 
+  const MAX_STORED = 20;
+  const companyId = profile?.company_id;
+
+  // ── Persist helpers ──────────────────────────────────────────
+  const saveMessages = useCallback(async (msgs: Message[]) => {
+    if (!companyId) return;
+    const trimmed = msgs.slice(-MAX_STORED).map(({ role, content, citations }) => ({ role, content, ...(citations?.length ? { citations } : {}) }));
+    await supabase.from('copilot_conversations' as any)
+      .upsert({ company_id: companyId, messages: trimmed, updated_at: new Date().toISOString() } as any, { onConflict: 'company_id' });
+  }, [companyId]);
+
+  // Load on mount
+  useEffect(() => {
+    if (!companyId) return;
+    (async () => {
+      const { data } = await supabase.from('copilot_conversations' as any).select('messages').eq('company_id', companyId).maybeSingle();
+      if (data && Array.isArray((data as any).messages)) {
+        const stored = ((data as any).messages as StoredMessage[])
+          .filter((m: StoredMessage) => m.role === 'user' || m.role === 'assistant')
+          .map((m: StoredMessage) => ({ role: m.role as 'user' | 'assistant', content: m.content, ...(m.citations ? { citations: m.citations } : {}) }));
+        if (stored.length) setMessages(stored);
+      }
+    })();
+  }, [companyId]);
+
   const scrollToBottom = useCallback(() => {
     requestAnimationFrame(() => {
       scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
@@ -290,26 +315,37 @@ export function AICopilot() {
     if (open && !isLoading) setTimeout(() => inputRef.current?.focus(), 300);
   }, [open, isLoading]);
 
+  const handleNewConversation = async () => {
+    setMessages([]);
+    setError(null);
+    if (companyId) {
+      await supabase.from('copilot_conversations' as any).delete().eq('company_id', companyId);
+    }
+  };
+
   const sendMessage = async (text: string) => {
     const trimmed = text.trim();
     if (!trimmed || isLoading) return;
 
     setError(null);
     const userMsg: Message = { role: 'user', content: trimmed };
-    setMessages(prev => [...prev, userMsg]);
+    const next = [...messages, userMsg];
+    setMessages(next);
     setInput('');
     setIsLoading(true);
 
     const controller = new AbortController();
     abortRef.current = controller;
-    const allMessages = [...messages, userMsg];
 
     if (mode === 'search') {
       try {
-        const result = await searchChat({ messages: allMessages, context: businessContext, signal: controller.signal });
-        setMessages(prev => [...prev, { role: 'assistant', content: result.content, citations: result.citations }]);
+        const result = await searchChat({ messages: next, context: businessContext, signal: controller.signal });
+        const final = [...next, { role: 'assistant' as const, content: result.content, citations: result.citations }];
+        setMessages(final);
+        saveMessages(final);
       } catch (err: any) {
         if (err.name !== 'AbortError') setError(err.message || 'Error de búsqueda');
+        saveMessages(next);
       } finally {
         setIsLoading(false);
       }
@@ -331,11 +367,14 @@ export function AICopilot() {
     };
 
     await streamChat({
-      messages: allMessages,
+      messages: next,
       context: businessContext,
       onDelta: upsertAssistant,
-      onDone: () => setIsLoading(false),
-      onError: (msg) => { setError(msg); setIsLoading(false); },
+      onDone: () => {
+        setIsLoading(false);
+        setMessages(prev => { saveMessages(prev); return prev; });
+      },
+      onError: (msg) => { setError(msg); setIsLoading(false); saveMessages(next); },
       signal: controller.signal,
     });
   };
