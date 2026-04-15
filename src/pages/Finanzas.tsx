@@ -54,7 +54,7 @@ export default function Finanzas() {
   const { data: extractedData, mappings, hasData, availableMonths } = useExtractedData();
   const mV = mappings.ventas;
   const mG = mappings.gastos;
-  const [period, setPeriod] = useState<PeriodKey>('all');
+  const { period, setPeriod } = usePeriod();
   const [ledger, setLedger] = useState<LedgerEntry[]>([]);
   const [showForm, setShowForm] = useState(false);
   const [formType, setFormType] = useState<'ingreso' | 'egreso'>('ingreso');
