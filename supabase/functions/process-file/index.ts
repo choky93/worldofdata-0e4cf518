@@ -765,6 +765,22 @@ FORMATO DE RESPUESTA — SOLO JSON:
   };
 }
 
+// ─── Extreme value detection ──────────────────────────────────
+const EXTREME_THRESHOLD = 999_999_999_999;
+
+function detectExtremeValues(rows: Record<string, unknown>[]): string[] {
+  const extremeValues: string[] = [];
+  for (const row of rows) {
+    for (const [key, val] of Object.entries(row)) {
+      if (typeof val === 'number' && (val > EXTREME_THRESHOLD || val < -EXTREME_THRESHOLD)) {
+        extremeValues.push(`${key}: ${val}`);
+        if (extremeValues.length >= 10) return extremeValues; // Cap at 10
+      }
+    }
+  }
+  return extremeValues;
+}
+
 // ─── Deterministic row storage ────────────────────────────────
 async function storeRowBatch(
   sb: ReturnType<typeof createClient>,
