@@ -834,6 +834,18 @@ async function processTabularData(
   const mappedDate = column_mapping?.date || null;
   convertSerialDates(allRows, headers, mappedDate);
 
+  // Detect extreme values
+  const extremeValues = detectExtremeValues(allRows);
+  let finalSummary = summary;
+  if (extremeValues.length > 0) {
+    const warningMsg = `Se encontraron valores inusualmente grandes que podrían ser errores de datos: ${extremeValues.join(', ')}`;
+    console.warn(`[process-file] ⚠️ ${warningMsg}`);
+    finalSummary = `${summary}. ⚠️ ${warningMsg}`;
+    await sb.from("file_uploads").update({
+      processing_error: warningMsg,
+    }).eq("id", fileUploadId);
+  }
+
   const totalBatches = Math.ceil(allRows.length / BATCH_SIZE);
   console.log(`[process-file] Storing ${allRows.length} rows in ${totalBatches} batch(es)`);
 
@@ -859,13 +871,13 @@ async function processTabularData(
   for (let i = 0; i < totalBatches; i++) {
     const batchRows = allRows.slice(i * BATCH_SIZE, (i + 1) * BATCH_SIZE);
     await storeRowBatch(sb, batchRows, headers, category,
-      i === 0 ? `${summary} (${allRows.length} filas en ${totalBatches} lotes)` : summary,
+      i === 0 ? `${finalSummary} (${allRows.length} filas en ${totalBatches} lotes)` : finalSummary,
       fileUploadId, companyId, i);
   }
 
   await sb.from("file_uploads").update({ total_chunks: totalBatches }).eq("id", fileUploadId);
 
-  return { category, summary, totalRows: allRows.length };
+  return { category, summary: finalSummary, totalRows: allRows.length };
 }
 
 // ─── Text chunking for non-tabular content (PDF, etc.) ────────
