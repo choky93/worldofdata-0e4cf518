@@ -47,6 +47,11 @@ interface UploadQueueItem {
   progress: number;
   status: 'pending' | 'uploading' | 'processing' | 'done' | 'error';
   error?: string;
+  currentChunk?: number;
+  totalChunks?: number;
+  totalRows?: number;
+  processedRows?: number;
+  chunksFailed?: number;
 }
 
 const fileIcons: Record<string, typeof FileText> = { PDF: FileText, CSV: FileSpreadsheet, XLS: FileSpreadsheet, Imagen: Image };
