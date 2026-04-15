@@ -269,7 +269,7 @@ export const FIELD_REVENUE = ['ingresos', 'revenue', 'ventas', 'retorno', 'ingre
 export const FIELD_ROAS = ['roas', 'roas_de_resultados', 'retorno_inversion', 'roi'];
 export const FIELD_CLICKS = ['clicks', 'clics', 'click', 'clic'];
 export const FIELD_CTR = ['ctr', 'click_through_rate', 'tasa_clics'];
-export const FIELD_CONVERSIONS = ['conversiones', 'conversions', 'resultados', 'resultado', 'ventas', 'leads', 'acciones'];
+export const FIELD_CONVERSIONS = ['conversiones', 'conversions', 'resultados', 'resultado', 'leads', 'acciones', 'purchases', 'compras'];
 export const FIELD_REACH = ['alcance', 'reach', 'personas_alcanzadas'];
 export const FIELD_IMPRESSIONS = ['impresiones', 'impressions', 'views', 'vistas', 'visualizaciones'];
 
