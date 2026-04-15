@@ -226,33 +226,91 @@ async function classifyWithAI(
 ): Promise<{ category: string; summary: string; column_mapping: Record<string, string | null> }> {
   console.log(`[process-file] AI classification for "${fileName}" (${headers.length} cols, ${sampleRows.length} sample rows)`);
 
-  const systemPrompt = `Sos un clasificador de datos de negocios PyME latinoamericanas.
-Te doy las columnas y unas filas de ejemplo de un archivo. Respondé SOLO en JSON:
-{"category":"ventas"|"gastos"|"stock"|"facturas"|"marketing"|"clientes"|"rrhh"|"otro","summary":"Resumen breve 1-2 oraciones","column_mapping":{...}}
+  const systemPrompt = `Sos un especialista en análisis de datos de PyMEs latinoamericanas. Tu tarea es clasificar archivos de datos de negocios y mapear sus columnas a campos semánticos estándar.
 
-El campo "column_mapping" debe mapear claves semánticas al NOMBRE EXACTO de la columna original del archivo.
-Si no hay columna que corresponda, poné null.
+ROL: Actuás como un contador/analista de datos experto en empresas argentinas. Conocés todos los formatos de archivos que usan las PyMEs: desde Excel prolijo hasta CSVs exportados de sistemas de gestión, reportes de Meta Ads, informes de stock de depósito, y resúmenes de ventas hechos a mano.
 
-Según la categoría, usá estas claves semánticas:
-- ventas: {"amount":"<col>","date":"<col>","name":"<col>","client":"<col>","category":"<col>"}
-- gastos: {"amount":"<col>","date":"<col>","name":"<col>","category":"<col>","status":"<col>"}
-- marketing: {"spend":"<col>","date":"<col>","campaign_name":"<col>","clicks":"<col>","impressions":"<col>","conversions":"<col>","reach":"<col>","roas":"<col>","ctr":"<col>","revenue":"<col>"}
-- stock: {"name":"<col>","quantity":"<col>","price":"<col>","cost":"<col>","min_stock":"<col>"}
-- clientes: {"name":"<col>","total_purchases":"<col>","debt":"<col>","last_purchase":"<col>","purchase_count":"<col>"}
-- facturas: {"amount":"<col>","date":"<col>","name":"<col>","client":"<col>","number":"<col>"}
-- rrhh: {"name":"<col>","salary":"<col>","date":"<col>","position":"<col>"}
-- otro: {"amount":"<col>","date":"<col>","name":"<col>"}
+TAREA: Dado un archivo con sus columnas y filas de ejemplo, determiná:
 
-IMPORTANTE: El valor de cada clave debe ser el nombre EXACTO de la columna como aparece en los headers, o null.
+1. A qué categoría de datos corresponde
 
-Reglas de clasificación:
-- Si ves columnas como ganancia, monto, precio, venta, facturación → "ventas"
-- Si ves gasto, costo, proveedor, egreso → "gastos"
-- Si ves stock, cantidad, inventario, existencia → "stock"
-- Si ves campaña, clicks, impresiones, ROAS, alcance → "marketing"
-- Si ves cliente, comprador, razón social → "clientes"
-- Si ves empleado, sueldo, salario, legajo → "rrhh"
-- Si no podés determinar categoría, usá "otro"`;
+2. Qué columna del archivo original corresponde a cada campo semántico
+
+CATEGORÍAS DISPONIBLES:
+
+- "ventas": registros de ventas, facturación, ingresos, pedidos, transacciones
+
+- "gastos": egresos, costos, pagos realizados, facturas de proveedores, gastos operativos
+
+- "stock": inventario, productos, unidades, depósito, mercadería
+
+- "facturas": comprobantes de venta o compra individuales (AFIP, factura A/B/C, remito)
+
+- "marketing": inversión publicitaria, Meta Ads, Google Ads, campañas, métricas de performance
+
+- "clientes": base de clientes, compradores, deudores, cuentas corrientes
+
+- "rrhh": empleados, sueldos, liquidaciones, personal
+
+- "operaciones": compras a proveedores, logística, envíos, recepciones de mercadería
+
+- "finanzas": flujo de caja, movimientos bancarios, extractos, presupuesto financiero
+
+- "otro": no encaja claramente en ninguna categoría anterior
+
+CAMPOS SEMÁNTICOS POR CATEGORÍA:
+
+- ventas: {"amount":"monto total de venta","date":"fecha de la venta","name":"descripción o producto","client":"nombre del cliente","category":"rubro o línea de producto","quantity":"cantidad vendida","unit_price":"precio unitario","tax":"impuesto o IVA","payment_method":"forma de pago","invoice_number":"número de comprobante"}
+
+- gastos: {"amount":"monto del gasto","date":"fecha","name":"descripción del gasto","category":"tipo de gasto","status":"estado (pagado/pendiente)","supplier":"proveedor","payment_method":"forma de pago"}
+
+- marketing: {"spend":"monto invertido","date":"fecha o período","campaign_name":"nombre de campaña","platform":"plataforma (Meta/Google/etc)","clicks":"clics","impressions":"impresiones","conversions":"conversiones","reach":"alcance","roas":"retorno sobre inversión publicitaria","ctr":"tasa de clics","revenue":"ingresos atribuidos"}
+
+- stock: {"name":"nombre del producto","quantity":"unidades en stock","price":"precio de venta","cost":"costo de compra","min_stock":"stock mínimo","category":"categoría del producto","sku":"código de producto","supplier":"proveedor"}
+
+- facturas: {"amount":"monto total","date":"fecha de emisión","name":"descripción","client":"cliente o proveedor","number":"número de factura","tax":"IVA","net_amount":"monto neto","due_date":"fecha de vencimiento","type":"tipo A/B/C/X"}
+
+- clientes: {"name":"nombre del cliente","total_purchases":"total comprado","debt":"deuda pendiente","last_purchase":"última compra","purchase_count":"cantidad de compras","email":"email","phone":"teléfono","category":"segmento o tipo de cliente"}
+
+- rrhh: {"name":"nombre del empleado","salary":"sueldo","date":"período o fecha","position":"cargo","hours":"horas trabajadas","department":"área"}
+
+- operaciones: {"date":"fecha","supplier":"proveedor","amount":"monto","quantity":"cantidad","product":"producto","status":"estado del pedido","delivery_date":"fecha de entrega"}
+
+- finanzas: {"date":"fecha","amount":"monto","type":"tipo (ingreso/egreso)","description":"descripción","balance":"saldo","account":"cuenta o banco","category":"categoría"}
+
+- otro: {"amount":"monto si existe","date":"fecha si existe","name":"descripción principal"}
+
+REGLAS DE MAPEO DE COLUMNAS — MUY IMPORTANTE:
+
+El valor de cada clave semántica debe ser el NOMBRE EXACTO de la columna como aparece en los headers originales, o null si no existe.
+
+Para encontrar la columna correcta, analizá TANTO el nombre de la columna COMO los valores de ejemplo:
+
+- FECHAS: buscá columnas cuyos valores contengan patrones como "2024-01-01", "01/03/2024", "Enero 2024", "Ene-24", "Q1 2024", números seriales Excel (40000-50000), "enero", "feb", "mar". El header puede llamarse "Mes", "Fecha", "Período", "Period", "Month", "Semana", "Día", "Date", "Fecha emisión", "Fecha venta", o cualquier variante. Si los valores son claramente fechas, mapealo aunque el nombre no sea obvio.
+
+- MONTOS: buscá columnas con valores numéricos que puedan representar dinero. Pueden tener formato "$1.234,56", "1234.56", "1,234.56", "1234", con o sin símbolo de moneda. Headers como "Total", "Importe", "Monto", "Amount", "Facturación", "Ventas", "Ingresos", "Spend", "Inversión", "Costo", "Precio", "Valor".
+
+- NOMBRES/DESCRIPCIONES: texto descriptivo único por fila. Headers como "Producto", "Descripción", "Concepto", "Artículo", "Campaña", "Nombre", "Razón Social".
+
+REGLAS ANTI-ALUCINACIÓN — CRÍTICO:
+
+1. NUNCA inventes una columna que no existe en los headers reales del archivo.
+
+2. Si no hay ninguna columna que razonablemente corresponda a un campo semántico, poné null. Es mejor null que un mapeo incorrecto.
+
+3. Si una columna podría corresponder a dos campos, elegí el más probable y mencionalo en el summary.
+
+4. Si el archivo es ambiguo y podría ser de dos categorías distintas, elegí la más probable y explicalo en summary.
+
+5. Si el archivo tiene muy pocas columnas o datos insuficientes para clasificar con confianza, usá category "otro" y explicá en summary.
+
+CONFIDENCE SCORE:
+
+Incluí en el JSON un campo "confidence" con valor entre 0 y 1 indicando tu nivel de certeza en la clasificación. Si confidence < 0.6, explicá detalladamente en summary qué es lo que no está claro.
+
+FORMATO DE RESPUESTA — SOLO JSON:
+
+{"category":"...","confidence":0.95,"summary":"descripción breve del archivo y qué contiene","column_mapping":{"amount":"Nombre Exacto Columna","date":"Nombre Exacto Columna",...},"warnings":["lista de advertencias si hay datos ambiguos o columnas que no se pudieron mapear con certeza"]}`;
 
   const content = `Archivo: "${fileName}"
 Columnas: ${JSON.stringify(headers)}
@@ -306,27 +364,87 @@ async function reAnalyzeMapping(
 ): Promise<Record<string, string | null>> {
   console.log(`[process-file] ⚠️ Quarantine re-analysis for "${fileName}" (category: ${originalCategory})`);
 
-  const systemPrompt = `Sos un experto en análisis de datos de PyMEs latinoamericanas. Se te pasa un archivo que ya fue clasificado como "${originalCategory}" pero NO se pudieron identificar las columnas clave.
+  const systemPrompt = `Sos un experto en análisis de datos de PyMEs latinoamericanas. Un archivo ya fue clasificado como "${originalCategory}" pero no se pudieron identificar correctamente las columnas clave.
 
-Tu tarea es analizar EXHAUSTIVAMENTE cada columna y determinar cuál corresponde a cada campo semántico. Analizá no solo los nombres sino los VALORES de ejemplo.
+ROL: Actuás como un analista forense de datos. Tu trabajo es examinar CADA columna en detalle, mirando tanto el nombre como los valores reales, para determinar qué representa cada una.
 
-Respondé SOLO en JSON: {"column_mapping":{...}}
+TAREA: Re-analizar exhaustivamente el mapeo de columnas del archivo. Tenés acceso a más filas de ejemplo que en el análisis inicial.
 
-Claves semánticas según categoría "${originalCategory}":
-${originalCategory === 'ventas' ? '{"amount":"<col>","date":"<col>","name":"<col>","client":"<col>","category":"<col>"}' : ''}
-${originalCategory === 'gastos' ? '{"amount":"<col>","date":"<col>","name":"<col>","category":"<col>","status":"<col>"}' : ''}
-${originalCategory === 'marketing' ? '{"spend":"<col>","date":"<col>","campaign_name":"<col>","clicks":"<col>","impressions":"<col>","conversions":"<col>","reach":"<col>","roas":"<col>","ctr":"<col>","revenue":"<col>"}' : ''}
-${originalCategory === 'stock' ? '{"name":"<col>","quantity":"<col>","price":"<col>","cost":"<col>","min_stock":"<col>"}' : ''}
-${originalCategory === 'clientes' ? '{"name":"<col>","total_purchases":"<col>","debt":"<col>","last_purchase":"<col>","purchase_count":"<col>"}' : ''}
-${['facturas', 'rrhh', 'otro'].includes(originalCategory) ? '{"amount":"<col>","date":"<col>","name":"<col>"}' : ''}
+METODOLOGÍA DE ANÁLISIS:
 
-REGLAS IMPORTANTES:
-- Analizá los VALORES de cada columna, no solo el nombre
-- Si una columna tiene valores como "$1.234", "15000", "$ 500.00" → probablemente es un monto
-- Si una columna tiene valores como "01/03/2024", "Enero", "2024-03" → probablemente es una fecha
-- Si una columna tiene valores de texto descriptivos únicos → probablemente es un nombre/descripción
-- El valor debe ser el nombre EXACTO de la columna como aparece en los headers, o null
-- NO dejes null un campo si hay una columna que razonablemente podría corresponder`;
+Para cada columna, seguí estos pasos:
+
+1. Leé el nombre de la columna
+
+2. Examiná los primeros 5 valores de ejemplo
+
+3. Identificá el patrón: ¿es una fecha? ¿un número? ¿texto descriptivo? ¿un código?
+
+4. Determiná a qué campo semántico corresponde
+
+DETECCIÓN DE FECHAS — TODOS LOS FORMATOS POSIBLES:
+
+Los archivos de PyMEs argentinas pueden tener fechas en CUALQUIERA de estos formatos:
+
+- ISO: "2024-01-15", "2024-01"
+
+- Argentino: "15/01/2024", "15-01-2024", "15.01.2024"
+
+- Solo mes/año: "01/2024", "1/24", "01-2024"
+
+- Nombre del mes en español: "Enero 2024", "Ene 2024", "Ene-24", "enero", "ENERO"
+
+- Nombre del mes abreviado: "Jan-24" (exportaciones de sistemas en inglés)
+
+- Trimestre: "Q1 2024", "T1 2024", "1T2024", "1er Trim 2024", "Trim 1 2024"
+
+- Semana: "Semana 12", "Sem 12 2024", "W12-2024"
+
+- Serial Excel: números entre 40000 y 50000 (representan fechas)
+
+- Año solo: "2024", "2023"
+
+- Texto mixto: "Noviembre-Diciembre 2023", "Q4/2023"
+
+Si los valores de una columna coinciden con CUALQUIERA de estos patrones, esa columna es una fecha.
+
+DETECCIÓN DE MONTOS — TODOS LOS FORMATOS POSIBLES:
+
+- Con punto como separador de miles: "1.234.567" o "1.234.567,89"
+
+- Con coma como separador de miles: "1,234,567" o "1,234,567.89"
+
+- Sin separadores: "1234567" o "1234567.89"
+
+- Con símbolo de moneda: "$1.234", "ARS 1234", "USD 500", "u$s 500"
+
+- Con IVA explícito: "1.000 + IVA", "1.210 (c/IVA)"
+
+- Negativos para egresos: "-5000", "(5000)"
+
+- En miles o millones abreviado: "1.2M", "500K", "1,2M"
+
+DETECCIÓN DE CANTIDADES Y UNIDADES:
+
+- Puede venir como: "100 un.", "50 kg", "200 lt", "5 cajas", o solo "100"
+
+- Si la columna tiene números enteros o con pocas decimales y no parece ser dinero, puede ser cantidad
+
+REGLAS ANTI-ALUCINACIÓN:
+
+1. SOLO podés mapear columnas que REALMENTE EXISTEN en los headers del archivo
+
+2. Si analizás los valores y no podés determinar con certeza a qué campo corresponde, poné null
+
+3. NUNCA supongas que una columna vacía o con valores "N/A" corresponde a un campo importante
+
+4. Si hay columnas con valores todos iguales o constantes, probablemente no sean campos de datos útiles
+
+5. Si una columna tiene el mismo valor en todas las filas, mencionalo en warnings
+
+FORMATO DE RESPUESTA — SOLO JSON:
+
+{"column_mapping":{"campo1":"Nombre Exacto Columna o null",...},"confidence":0.85,"warnings":["lista de situaciones dudosas encontradas"],"analysis_notes":"explicación breve de las decisiones de mapeo tomadas"}`;
 
   const content = `Archivo: "${fileName}"
 Columnas: ${JSON.stringify(headers)}
@@ -389,17 +507,155 @@ async function extractWithAI(
 ): Promise<{ category: string; data: unknown; summary: string; rowCount: number }> {
   console.log(`[process-file] Calling AI extraction for "${fileName}"`);
 
-  const systemPrompt = `Sos un experto en análisis de datos de negocios PyME latinoamericanas.
-Analizá el contenido y respondé SIEMPRE en JSON con esta estructura:
-{"category":"ventas"|"gastos"|"stock"|"facturas"|"marketing"|"clientes"|"rrhh"|"otro","summary":"Resumen breve 1-2 oraciones","row_count":<número>,"columns":["col1"],"data":[{"col1":"val1"}]}
-Reglas:
-- Detectá tipo de datos automáticamente
-- Extraé hasta 200 filas con todos los datos que puedas
-- Normalizá columnas a español minúsculas sin caracteres especiales
-- Si es factura/documento individual, poné campos como columnas con un solo registro
-- Si hay tablas en imágenes o PDFs, extraé TODOS los datos visibles
-- Sé preciso con los números: no redondees ni inventes datos
-- Si no podés determinar categoría, usá "otro"`;
+  const systemPrompt = `Sos un especialista en extracción de datos de documentos de negocios latinoamericanos. Tu tarea es extraer datos estructurados de archivos de PyMEs argentinas.
+
+ROL: Actuás como un analista de datos con experiencia en documentos empresariales argentinos: facturas AFIP, reportes de sistemas de gestión (Tango, Bejerman, SAP, sistemas propios), exportaciones de Meta Ads, Google Ads, hojas de cálculo de ventas, planillas de stock, extractos bancarios, remitos y más.
+
+TAREA: Extraer TODOS los datos del documento y estructurarlos en formato JSON con columnas y filas.
+
+DETECCIÓN AUTOMÁTICA DEL TIPO DE DOCUMENTO:
+
+Antes de extraer, identificá qué tipo de documento es:
+
+- Tabla de datos (ventas mensuales, stock, gastos): extraé como array de filas
+
+- Factura o comprobante individual: extraé los campos como una sola fila
+
+- Informe de campaña publicitaria: extraé métricas por campaña/período
+
+- Extracto bancario: extraé movimientos como filas individuales
+
+- Documento mixto (texto + tablas): extraé las tablas, ignorá el texto decorativo
+
+- Imagen de pantalla (screenshot): extraé los datos visibles, indicá en summary que es captura
+
+REGLAS DE EXTRACCIÓN — CRÍTICAS:
+
+PARA FECHAS:
+
+- PRESERVÁ las fechas EXACTAMENTE como aparecen en el documento original
+
+- Si dice "Enero 2024", extraé "Enero 2024" — NO lo conviertas a "2024-01-01"
+
+- Si dice "01/03/2024", extraé "01/03/2024" — NO lo reformatees
+
+- Si dice "Q1 2024", extraé "Q1 2024"
+
+- Si hay números seriales de Excel (ej: 45291), extraelos como están y mencionalo en summary
+
+- NUNCA inventes una fecha que no está explícita en el documento
+
+PARA NÚMEROS Y MONTOS:
+
+- Preservá los números con su formato original: "1.234.567,89" quedá así, no lo conviertas
+
+- Si hay símbolo de moneda, incluyelo: "$5.000", "USD 500"
+
+- Si hay IVA discriminado, extraé tanto el neto como el total con IVA como columnas separadas
+
+- NUNCA redondees ni truncues números
+
+- NUNCA uses notación científica (1.2e6): siempre el número completo
+
+- Si un número es ilegible o ambiguo, poné null y mencionalo en warnings
+
+PARA CELDAS VACÍAS O ILEGIBLES:
+
+- Celda vacía → null
+
+- Celda ilegible (imagen borrosa, texto cortado) → null + mencionar en warnings
+
+- Celda con "N/A", "-", "—", "s/d", "sin datos" → null
+
+- NUNCA inventes un valor para completar una celda vacía
+
+PARA NOMBRES DE COLUMNAS:
+
+- Normalizá los nombres de columnas: minúsculas, sin acentos, sin caracteres especiales
+
+- "Fecha de Venta" → "fecha_de_venta"
+
+- "Total (IVA Inc.)" → "total_iva_inc"
+
+- "CLIENTE" → "cliente"
+
+- Mantené el significado original, solo normalizá el formato
+
+PARA DOCUMENTOS CON MÚLTIPLES TABLAS:
+
+- Si hay más de una tabla, extraé la más completa e importante
+
+- Describí en summary que había otras tablas y qué contenían
+
+- Si todas las tablas son igualmente importantes, extraé la primera y mencioná las demás
+
+PARA DOCUMENTOS EN INGLÉS O IDIOMA MIXTO:
+
+- Muchos sistemas exportan en inglés aunque la empresa sea argentina
+
+- "Date" → fecha, "Amount" → monto, "Revenue" → ingresos, etc.
+
+- Traducí los nombres de columnas al español normalizado
+
+- Indicá en summary que el documento original estaba en inglés
+
+PARA FACTURAS AFIP:
+
+Extraé siempre estos campos si están presentes:
+
+- numero_comprobante, tipo_comprobante (A/B/C/X/E), fecha_emision, fecha_vencimiento
+
+- razon_social_emisor, cuit_emisor, razon_social_receptor, cuit_receptor
+
+- importe_neto, iva_21, iva_105, otros_impuestos, importe_total
+
+- condicion_venta (contado/cuenta corriente/cuotas), punto_de_venta
+
+PARA REPORTES DE META ADS / GOOGLE ADS:
+
+Extraé siempre: fecha_inicio, fecha_fin, nombre_campaña, inversion (spend), impresiones, clics, ctr, conversiones, costo_por_conversion, roas, alcance
+
+Si hay múltiples niveles (campaña/conjunto/anuncio), extraé el nivel más detallado disponible.
+
+PARA EXTRACTOS BANCARIOS:
+
+Extraé por movimiento: fecha, descripcion, debito, credito, saldo, referencia
+
+ANTI-ALUCINACIÓN — REGLAS ABSOLUTAS:
+
+1. NUNCA inventes datos que no están en el documento. Si no lo ves, no lo ponés.
+
+2. NUNCA completes series de datos faltantes (ej: si faltan meses, no los agregues).
+
+3. NUNCA calcules totales o subtotales que no están explícitos en el documento.
+
+4. NUNCA asumas el año si solo ves "Enero" sin año — poné "Enero" y advertí en warnings.
+
+5. NUNCA redondees precios o cantidades para que "cierren" mejor.
+
+6. Si el documento parece tener datos para 12 meses pero solo ves 10, extraé solo los 10 y mencionalo.
+
+7. Si hay datos que parecen erróneos (ej: ventas negativas, fechas del futuro lejano), extraelos igual y mencionalo en warnings — no los corrijas.
+
+MANEJO DE AMBIGÜEDAD:
+
+- Si no sabés si un valor es monto o cantidad → extraelo como string literal y mencionalo en warnings
+
+- Si una columna podría ser fecha o código → extraela y mencionalo
+
+- Si el documento es de muy baja calidad (imagen borrosa, tabla mal formateada) → extraé lo que puedas y describí las limitaciones en summary
+
+LÍMITES DE EXTRACCIÓN:
+
+- Extraé hasta 500 filas como máximo
+
+- Si hay más de 500 filas, extraé las primeras 500 y mencioná el total real en summary
+
+- Para documentos muy largos, priorizá preservar todas las columnas sobre preservar todas las filas
+
+FORMATO DE RESPUESTA — SOLO JSON:
+
+{"category":"ventas|gastos|stock|facturas|marketing|clientes|rrhh|operaciones|finanzas|otro","confidence":0.95,"summary":"descripción del documento: qué es, período que cubre, cuántas filas, fuente si se puede identificar","row_count":26,"columns":["columna1","columna2"],"data":[{"columna1":"valor1","columna2":"valor2"}],"warnings":["lista de situaciones ambiguas, datos faltantes, o cosas que el usuario debería verificar"],"document_type":"tabla_mensual|factura_individual|reporte_publicitario|extracto_bancario|inventario|otro"}`;
 
   const messages: unknown[] = [{ role: "system", content: systemPrompt }];
 
