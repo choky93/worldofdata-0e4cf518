@@ -60,7 +60,8 @@ const PAGE_SIZE = 25;
 const MAX_CONCURRENT_UPLOADS = 4;
 const PRESIGN_THRESHOLD = 20 * 1024 * 1024; // 20MB
 const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
-const ROW_BATCH_SIZE = 500; // Rows per batch sent to backend
+const ROW_BATCH_SIZE = 500;
+const RATE_LIMIT_MESSAGE = "Límite de API alcanzado. El archivo será reprocesado automáticamente en unos minutos.";
 
 /**
  * Detect and skip title rows in Excel data parsed by SheetJS.
@@ -1169,12 +1170,17 @@ export default function CargaDatos() {
                               {f.created_at ? formatDate(f.created_at) : '—'}
                               {f.file_size ? ` · ${f.file_size > 1024 * 1024 ? `${(f.file_size / 1024 / 1024).toFixed(1)} MB` : `${(f.file_size / 1024).toFixed(0)} KB`}` : ''}
                             </p>
-                            {(f.status === 'error' || f.status === 'review') && f.processing_error && (
+                            {(f.status === 'error' || f.status === 'review') && f.processing_error && f.processing_error !== RATE_LIMIT_MESSAGE && (
                               <p className={`text-xs mt-0.5 whitespace-pre-wrap break-words ${f.status === 'review' ? 'text-warning' : 'text-destructive'}`}>{f.processing_error}</p>
                             )}
                           </div>
-                          <Badge className={`border-0 shrink-0 ${statusColor(f.status)}`}>
-                            {f.status === 'processing' && f.next_chunk_index && f.total_chunks
+                          <Badge className={`border-0 shrink-0 ${f.status === 'queued' && f.processing_error === RATE_LIMIT_MESSAGE ? 'bg-warning/15 text-warning' : statusColor(f.status)}`}>
+                            {f.status === 'queued' && f.processing_error === RATE_LIMIT_MESSAGE ? (
+                              <span className="flex items-center gap-1">
+                                <Clock className="h-3 w-3" />
+                                En cola — esperando disponibilidad
+                              </span>
+                            ) : f.status === 'processing' && f.next_chunk_index && f.total_chunks
                               ? `Bloque ${f.next_chunk_index}/${f.total_chunks}`
                               : statusLabel(f.status)}
                           </Badge>

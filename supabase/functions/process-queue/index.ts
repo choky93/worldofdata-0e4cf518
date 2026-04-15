@@ -8,8 +8,10 @@ const corsHeaders = {
 };
 
 const BATCH_SIZE = 5;
-const HEAVY_FILE_THRESHOLD = 1 * 1024 * 1024; // 1MB — files above this are "heavy"
-const MAX_HEAVY_PARALLEL = 1; // Only 1 heavy file at a time
+const HEAVY_FILE_THRESHOLD = 1 * 1024 * 1024;
+const MAX_HEAVY_PARALLEL = 1;
+const STUCK_THRESHOLD_MINUTES = 10;
+const INTER_FILE_DELAY_MS = 2000; // 2s pause between files
 const STUCK_THRESHOLD_MINUTES = 10;
 
 serve(async (req) => {
@@ -103,27 +105,17 @@ serve(async (req) => {
     const filesToProcess = queuedFiles.filter(f => lockedIds.includes(f.id));
     console.log(`[process-queue] Locked ${filesToProcess.length} file(s) for processing`);
 
-    // ─── Step 4: Separate heavy vs light files ────────────────
-    const heavyFiles = filesToProcess.filter(f => (f.file_size || 0) > HEAVY_FILE_THRESHOLD || (f.next_chunk_index || 0) > 0);
-    const lightFiles = filesToProcess.filter(f => !heavyFiles.includes(f));
+    // ─── Step 4: Process files sequentially ─────────────────
+    console.log(`[process-queue] Processing ${filesToProcess.length} file(s) sequentially`);
 
-    // Process light files in parallel, heavy files sequentially (max 1 at a time)
-    const heavyToProcess = heavyFiles.slice(0, MAX_HEAVY_PARALLEL);
-    const heavyToRequeue = heavyFiles.slice(MAX_HEAVY_PARALLEL);
+    const results: { id: string; name: string; success: boolean; error?: string }[] = [];
 
-    // Re-queue excess heavy files
-    for (const f of heavyToRequeue) {
-      await sb.from("file_uploads").update({ status: "queued", processing_started_at: null }).eq("id", f.id);
-    }
+    for (let i = 0; i < filesToProcess.length; i++) {
+      const file = filesToProcess[i];
+      const isResume = (file.next_chunk_index || 0) > 0;
+      console.log(`[process-queue] [${i + 1}/${filesToProcess.length}] Processing "${file.file_name}" (${file.id})${isResume ? ` resuming from chunk ${file.next_chunk_index}` : ''}`);
 
-    const allToProcess = [...lightFiles, ...heavyToProcess];
-    console.log(`[process-queue] Processing ${lightFiles.length} light + ${heavyToProcess.length} heavy file(s)${heavyToRequeue.length > 0 ? `, ${heavyToRequeue.length} heavy re-queued` : ''}`);
-
-    // ─── Step 5: Process files ────────────────────────────────
-    const settled = await Promise.allSettled(
-      allToProcess.map(async (file) => {
-        const isResume = (file.next_chunk_index || 0) > 0;
-        console.log(`[process-queue] Invoking process-file for "${file.file_name}" (${file.id})${isResume ? ` resuming from chunk ${file.next_chunk_index}` : ''}`);
+      try {
         const processResp = await fetch(`${supabaseUrl}/functions/v1/process-file`, {
           method: "POST",
           headers: {
@@ -139,31 +131,31 @@ serve(async (req) => {
 
         if (!processResp.ok) {
           const errText = await processResp.text();
-          throw new Error(`process-file returned ${processResp.status}: ${errText}`);
+          // If rate limited, process-file already requeued — don't mark as error
+          if (processResp.status === 429) {
+            console.warn(`[process-queue] ⏳ "${file.file_name}" rate limited — will retry later`);
+            results.push({ id: file.id, name: file.file_name, success: false, error: "Rate limited" });
+          } else {
+            throw new Error(`process-file returned ${processResp.status}: ${errText}`);
+          }
+        } else {
+          const result = await processResp.json();
+          console.log(`[process-queue] ✅ "${file.file_name}":`, JSON.stringify(result));
+          results.push({ id: file.id, name: file.file_name, success: true });
         }
-
-        const result = await processResp.json();
-        console.log(`[process-queue] process-file result for "${file.file_name}":`, JSON.stringify(result));
-        return file.id;
-      })
-    );
-
-    const results: { id: string; name: string; success: boolean; error?: string }[] = [];
-
-    for (let i = 0; i < settled.length; i++) {
-      const result = settled[i];
-      const file = allToProcess[i];
-
-      if (result.status === "fulfilled") {
-        results.push({ id: file.id, name: file.file_name, success: true });
-      } else {
-        const msg = result.reason instanceof Error ? result.reason.message : "Unknown error";
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : "Unknown error";
         console.error(`[process-queue] ❌ Error for "${file.file_name}" (${file.id}):`, msg);
         await sb.from("file_uploads").update({
           status: "error",
           processing_error: msg.substring(0, 500),
         }).eq("id", file.id);
         results.push({ id: file.id, name: file.file_name, success: false, error: msg });
+      }
+
+      // Pause between files to avoid rate limiting
+      if (i < filesToProcess.length - 1) {
+        await new Promise(r => setTimeout(r, INTER_FILE_DELAY_MS));
       }
     }
 
