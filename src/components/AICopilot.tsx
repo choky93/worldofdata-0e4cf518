@@ -4,6 +4,7 @@ import { MessageCircle, X, Send, Sparkles, Loader2, AlertCircle, Globe, MessageS
 import { Button } from '@/components/ui/button';
 import { APP_NAME } from '@/lib/constants';
 import { useAuth } from '@/contexts/AuthContext';
+import { usePeriod } from '@/contexts/PeriodContext';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
@@ -229,6 +230,20 @@ export function AICopilot() {
   const abortRef = useRef<AbortController | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
+  const { period } = usePeriod();
+
+  const currentPeriodLabel = period === 'all'
+    ? 'todo el historial disponible'
+    : /^\d{4}$/.test(period)
+      ? `el año ${period}`
+      : /^\d{4}-\d{2}$/.test(period)
+        ? (() => {
+            const [y, m] = period.split('-');
+            const d = new Date(Number(y), Number(m) - 1, 1);
+            return d.toLocaleDateString('es-AR', { month: 'long', year: 'numeric' });
+          })()
+        : period;
+
   const businessContext = {
     companyId: profile?.company_id,
     companyName,
@@ -239,6 +254,8 @@ export function AICopilot() {
     hasLogistics: companySettings?.has_logistics,
     usesMetaAds: companySettings?.uses_meta_ads,
     usesGoogleAds: companySettings?.uses_google_ads,
+    currentPeriod: period,
+    currentPeriodLabel,
   };
 
   const scrollToBottom = useCallback(() => {
