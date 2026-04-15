@@ -500,7 +500,7 @@ export default function CargaDatos() {
       }
       prevErrorIdsRef.current = currentErrorIds;
 
-      const processedIds = records.filter(f => f.status === 'processed' || f.status === 'review').map(f => f.id);
+      const processedIds = records.filter(f => f.status === 'processed' || f.status === 'review' || f.status === 'processed_with_issues').map(f => f.id);
       if (processedIds.length > 0) fetchExtractedData(processedIds);
     } catch (err) {
       console.error('Error fetching files:', err);
