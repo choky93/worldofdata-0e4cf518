@@ -183,7 +183,7 @@ export default function Ventas() {
     return raw;
   };
 
-  const dailyChart = aggregateByDate(realVentas, m);
+  
   const monthlyChart = aggregateByMonth(realVentas, m);
   const monthCount = monthlyChart.length || 1;
   const promedioMensual = Math.round(salesTotal / monthCount);
