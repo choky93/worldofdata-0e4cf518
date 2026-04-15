@@ -914,7 +914,57 @@ export default function CargaDatos() {
 
     await Promise.all(activePromises);
     fetchFiles();
-    refetchExtractedData();
+    await refetchExtractedData();
+
+    // Check for overlap after processing
+    // We need to re-read the extracted data to check for overlaps
+    for (const item of queueItems) {
+      if (item.status !== 'done') continue;
+      try {
+        // Get extracted data for this file
+        const { data: newExtracted } = await supabase
+          .from('file_extracted_data')
+          .select('data_category, extracted_json, file_upload_id')
+          .eq('company_id', profile.company_id!)
+          .not('data_category', 'in', '("_raw_cache","_classification","_column_mapping")')
+          .order('created_at', { ascending: false })
+          .limit(50);
+
+        if (!newExtracted) continue;
+
+        // Group by file_upload_id to find new rows
+        for (const ext of newExtracted) {
+          const cat = ext.data_category as string;
+          if (cat !== 'ventas' && cat !== 'gastos') continue;
+          const json = ext.extracted_json as any;
+          const newRows = json?.data || [];
+          if (!Array.isArray(newRows) || newRows.length === 0) continue;
+
+          // Compare with existing data from global context
+          const existingRows = cat === 'ventas'
+            ? (globalExtractedData?.ventas || [])
+            : (globalExtractedData?.gastos || []);
+
+          // Filter out rows from the same file
+          // We can't easily do this without file tracking, so use the full set
+          const catMapping = cat === 'ventas' ? globalMappings.ventas : globalMappings.gastos;
+          const finder = (row: any, kw: string[]) => findString(row, kw, catMapping?.date);
+          const overlap = detectPeriodOverlap(existingRows, newRows, FIELD_DATE, finder);
+
+          if (overlap.length > 0) {
+            setOverlapInfo({
+              fileUploadId: ext.file_upload_id,
+              fileName: item.file.name,
+              overlappingMonths: overlap,
+              category: cat,
+            });
+            break; // Show one overlap dialog at a time
+          }
+        }
+      } catch (err) {
+        console.warn('[CargaDatos] Overlap check failed:', err);
+      }
+    }
   };
 
   const handleDrop = useCallback((e: React.DragEvent) => {
