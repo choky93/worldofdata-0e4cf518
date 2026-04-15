@@ -88,6 +88,9 @@ export function ExtractedDataProvider({ children }: { children: ReactNode }) {
         marketing: [], facturas: [], rrhh: [], otro: [],
       };
 
+      // Track rows with their source file for overlap detection
+      const taggedVentas: { row: any; fileUploadId: string }[] = [];
+
       const mergedMappings: CategoryMappings = {
         ventas: {}, gastos: {}, stock: {}, clientes: {},
         marketing: {}, facturas: {}, rrhh: {}, otro: {},
@@ -118,6 +121,12 @@ export function ExtractedDataProvider({ children }: { children: ReactNode }) {
           if (!Array.isArray(rows) || rows.length === 0) continue;
           if (agg[cat]) {
             agg[cat].push(...rows);
+            // Track ventas rows with source file for overlap detection
+            if (cat === 'ventas') {
+              for (const row of rows) {
+                taggedVentas.push({ row, fileUploadId: r.file_upload_id });
+              }
+            }
           } else {
             agg.otro.push(...rows);
           }
@@ -129,6 +138,7 @@ export function ExtractedDataProvider({ children }: { children: ReactNode }) {
 
       setData(agg);
       setMappings(mergedMappings);
+      setTaggedVentasRows(taggedVentas);
     } catch (err) {
       console.error('useExtractedData error:', err);
       setHasData(false);
