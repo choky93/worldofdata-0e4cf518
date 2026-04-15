@@ -958,6 +958,7 @@ export default function CargaDatos() {
 
     await Promise.all(activePromises);
     fetchFiles();
+    fetchStorageUsage();
     await refetchExtractedData();
 
     // Check for overlap after processing
