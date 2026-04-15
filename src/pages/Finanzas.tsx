@@ -107,7 +107,7 @@ export default function Finanzas() {
         <div className="flex items-center justify-between">
           <h1 className="text-2xl font-bold tracking-tight">Finanzas</h1>
           <div className="flex items-center gap-3">
-            <PeriodFilter value={period} onChange={setPeriod} />
+            <PeriodFilter value={period} onChange={setPeriod} availableMonths={availableMonths} />
             {hasFinancialData ? (
               <div className="flex items-center gap-1.5 text-xs text-success bg-success/10 rounded-lg px-3 py-1.5 border border-success/20">
                 <Database className="h-3.5 w-3.5" />
