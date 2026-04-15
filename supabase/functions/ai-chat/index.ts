@@ -436,8 +436,9 @@ serve(async (req) => {
     const userQuery = lastUserMsg?.content || "";
     let marketContext = "";
     if (needsMarketContext(userQuery)) {
+      const forecast = isForecastQuery(userQuery);
       try {
-        marketContext = await fetchMarketContext(userQuery, industry);
+        marketContext = await fetchMarketContext(userQuery, industry, forecast);
       } catch (e) {
         console.error("Error fetching market context:", e);
       }
