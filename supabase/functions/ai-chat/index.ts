@@ -246,23 +246,43 @@ async function fetchCompanyContext(companyId: string): Promise<string> {
   return result;
 }
 
-// ── Detect if the question needs external market context ────────
+// ── Detect if the question needs external market/macro context ───
+const MARKET_KEYWORDS = [
+  "mercado", "competencia", "tendencia", "industria", "sector",
+  "argentina", "macro", "economía", "inflación", "importación",
+  "exportación", "tipo de cambio", "dólar", "contexto",
+  "proyección", "pronóstico", "benchmark", "promedio del sector",
+  "otras empresas", "la competencia", "crecimiento del mercado",
+  "forecast", "próximo mes", "mes que viene", "trimestre",
+  "fin de año", "voy a vender", "voy a ganar", "cuánto voy a",
+  "estimado", "caja a fin",
+];
+
+const FORECAST_KEYWORDS = [
+  "forecast", "pronóstico", "próximo mes", "mes que viene",
+  "trimestre", "fin de año", "voy a vender", "voy a ganar",
+  "cuánto voy a", "proyección", "estimado", "caja a fin",
+];
+
 function needsMarketContext(userMessage: string): boolean {
-  const keywords = [
-    "mercado", "competencia", "tendencia", "industria", "sector",
-    "argentina", "macro", "economía", "inflación", "importación",
-    "exportación", "tipo de cambio", "dólar", "contexto",
-    "proyección", "pronóstico", "benchmark", "promedio del sector",
-    "otras empresas", "la competencia", "crecimiento del mercado"
-  ];
   const lower = userMessage.toLowerCase();
-  return keywords.some(k => lower.includes(k));
+  return MARKET_KEYWORDS.some(k => lower.includes(k));
+}
+
+function isForecastQuery(userMessage: string): boolean {
+  const lower = userMessage.toLowerCase();
+  return FORECAST_KEYWORDS.some(k => lower.includes(k));
 }
 
 // ── Fetch Perplexity market context ─────────────────────────────
-async function fetchMarketContext(query: string, industry: string): Promise<string> {
+async function fetchMarketContext(query: string, industry: string, isForecast: boolean): Promise<string> {
   const PERPLEXITY_API_KEY = Deno.env.get("PERPLEXITY_API_KEY");
   if (!PERPLEXITY_API_KEY) return "";
+
+  const currentMonth = new Date().toLocaleDateString("es-AR", { month: "long", year: "numeric" });
+  const perplexityQuery = isForecast
+    ? `Contexto económico Argentina ${currentMonth}: inflación mensual, tipo de cambio, consumo minorista, actividad PyMEs. Datos concretos y actuales.`
+    : query;
 
   try {
     const resp = await fetch("https://api.perplexity.ai/chat/completions", {
@@ -278,7 +298,7 @@ async function fetchMarketContext(query: string, industry: string): Promise<stri
             role: "system",
             content: `Sos un analista de mercado. Respondé en español, de forma breve y con datos concretos. Industria del usuario: ${industry || "no especificada"}. País: Argentina. Dá cifras, porcentajes y tendencias actuales. Máximo 200 palabras.`,
           },
-          { role: "user", content: query },
+          { role: "user", content: perplexityQuery },
         ],
         search_recency_filter: "month",
       }),
@@ -329,7 +349,7 @@ function buildSystemPrompt(businessContext: string, marketContext: string, conte
     "- No uses encabezados formales (##) ni estructuras de informe",
     "",
     businessContext ? `\n## DATOS DEL NEGOCIO (usá estos datos para responder)\n${businessContext}` : "",
-    marketContext ? `\n## CONTEXTO DE MERCADO ACTUAL\n${marketContext}` : "",
+    marketContext ? `\n## CONTEXTO MACROECONÓMICO ARGENTINO ACTUAL\nCuando hagas proyecciones, tené en cuenta el contexto macroeconómico argentino actual que se detalla abajo. Si hay inflación alta, mencioná que los números en pesos pueden estar distorsionados y sugerí mirar la tendencia en unidades o en porcentajes, no solo en pesos.\n${marketContext}` : "",
   ].filter(Boolean).join("\n");
 }
 
@@ -416,8 +436,9 @@ serve(async (req) => {
     const userQuery = lastUserMsg?.content || "";
     let marketContext = "";
     if (needsMarketContext(userQuery)) {
+      const forecast = isForecastQuery(userQuery);
       try {
-        marketContext = await fetchMarketContext(userQuery, industry);
+        marketContext = await fetchMarketContext(userQuery, industry, forecast);
       } catch (e) {
         console.error("Error fetching market context:", e);
       }
