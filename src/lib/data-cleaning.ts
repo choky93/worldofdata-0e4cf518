@@ -177,7 +177,7 @@ export function parseDate(raw: string): Date | null {
 /**
  * Filter rows by date period.
  */
-export type PeriodKey = 'all' | 'this_month' | 'last_month' | 'last_3_months';
+export type PeriodKey = 'all' | 'this_month' | 'last_month' | 'last_3_months' | string; // string = "YYYY-MM", "YYYY-QN", "YYYY"
 
 export function filterByPeriod(
   rows: any[],
@@ -186,22 +186,68 @@ export function filterByPeriod(
   findStringFn: (row: any, keywords: string[]) => string
 ): any[] {
   if (period === 'all') return rows;
-  
-  const now = new Date();
-  const thisMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-  const lastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-  const threeMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 3, 1);
-  const nextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1);
-  
+
   let from: Date, to: Date;
-  if (period === 'this_month') { from = thisMonth; to = nextMonth; }
-  else if (period === 'last_month') { from = lastMonth; to = thisMonth; }
-  else { from = threeMonthsAgo; to = nextMonth; }
-  
+
+  // Absolute month: "2023-11"
+  const monthMatch = period.match(/^(\d{4})-(\d{2})$/);
+  if (monthMatch) {
+    const y = parseInt(monthMatch[1]);
+    const m = parseInt(monthMatch[2]) - 1;
+    from = new Date(y, m, 1);
+    to = new Date(y, m + 1, 1);
+  }
+  // Absolute quarter: "2023-Q1"
+  else if (/^\d{4}-Q[1-4]$/.test(period)) {
+    const y = parseInt(period.slice(0, 4));
+    const q = parseInt(period.slice(6)) - 1;
+    from = new Date(y, q * 3, 1);
+    to = new Date(y, q * 3 + 3, 1);
+  }
+  // Absolute year: "2023"
+  else if (/^\d{4}$/.test(period)) {
+    const y = parseInt(period);
+    from = new Date(y, 0, 1);
+    to = new Date(y + 1, 0, 1);
+  }
+  // Relative periods (legacy)
+  else {
+    const now = new Date();
+    const thisMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    const lastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const threeMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 3, 1);
+    const nextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+
+    if (period === 'this_month') { from = thisMonth; to = nextMonth; }
+    else if (period === 'last_month') { from = lastMonth; to = thisMonth; }
+    else { from = threeMonthsAgo; to = nextMonth; }
+  }
+
   return rows.filter(row => {
     const raw = findStringFn(row, dateKeywords);
     const d = parseDate(raw);
     if (!d) return false;
     return d >= from && d < to;
   });
+}
+
+/**
+ * Extract unique months (YYYY-MM) from rows by scanning date columns.
+ */
+export function extractAvailableMonths(
+  rows: any[],
+  dateKeywords: string[],
+  findStringFn: (row: any, keywords: string[]) => string
+): string[] {
+  const monthSet = new Set<string>();
+  for (const row of rows) {
+    const raw = findStringFn(row, dateKeywords);
+    if (!raw) continue;
+    const d = parseDate(raw);
+    if (!d) continue;
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    monthSet.add(`${y}-${m}`);
+  }
+  return Array.from(monthSet).sort();
 }
