@@ -269,7 +269,7 @@ function ContextualAssistant({ companySettings }: { companySettings: any }) {
           </>
         )}
         <p className="text-[10px] text-muted-foreground border-t pt-3 mt-3">
-          Formatos: PDF, CSV, XLS/XLSX, imágenes (capturas de reportes). Máx. 100MB por archivo. Podés subir muchos archivos a la vez.
+          Formatos: PDF, CSV, XLS/XLSX, imágenes (capturas de reportes). Máx. 50MB por archivo. Sin límite de filas — se procesan en bloques automáticamente.
         </p>
       </CardContent>
     </Card>
