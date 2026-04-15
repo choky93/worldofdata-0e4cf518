@@ -105,7 +105,7 @@ function DataSourceBanner({ hasData, loading }: { hasData: boolean; loading: boo
 export default function Dashboard() {
   const { profile, companySettings, companyName } = useAuth();
   const navigate = useNavigate();
-  const { data: extractedData, mappings, loading: dataLoading, hasData, availableMonths, duplicatedPeriods } = useExtractedData();
+  const { data: extractedData, mappings, loading: dataLoading, hasData, availableMonths, duplicatedPeriods, hasCurrencyMix } = useExtractedData();
   const mV = mappings.ventas;
   const mG = mappings.gastos;
   const mM = mappings.marketing;
@@ -228,6 +228,15 @@ export default function Dashboard() {
               </span>
             </div>
           )}
+          {(hasCurrencyMix.ventas || hasCurrencyMix.gastos) && (
+            <div className="rounded-lg px-4 py-2.5 text-xs flex items-start gap-2 bg-warning/10 text-warning border border-warning/20 mt-2">
+              <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+              <span>
+                <strong>⚠️ Múltiples monedas detectadas</strong> en {[hasCurrencyMix.ventas && 'ventas', hasCurrencyMix.gastos && 'gastos'].filter(Boolean).join(' y ')}.
+                Los totales mostrados pueden no ser precisos. Recomendamos cargar archivos separados por moneda.
+              </span>
+            </div>
+          )}
           {realOtro.length > 0 && (
             <div className="rounded-lg px-4 py-2.5 text-xs flex items-center gap-2 bg-warning/10 text-warning border border-warning/20 mt-2">
               <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
@@ -277,7 +286,15 @@ export default function Dashboard() {
                   </div>
                   {salesTotal !== null ? (
                     <>
-                      <p className="kpi-value">{formatCurrency(salesTotal)}</p>
+                      <div className="flex items-center gap-1.5">
+                        <p className="kpi-value">{formatCurrency(salesTotal)}</p>
+                        {hasCurrencyMix.ventas && (
+                          <Tooltip>
+                            <TooltipTrigger asChild><span className="text-warning cursor-help">⚠️</span></TooltipTrigger>
+                            <TooltipContent><p className="text-xs">Incluye múltiples monedas</p></TooltipContent>
+                          </Tooltip>
+                        )}
+                      </div>
                       <p className="text-[11px] text-muted-foreground mt-1">{realVentas.length} {realVentas.length === 1 ? 'período' : 'períodos'}</p>
                     </>
                   ) : (
@@ -296,7 +313,15 @@ export default function Dashboard() {
                   </div>
                   {gastosTotal !== null ? (
                     <>
-                      <p className="kpi-value">{formatCurrency(gastosTotal)}</p>
+                      <div className="flex items-center gap-1.5">
+                        <p className="kpi-value">{formatCurrency(gastosTotal)}</p>
+                        {hasCurrencyMix.gastos && (
+                          <Tooltip>
+                            <TooltipTrigger asChild><span className="text-warning cursor-help">⚠️</span></TooltipTrigger>
+                            <TooltipContent><p className="text-xs">Incluye múltiples monedas</p></TooltipContent>
+                          </Tooltip>
+                        )}
+                      </div>
                       <p className="text-[11px] text-muted-foreground mt-1">{realGastos.length} registros</p>
                     </>
                   ) : (

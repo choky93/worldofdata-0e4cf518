@@ -364,6 +364,10 @@ REGLAS ANTI-ALUCINACIÓN — CRÍTICO:
 
 5. Si el archivo tiene muy pocas columnas o datos insuficientes para clasificar con confianza, usá category "otro" y explicá en summary.
 
+DETECCIÓN DE MÚLTIPLES MONEDAS:
+
+Si encontrás valores con "$", "ARS", "USD", "U$S", "US$", "u$s", "€", "EUR" mezclados en la misma columna de monto, agregá en warnings: "Se detectaron múltiples monedas en los datos. Los totales pueden no ser comparables."
+
 CONFIDENCE SCORE:
 
 Incluí en el JSON un campo "confidence" con valor entre 0 y 1 indicando tu nivel de certeza en la clasificación. Si confidence < 0.6, explicá detalladamente en summary qué es lo que no está claro.
