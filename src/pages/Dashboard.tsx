@@ -4,7 +4,7 @@ import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/contexts/AuthContext';
-import { formatCurrency, getGreeting, safeDiv } from '@/lib/formatters';
+import { formatCurrency, getGreeting, safeDiv, formatXAxisDate, formatTooltipDate } from '@/lib/formatters';
 import { findNumber, findString, FIELD_AMOUNT, FIELD_SPEND, FIELD_DATE } from '@/lib/field-utils';
 import { parseDate } from '@/lib/data-cleaning';
 import { useExtractedData } from '@/hooks/useExtractedData';
@@ -399,9 +399,9 @@ export default function Dashboard() {
                           <stop offset="100%" stopColor="#c8f135" stopOpacity={0} />
                         </linearGradient>
                       </defs>
-                      <XAxis dataKey="day" tick={{ fontSize: 11, fill: '#555555' }} axisLine={false} tickLine={false} />
+                      <XAxis dataKey="day" tick={{ fontSize: 11, fill: '#555555' }} axisLine={false} tickLine={false} tickFormatter={formatXAxisDate} />
                       <YAxis tick={{ fontSize: 11, fill: '#555555' }} axisLine={false} tickLine={false} tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`} />
-                      <RTooltip formatter={(v: number) => formatCurrency(v)} contentStyle={{ background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: '8px', color: '#f5f5f5' }} itemStyle={{ color: '#c8f135' }} />
+                      <RTooltip formatter={(v: number) => formatCurrency(v)} labelFormatter={formatTooltipDate} contentStyle={{ background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: '8px', color: '#f5f5f5' }} itemStyle={{ color: '#c8f135' }} />
                       <Area type="monotone" dataKey="value" stroke="#c8f135" fill="url(#salesGrad)" strokeWidth={2.5} />
                     </AreaChart>
                   </ResponsiveContainer>

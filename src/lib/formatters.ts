@@ -80,3 +80,45 @@ export function safeDiv(numerator: number, denominator: number, fallback = 0): n
   const result = numerator / denominator;
   return isFinite(result) ? result : fallback;
 }
+
+/**
+ * Format a date-like string for chart X-axis: "Nov 23", "Dic 23"
+ */
+export function formatXAxisDate(value: string): string {
+  if (!value) return '';
+  const d = new Date(value);
+  if (!isNaN(d.getTime())) {
+    return d.toLocaleDateString('es-AR', { month: 'short', year: '2-digit' })
+      .replace('.', '')
+      .replace(/^\w/, c => c.toUpperCase());
+  }
+  // Already formatted like "nov 2023" or "nov. 2023" — clean up
+  const cleaned = value.replace('.', '').replace(/^\w/, c => c.toUpperCase());
+  // Shorten year: "Nov 2023" → "Nov 23"
+  return cleaned.replace(/(\d{4})$/, (_, y) => y.slice(2));
+}
+
+/**
+ * Format a date-like string for chart tooltip label: "Noviembre 2023"
+ */
+export function formatTooltipDate(value: string): string {
+  if (!value) return '';
+  const d = new Date(value);
+  if (!isNaN(d.getTime())) {
+    return d.toLocaleDateString('es-AR', { month: 'long', year: 'numeric' })
+      .replace(/^\w/, c => c.toUpperCase());
+  }
+  // Parse "nov 2023" style
+  const months: Record<string, string> = {
+    ene: 'Enero', feb: 'Febrero', mar: 'Marzo', abr: 'Abril',
+    may: 'Mayo', jun: 'Junio', jul: 'Julio', ago: 'Agosto',
+    sep: 'Septiembre', oct: 'Octubre', nov: 'Noviembre', dic: 'Diciembre',
+  };
+  const match = value.toLowerCase().replace('.', '').match(/^(\w{3})\s+(\d{2,4})$/);
+  if (match) {
+    const full = months[match[1]] || match[1];
+    const year = match[2].length === 2 ? `20${match[2]}` : match[2];
+    return `${full} ${year}`;
+  }
+  return value;
+}
