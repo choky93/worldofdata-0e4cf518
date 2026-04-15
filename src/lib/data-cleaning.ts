@@ -369,19 +369,5 @@ export function detectMultiSourcePeriods(
   }
   return duplicated.sort();
 }
-  const monthSources = new Map<string, Set<string>>();
-  for (const { row, fileUploadId } of taggedRows) {
-    const raw = findStringFn(row, dateKeywords);
-    if (!raw) continue;
-    const d = parseDate(raw);
-    if (!d) continue;
-    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-    if (!monthSources.has(key)) monthSources.set(key, new Set());
-    monthSources.get(key)!.add(fileUploadId);
-  }
-  const duplicated: string[] = [];
-  for (const [month, sources] of monthSources) {
-    if (sources.size > 1) duplicated.push(month);
-  }
-  return duplicated.sort();
-}
+
+
