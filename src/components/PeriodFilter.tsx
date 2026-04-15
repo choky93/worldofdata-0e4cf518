@@ -1,6 +1,4 @@
 import { useMemo } from 'react';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue, SelectSeparator, SelectGroup, SelectLabel } from '@/components/ui/select';
-import { Calendar } from 'lucide-react';
 import type { PeriodKey } from '@/lib/data-cleaning';
 
 const MONTH_NAMES = [
@@ -13,6 +11,11 @@ function formatMonth(ym: string): string {
   return `${MONTH_NAMES[parseInt(m) - 1]} ${y}`;
 }
 
+function formatMonthShort(ym: string): string {
+  const [y, m] = ym.split('-');
+  return `${MONTH_NAMES[parseInt(m) - 1].slice(0, 3)} ${y.slice(2)}`;
+}
+
 function getQuarter(month: number): number {
   return Math.floor((month - 1) / 3) + 1;
 }
@@ -20,94 +23,46 @@ function getQuarter(month: number): number {
 interface PeriodFilterProps {
   value: PeriodKey;
   onChange: (value: PeriodKey) => void;
-  availableMonths?: string[]; // ["2023-11", "2023-12", ...]
+  availableMonths?: string[];
 }
 
 export function PeriodFilter({ value, onChange, availableMonths = [] }: PeriodFilterProps) {
-  const { quarters, years } = useMemo(() => {
-    const qSet = new Set<string>();
+  const { years } = useMemo(() => {
     const ySet = new Set<string>();
     for (const ym of availableMonths) {
-      const [y, m] = ym.split('-');
-      const q = getQuarter(parseInt(m));
-      qSet.add(`${y}-Q${q}`);
+      const [y] = ym.split('-');
       ySet.add(y);
     }
-    return {
-      quarters: Array.from(qSet).sort(),
-      years: Array.from(ySet).sort(),
-    };
+    return { years: Array.from(ySet).sort() };
   }, [availableMonths]);
 
-  // Build display label for selected value
-  const displayLabel = useMemo(() => {
-    if (value === 'all') return 'Todo el período';
-    if (/^\d{4}-\d{2}$/.test(value)) return formatMonth(value);
-    if (/^\d{4}-Q[1-4]$/.test(value)) {
-      const y = value.slice(0, 4);
-      const q = value.slice(6);
-      return `T${q} ${y}`;
-    }
-    if (/^\d{4}$/.test(value)) return value;
-    return value;
-  }, [value]);
+  // Build pill options
+  const pills: { key: PeriodKey; label: string }[] = [
+    { key: 'all', label: 'Todo el período' },
+    ...years.map(y => ({ key: y as PeriodKey, label: y })),
+  ];
+
+  // Add last 3 months as individual pills if available
+  const recentMonths = availableMonths.slice(-3).reverse();
+  recentMonths.forEach(ym => {
+    pills.push({ key: ym as PeriodKey, label: formatMonthShort(ym) });
+  });
 
   return (
-    <div className="flex items-center gap-1.5">
-      <Calendar className="h-3.5 w-3.5 text-muted-foreground" />
-      <Select value={value} onValueChange={(v) => onChange(v as PeriodKey)}>
-        <SelectTrigger className="h-8 w-[180px] text-xs">
-          <SelectValue>{displayLabel}</SelectValue>
-        </SelectTrigger>
-        <SelectContent className="max-h-72">
-          <SelectItem value="all" className="text-xs font-medium">
-            Todo el período
-          </SelectItem>
-
-          {availableMonths.length > 0 && (
-            <>
-              <SelectSeparator />
-
-              {/* Years */}
-              {years.length > 1 && (
-                <SelectGroup>
-                  <SelectLabel className="text-[10px] uppercase tracking-wider text-muted-foreground">Año</SelectLabel>
-                  {years.map(y => (
-                    <SelectItem key={y} value={y} className="text-xs">{y}</SelectItem>
-                  ))}
-                </SelectGroup>
-              )}
-
-              {/* Quarters */}
-              {quarters.length > 1 && (
-                <SelectGroup>
-                  <SelectLabel className="text-[10px] uppercase tracking-wider text-muted-foreground">Trimestre</SelectLabel>
-                  {quarters.map(q => {
-                    const y = q.slice(0, 4);
-                    const qn = q.slice(6);
-                    return (
-                      <SelectItem key={q} value={q} className="text-xs">
-                        T{qn} {y}
-                      </SelectItem>
-                    );
-                  })}
-                </SelectGroup>
-              )}
-
-              {/* Months */}
-              <SelectSeparator />
-              <SelectGroup>
-                <SelectLabel className="text-[10px] uppercase tracking-wider text-muted-foreground">Mes</SelectLabel>
-                {availableMonths.map(ym => (
-                  <SelectItem key={ym} value={ym} className="text-xs">
-                    {formatMonth(ym)}
-                  </SelectItem>
-                ))}
-              </SelectGroup>
-            </>
-          )}
-        </SelectContent>
-      </Select>
+    <div className="flex items-center gap-1 flex-wrap">
+      {pills.map(pill => (
+        <button
+          key={pill.key}
+          onClick={() => onChange(pill.key)}
+          className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors border ${
+            value === pill.key
+              ? 'bg-primary text-primary-foreground border-transparent'
+              : 'bg-card border-border text-muted-foreground hover:text-foreground hover:border-[#3a3a3a]'
+          }`}
+        >
+          {pill.label}
+        </button>
+      ))}
     </div>
   );
 }

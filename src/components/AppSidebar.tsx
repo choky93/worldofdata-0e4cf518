@@ -42,7 +42,6 @@ export function AppSidebar() {
 
   const items = role === 'employee' ? employeeItems : adminItems;
 
-  // Show sections if settings say so OR if actual data exists for that category
   const hasMarketingData = (extractedData?.marketing || []).length > 0;
   const hasStockData = (extractedData?.stock || []).length > 0;
 
@@ -55,20 +54,22 @@ export function AppSidebar() {
   });
 
   return (
-    <Sidebar collapsible="icon" className="border-r-0">
+    <Sidebar collapsible="icon" className="border-r border-[#1f1f1f]">
       <div className="sidebar-gradient h-full flex flex-col">
         <SidebarHeader className="p-4">
           {!collapsed && (
             <div className="flex items-center gap-2.5">
-              <div className="h-9 w-9 rounded-xl bg-primary flex items-center justify-center shadow-lg shadow-primary/25">
+              <div className="h-9 w-9 rounded-xl bg-primary flex items-center justify-center">
                 <BarChart3 className="h-4.5 w-4.5 text-primary-foreground" />
               </div>
-              <span className="font-bold text-sm text-sidebar-foreground tracking-tight">{APP_NAME}</span>
+              <span className="font-bold text-sm text-foreground tracking-tight">
+                World of <span className="text-primary">Data</span>
+              </span>
             </div>
           )}
           {collapsed && (
             <div className="flex justify-center">
-              <div className="h-9 w-9 rounded-xl bg-primary flex items-center justify-center shadow-lg shadow-primary/25">
+              <div className="h-9 w-9 rounded-xl bg-primary flex items-center justify-center">
                 <BarChart3 className="h-4.5 w-4.5 text-primary-foreground" />
               </div>
             </div>
@@ -85,8 +86,8 @@ export function AppSidebar() {
                       <NavLink
                         to={item.url}
                         end={item.url === '/'}
-                        className="hover:bg-sidebar-accent/60 rounded-lg transition-all duration-200"
-                        activeClassName="bg-sidebar-accent text-sidebar-primary font-semibold shadow-sm"
+                        className="text-[#666666] hover:bg-sidebar-accent/60 rounded-lg transition-all duration-200"
+                        activeClassName="bg-[#1f2a0f] text-primary font-semibold"
                         onClick={() => isMobile && setOpenMobile(false)}
                       >
                         <item.icon className="h-4 w-4" />
@@ -108,7 +109,7 @@ export function AppSidebar() {
         <SidebarFooter className="p-2">
           <Button
             variant="ghost"
-            className="w-full justify-start text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-sidebar-accent/50"
+            className="w-full justify-start text-[#666666] hover:text-foreground hover:bg-sidebar-accent/50"
             onClick={signOut}
           >
             <LogOut className="h-4 w-4 mr-2" />
