@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { usePeriod } from '@/contexts/PeriodContext';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { KPICard } from '@/components/ui/KPICard';
 import { Progress } from '@/components/ui/progress';
