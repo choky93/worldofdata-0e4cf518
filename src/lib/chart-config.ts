@@ -25,8 +25,8 @@ export function formatXAxisDate(value: string): string {
 
 // Formatea montos: $5.200.000 → "$5,2M" o "$5.200k"
 export function formatAmount(value: number): string {
-  if (value >= 1_000_000) return `$${(value / 1_000_000).toFixed(1)}M`;
-  if (value >= 1_000)     return `$${(value / 1_000).toFixed(0)}k`;
+  if (value >= 1_000_000) return '$' + (value / 1_000_000).toLocaleString('es-AR', { maximumFractionDigits: 1 }) + 'M';
+  if (value >= 1_000) return '$' + (value / 1_000).toLocaleString('es-AR', { maximumFractionDigits: 0 }) + 'k';
   return `$${value.toLocaleString('es-AR')}`;
 }
 
