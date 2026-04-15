@@ -315,6 +315,15 @@ function UploadQueue({ items, onDismiss }: { items: UploadQueueItem[]; onDismiss
                 <Loader2 className="h-3.5 w-3.5 animate-spin text-primary shrink-0" />
               )}
               <span className="truncate flex-1">{item.file.name}</span>
+              {item.status === 'processing' && item.currentChunk !== undefined && item.totalChunks && item.totalChunks > 1 && (
+                <span className="text-muted-foreground whitespace-nowrap">Bloque {item.currentChunk + 1} de {item.totalChunks}</span>
+              )}
+              {item.status === 'done' && item.totalRows && item.totalRows > 0 && (
+                <span className="text-success whitespace-nowrap">
+                  {item.totalRows.toLocaleString('es-AR')} filas{item.totalChunks && item.totalChunks > 1 ? ` en ${item.totalChunks} bloques` : ''}
+                  {item.chunksFailed && item.chunksFailed > 0 ? ` (${item.chunksFailed} bloque(s) fallaron)` : ''}
+                </span>
+              )}
               {item.status === 'error' && item.error && (
                 <span className="text-destructive truncate max-w-[200px]">{item.error}</span>
               )}
