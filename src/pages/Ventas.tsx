@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { usePeriod } from '@/contexts/PeriodContext';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { KPICard } from '@/components/ui/KPICard';
 import { formatCurrency, formatDate } from '@/lib/formatters';
@@ -113,7 +113,7 @@ function GradientBar(props: any) {
 export default function Ventas() {
   const { data: extractedData, mappings, hasData, loading, availableMonths } = useExtractedData();
   const m = mappings.ventas;
-  const [period, setPeriod] = useState<PeriodKey>('all');
+  const { period, setPeriod } = usePeriod();
   const allVentas = extractedData?.ventas || [];
   const realVentas = period === 'all' ? allVentas : filterByPeriod(allVentas, FIELD_DATE, period, (row, kw) => findString(row, kw, m?.date));
 

@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { usePeriod } from '@/contexts/PeriodContext';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { KPICard } from '@/components/ui/KPICard';
 import { Progress } from '@/components/ui/progress';
@@ -118,7 +119,7 @@ export default function Dashboard() {
   const mV = mappings.ventas;
   const mG = mappings.gastos;
   const mM = mappings.marketing;
-  const [period, setPeriod] = useState<PeriodKey>('all');
+  const { period, setPeriod } = usePeriod();
   const name = profile?.full_name || 'Usuario';
   const company = companyName || 'tu empresa';
   const showStock = !companySettings || companySettings.has_stock || companySettings.sells_products;

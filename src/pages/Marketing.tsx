@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { usePeriod } from '@/contexts/PeriodContext';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { formatCurrency, formatPercent, formatNumber, safeDiv } from '@/lib/formatters';
 import { formatAmount, TOOLTIP_STYLE, AXIS_STYLE } from '@/lib/chart-config';
@@ -59,7 +59,7 @@ function normalizeMarketing(rows: any[], m?: any): CampaignRow[] {
 export default function Marketing() {
   const { data: extractedData, mappings, hasData, loading, availableMonths } = useExtractedData();
   const m = mappings.marketing;
-  const [period, setPeriod] = useState<PeriodKey>('all');
+  const { period, setPeriod } = usePeriod();
   const allMarketing = extractedData?.marketing || [];
   const filteredMarketing = period === 'all' ? allMarketing : filterByPeriod(allMarketing, FIELD_DATE, period, (row, kw) => findString(row, kw, m?.date));
   const useReal = hasData && allMarketing.length > 0;
