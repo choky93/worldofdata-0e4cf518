@@ -10,6 +10,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
 type Message = { role: 'user' | 'assistant'; content: string; citations?: string[] };
+type StoredMessage = { role: string; content: string; citations?: string[] };
 type Mode = 'chat' | 'search';
 
 const CHAT_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/ai-chat`;
