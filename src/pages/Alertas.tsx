@@ -1,8 +1,10 @@
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { useExtractedData } from '@/hooks/useExtractedData';
+import { useAuth } from '@/contexts/AuthContext';
+import { supabase } from '@/integrations/supabase/client';
 import { formatDate } from '@/lib/formatters';
 import { findNumber, findString, FIELD_NAME, FIELD_STOCK_QTY, FIELD_STOCK_MIN, FIELD_DEBT } from '@/lib/field-utils';
 import type { CategoryMappings } from '@/hooks/useExtractedData';
@@ -14,6 +16,11 @@ const typeIcons = { stock: Package, clientes: Users, finanzas: Wallet, forecast:
 const typeLabels = { stock: 'Stock', clientes: 'Clientes', finanzas: 'Finanzas', forecast: 'Forecast' };
 
 type AlertType = { id: string; type: 'stock' | 'clientes' | 'finanzas' | 'forecast'; priority: 'high' | 'medium' | 'low'; message: string; suggestion?: string; read: boolean; date: string };
+
+/** Slugify a string for use as part of alert_key */
+function slugify(s: string): string {
+  return s.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '').slice(0, 60);
+}
 
 function buildAlertsFromData(data: ReturnType<typeof useExtractedData>['data'], mappings: CategoryMappings): AlertType[] {
   const alerts: AlertType[] = [];
@@ -32,12 +39,13 @@ function buildAlertsFromData(data: ReturnType<typeof useExtractedData>['data'], 
     return min > 0 && stock < min;
   });
   if (lowStock.length > 0) {
-    const names = lowStock.slice(0, 3).map((r: any) => findString(r, FIELD_NAME, mS?.name) || 'producto').join(', ');
+    const names = lowStock.slice(0, 3).map((r: any) => findString(r, FIELD_NAME, mS?.name) || 'producto');
+    const alertKey = `stock_bajo_minimo_${lowStock.length}_${names.map(slugify).join('_')}`;
     alerts.push({
-      id: 'stock-low',
+      id: alertKey,
       type: 'stock',
       priority: 'high',
-      message: `${lowStock.length} producto${lowStock.length > 1 ? 's' : ''} con stock por debajo del mínimo: ${names}`,
+      message: `${lowStock.length} producto${lowStock.length > 1 ? 's' : ''} con stock por debajo del mínimo: ${names.join(', ')}`,
       suggestion: 'Revisá el módulo de Stock para ver el detalle y reponer a tiempo.',
       read: false,
       date: today,
@@ -49,8 +57,10 @@ function buildAlertsFromData(data: ReturnType<typeof useExtractedData>['data'], 
   const withDebt = clientRows.filter((r: any) => findNumber(r, FIELD_DEBT, mC?.debt) > 0);
   if (withDebt.length > 0) {
     const totalDeuda = withDebt.reduce((s: number, r: any) => s + findNumber(r, FIELD_DEBT, mC?.debt), 0);
+    const topNames = withDebt.slice(0, 3).map((r: any) => slugify(findString(r, FIELD_NAME, mC?.name) || 'cliente')).join('_');
+    const alertKey = `cliente_deuda_pendiente_${withDebt.length}_${topNames}`;
     alerts.push({
-      id: 'clientes-debt',
+      id: alertKey,
       type: 'clientes',
       priority: 'medium',
       message: `${withDebt.length} cliente${withDebt.length > 1 ? 's' : ''} con cobros pendientes por $${totalDeuda.toLocaleString('es-AR')}`,
@@ -67,8 +77,9 @@ function buildAlertsFromData(data: ReturnType<typeof useExtractedData>['data'], 
     return status === 'vencido' || status === 'overdue';
   });
   if (overdue.length > 0) {
+    const alertKey = `gastos_pagos_vencidos_${overdue.length}`;
     alerts.push({
-      id: 'gastos-overdue',
+      id: alertKey,
       type: 'finanzas',
       priority: 'high',
       message: `${overdue.length} pago${overdue.length > 1 ? 's' : ''} vencido${overdue.length > 1 ? 's' : ''} sin regularizar`,
@@ -83,16 +94,52 @@ function buildAlertsFromData(data: ReturnType<typeof useExtractedData>['data'], 
 
 export default function Alertas() {
   const { data: extractedData, mappings, hasData, loading } = useExtractedData();
-  const [readIds, setReadIds] = useState<Set<string>>(new Set());
+  const { profile } = useAuth();
+  const [readKeys, setReadKeys] = useState<Set<string>>(new Set());
+  const [loadingStates, setLoadingStates] = useState(true);
+
+  const companyId = profile?.company_id;
+
+  // Load persisted read states
+  useEffect(() => {
+    if (!companyId) { setLoadingStates(false); return; }
+    (async () => {
+      const { data: rows } = await supabase
+        .from('alert_states')
+        .select('alert_key')
+        .eq('company_id', companyId)
+        .eq('is_read', true);
+      if (rows) setReadKeys(new Set(rows.map(r => r.alert_key)));
+      setLoadingStates(false);
+    })();
+  }, [companyId]);
+
+  const persistRead = useCallback(async (keys: string[]) => {
+    if (!companyId || keys.length === 0) return;
+    for (const key of keys) {
+      await supabase.from('alert_states').upsert(
+        { company_id: companyId, alert_key: key, is_read: true, read_at: new Date().toISOString() },
+        { onConflict: 'company_id,alert_key' }
+      );
+    }
+  }, [companyId]);
 
   const baseAlerts = hasData ? buildAlertsFromData(extractedData, mappings) : [];
-  const alerts = baseAlerts.map(a => ({ ...a, read: readIds.has(a.id) }));
+  const alerts = baseAlerts.map(a => ({ ...a, read: readKeys.has(a.id) }));
   const unread = alerts.filter(a => !a.read).length;
 
-  const markRead = (id: string) => setReadIds(prev => new Set([...prev, id]));
-  const markAllRead = () => setReadIds(new Set(alerts.map(a => a.id)));
+  const markRead = (id: string) => {
+    setReadKeys(prev => new Set([...prev, id]));
+    persistRead([id]);
+  };
 
-  if (loading) {
+  const markAllRead = () => {
+    const allKeys = alerts.filter(a => !a.read).map(a => a.id);
+    setReadKeys(new Set([...readKeys, ...allKeys]));
+    persistRead(allKeys);
+  };
+
+  if (loading || loadingStates) {
     return (
       <div className="space-y-6 max-w-4xl">
         <h1 className="text-2xl font-bold">Alertas</h1>
