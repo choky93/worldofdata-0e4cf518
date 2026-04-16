@@ -275,8 +275,8 @@ export default function Dashboard() {
             <div className="md:col-span-2 lg:col-span-2">
               <ResumenEjecutivoCard highlights={highlights} />
             </div>
-            <VentasMesCard total={salesTotal} data={salesChartData} />
-            <GananciaCard ganancia={ganancia} margenPct={margenPct} />
+            <VentasMesCard total={salesTotal} data={salesChartData} periodLabel={currentPeriodLabel} />
+            <GananciaCard ganancia={ganancia} margenPct={margenPct} ingresos={salesTotal} costos={gastosTotal} />
 
             {/* Row 2 */}
             <FlujoCajaCard ingresos={salesTotal} egresos={gastosTotal} />
