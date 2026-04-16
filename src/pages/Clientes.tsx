@@ -120,7 +120,9 @@ export default function Clientes() {
     );
   }
 
-  const clients = normalizeClients(realClientes, mC);
+  const clients = useClientesDirectos
+    ? normalizeClients(realClientes, mC)
+    : buildClientsFromVentas(realVentas, mV);
   const totalPending = clients.reduce((s, c) => s + c.pendingPayment, 0);
   const totalSales = clients.reduce((s, c) => s + c.totalPurchases, 0);
   const sorted = [...clients].sort((a, b) => b.totalPurchases - a.totalPurchases);
