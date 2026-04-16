@@ -1,129 +1,48 @@
 import { useState, useEffect } from 'react';
 import { usePeriod } from '@/contexts/PeriodContext';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { KPICard } from '@/components/ui/KPICard';
-import { Progress } from '@/components/ui/progress';
-import { Badge } from '@/components/ui/badge';
+import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/contexts/AuthContext';
-import { formatCurrency, getGreeting, safeDiv } from '@/lib/formatters';
-import { formatXAxisDate, formatAmount, TOOLTIP_STYLE, AXIS_STYLE } from '@/lib/chart-config';
-import { findNumber, findString, FIELD_AMOUNT, FIELD_SPEND, FIELD_DATE } from '@/lib/field-utils';
+import { formatCurrency } from '@/lib/formatters';
+import { findNumber, findString, FIELD_AMOUNT, FIELD_SPEND, FIELD_DATE, FIELD_STOCK_QTY, FIELD_STOCK_MIN } from '@/lib/field-utils';
 import { parseDate } from '@/lib/data-cleaning';
 import { useExtractedData } from '@/hooks/useExtractedData';
-import { filterByPeriod, type PeriodKey } from '@/lib/data-cleaning';
+import { filterByPeriod } from '@/lib/data-cleaning';
 import { PeriodPills } from '@/components/ui/PeriodPills';
-import {
-  TrendingUp, AlertTriangle, DollarSign, Package, Users,
-  Megaphone, ArrowUpRight, ArrowRight, ShoppingCart, Wallet, BarChart3,
-  FileBox, CheckCircle2, AlertCircle, XCircle, Loader2, Database, Upload,
-} from 'lucide-react';
-import { AreaChart, Area, XAxis, YAxis, Tooltip as RTooltip, ResponsiveContainer } from 'recharts';
-import { Link, useNavigate } from 'react-router-dom';
-import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip';
-import { motion, AnimatePresence } from 'framer-motion';
+import { Topbar } from '@/components/layout/Topbar';
+import { ResumenEjecutivoCard } from '@/components/dashboard/ResumenEjecutivoCard';
+import { VentasMesCard } from '@/components/dashboard/VentasMesCard';
+import { GananciaCard } from '@/components/dashboard/GananciaCard';
+import { FlujoCajaCard } from '@/components/dashboard/FlujoCajaCard';
+import { ForecastCard } from '@/components/dashboard/ForecastCard';
+import { StockCard } from '@/components/dashboard/StockCard';
+import { InversionPublicitariaCard } from '@/components/dashboard/InversionPublicitariaCard';
+import { AlertTriangle, Database, Upload } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { motion } from 'framer-motion';
 
-// ─── Safe format helper ──────────────────────────────────────────
-
-function safeFmt(value: number | null, formatter: (v: number) => string, fallback = '—'): string {
-  if (value === null || isNaN(value) || !isFinite(value)) return fallback;
-  return formatter(value);
-}
-
-// ─── Health Radar ────────────────────────────────────────────────────
-function StatusIcon({ status }: { status: 'ok' | 'warning' | 'critical' }) {
-  if (status === 'ok') return <CheckCircle2 className="h-4 w-4 text-success" />;
-  if (status === 'warning') return <AlertCircle className="h-4 w-4 text-warning" />;
-  return <XCircle className="h-4 w-4 text-destructive" />;
-}
-
-// ─── Ticker ──────────────────────────────────────────────────────────
-function TickerBar({ highlights }: { highlights: string[] }) {
-  const [currentIndex, setCurrentIndex] = useState(0);
-
-  useEffect(() => {
-    if (highlights.length <= 1) return;
-    const interval = setInterval(() => {
-      setCurrentIndex(prev => (prev + 1) % highlights.length);
-    }, 5000);
-    return () => clearInterval(interval);
-  }, [highlights.length]);
-
-  if (highlights.length === 0) return null;
-
-  return (
-    <div className="bg-[#1f2a0f] rounded-xl px-4 py-3 overflow-hidden relative flex items-center border border-[#2a3a1a]">
-      <div className="h-6 w-6 rounded-full bg-primary/20 flex items-center justify-center shrink-0 mr-3">
-        <ArrowUpRight className="h-3.5 w-3.5 text-primary" />
-      </div>
-      <AnimatePresence mode="wait">
-        <motion.p
-          key={currentIndex}
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0, y: -10 }}
-          transition={{ duration: 0.35 }}
-          className="text-sm flex-1"
-        >
-          {highlights[currentIndex]}
-        </motion.p>
-      </AnimatePresence>
-      {highlights.length > 1 && (
-        <div className="flex gap-1.5 ml-3 shrink-0">
-          {highlights.map((_, i) => (
-            <button
-              key={i}
-              onClick={() => setCurrentIndex(i)}
-              className={`w-1.5 h-1.5 rounded-full transition-all ${i === currentIndex ? 'bg-primary w-4' : 'bg-[#333]'}`}
-            />
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ─── Stagger wrapper ─────────────────────────────────────────────────
 function Stagger({ children, index }: { children: React.ReactNode; index: number }) {
   return (
     <motion.div
-      initial={{ opacity: 0, y: 16 }}
+      initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.4, delay: index * 0.06, ease: [0.25, 0.46, 0.45, 0.94] }}
+      transition={{ duration: 0.35, delay: index * 0.05, ease: [0.25, 0.46, 0.45, 0.94] }}
     >
       {children}
     </motion.div>
   );
 }
 
-// ─── Data Source Banner ──────────────────────────────────────────────
-function DataSourceBanner({ hasData, loading }: { hasData: boolean; loading: boolean }) {
-  if (loading) return null;
-  return (
-    <div className={`rounded-lg px-4 py-2.5 text-xs flex items-center gap-2 ${hasData ? 'alert-success' : 'bg-card text-muted-foreground border border-border'}`}>
-      <Database className="h-3.5 w-3.5 shrink-0" />
-      {hasData ? (
-        <span>Mostrando datos reales extraídos de tus archivos cargados</span>
-      ) : (
-        <span>Sin datos cargados. <Link to="/carga-datos" className="underline font-medium">Cargá tus archivos</Link> para ver tus métricas reales.</span>
-      )}
-    </div>
-  );
-}
-
-// ─── Dashboard ───────────────────────────────────────────────────────
 export default function Dashboard() {
   const { profile, companySettings, companyName } = useAuth();
-  const navigate = useNavigate();
   const { data: extractedData, mappings, loading: dataLoading, hasData, availableMonths, duplicatedPeriods, hasCurrencyMix } = useExtractedData();
   const mV = mappings.ventas;
   const mG = mappings.gastos;
   const mM = mappings.marketing;
   const { period, setPeriod } = usePeriod();
-  const name = profile?.full_name || 'Usuario';
+  const name = profile?.full_name?.split(' ')[0] || 'Usuario';
   const company = companyName || 'tu empresa';
   const showStock = !companySettings || companySettings.has_stock || companySettings.sells_products;
-  // Show marketing if configured OR if marketing data actually exists
   const hasMarketingData = (extractedData?.marketing || []).length > 0;
   const showAds = !companySettings || companySettings.uses_meta_ads || companySettings.uses_google_ads || hasMarketingData;
   const [duplicateBannerDismissed, setDuplicateBannerDismissed] = useState(false);
@@ -138,7 +57,6 @@ export default function Dashboard() {
   const realVentas = period === 'all' ? allVentas : filterByPeriod(allVentas, FIELD_DATE, period, (row, kw) => findString(row, kw, mV?.date));
   const realStock = extractedData?.stock || [];
   const realGastos = period === 'all' ? allGastos : filterByPeriod(allGastos, FIELD_DATE, period, (row, kw) => findString(row, kw, mG?.date));
-  const realClientes = extractedData?.clientes || [];
   const realMarketing = period === 'all' ? allMarketing : filterByPeriod(allMarketing, FIELD_DATE, period, (row, kw) => findString(row, kw, mM?.date));
   const realOtro = extractedData?.otro || [];
 
@@ -154,56 +72,30 @@ export default function Dashboard() {
     ? realMarketing.reduce((sum: number, r: any) => sum + findNumber(r, FIELD_SPEND, mM?.spend), 0)
     : null;
 
-  const healthDimensions = [
-    { key: 'ventas', label: 'Ventas', icon: ShoppingCart, status: (hasData && realVentas.length > 0 ? 'ok' : 'warning') as 'ok' | 'warning' | 'critical', detail: salesTotal !== null ? `${formatCurrency(salesTotal)} acumulado` : 'Sin datos', url: '/ventas', color: 'var(--module-ventas)' },
-    { key: 'finanzas', label: 'Finanzas', icon: Wallet, status: (hasData && realGastos.length > 0 ? 'ok' : 'warning') as 'ok' | 'warning' | 'critical', detail: gastosTotal !== null ? `${formatCurrency(gastosTotal)} en gastos` : 'Sin datos', url: '/finanzas', color: 'var(--module-finanzas)' },
-    { key: 'stock', label: 'Stock', icon: Package, status: (hasData && realStock.length > 0 ? 'ok' : 'warning') as 'ok' | 'warning' | 'critical', detail: hasData && realStock.length > 0 ? `${realStock.length} productos cargados` : 'Sin datos', url: '/stock', color: 'var(--module-stock)' },
-    { key: 'clientes', label: 'Clientes', icon: Users, status: (hasData && realClientes.length > 0 ? 'ok' : 'warning') as 'ok' | 'warning' | 'critical', detail: hasData && realClientes.length > 0 ? `${realClientes.length} clientes` : 'Sin datos', url: '/clientes', color: 'var(--module-clientes)' },
-    { key: 'marketing', label: 'Marketing', icon: Megaphone, status: (hasData && realMarketing.length > 0 ? 'ok' : 'warning') as 'ok' | 'warning' | 'critical', detail: marketingSpend !== null ? `${formatCurrency(marketingSpend)} invertidos` : 'Sin datos', url: '/marketing', color: 'var(--module-marketing)' },
-    { key: 'operaciones', label: 'Operaciones', icon: FileBox, status: 'ok' as const, detail: hasData ? `${realVentas.length + realGastos.length} registros` : 'Sin datos', url: '/operaciones', color: 'var(--module-operaciones)' },
-  ];
+  const ganancia = (salesTotal !== null && gastosTotal !== null) ? salesTotal - gastosTotal : null;
+  const margenPct = (salesTotal !== null && gastosTotal !== null && salesTotal > 0)
+    ? ((salesTotal - gastosTotal) / salesTotal) * 100
+    : null;
 
+  // Highlights for resumen ejecutivo
   const highlights: string[] = [];
   if (salesTotal !== null) {
-    let periodLabel = '';
-    if (period === 'all') {
-      periodLabel = 'Ventas históricas totales';
-    } else if (/^\d{4}$/.test(period)) {
-      periodLabel = `Ventas en ${period}`;
-    } else if (/^\d{4}-Q[1-4]$/.test(period)) {
-      periodLabel = `Ventas en T${period.slice(6)} ${period.slice(0, 4)}`;
-    } else if (/^\d{4}-\d{2}$/.test(period)) {
-      const [y, m] = period.split('-');
-      const monthName = new Date(Number(y), Number(m) - 1, 1)
-        .toLocaleDateString('es-AR', { month: 'long', year: 'numeric' })
-        .replace(/^\w/, c => c.toUpperCase());
-      periodLabel = `Ventas en ${monthName}`;
-    } else {
-      periodLabel = 'Ventas del período';
-    }
-    highlights.push(`${periodLabel}: ${formatCurrency(salesTotal)} según tus datos cargados.`);
+    highlights.push(`Ventas del período: ${formatCurrency(salesTotal)} en ${realVentas.length} registros.`);
   }
-  if (gastosTotal !== null && salesTotal !== null) {
-    const net = salesTotal - gastosTotal;
-    highlights.push(`Resultado neto: ${formatCurrency(net)} (ventas menos gastos registrados).`);
-  }
-  if (realClientes.length > 0) {
-    highlights.push(`Tenés ${realClientes.length} clientes cargados en la plataforma.`);
+  if (ganancia !== null) {
+    highlights.push(`Resultado neto: ${formatCurrency(ganancia)}${margenPct !== null ? ` (margen ${margenPct.toFixed(1)}%)` : ''}.`);
   }
   if (realStock.length > 0) {
-    highlights.push(`Tu inventario tiene ${realStock.length} productos registrados.`);
+    highlights.push(`Inventario: ${realStock.length} productos registrados.`);
+  }
+  if (marketingSpend !== null) {
+    highlights.push(`Inversión publicitaria: ${formatCurrency(marketingSpend)}.`);
   }
   if (!hasData) {
-    highlights.push('Cargá tus archivos en "Carga de datos" para ver tus métricas reales.');
+    highlights.push('Cargá tus archivos en "Carga de datos" para ver tu resumen real.');
   }
 
-  const visibleHealth = healthDimensions.filter(d => {
-    if (d.key === 'stock' && !showStock) return false;
-    if (d.key === 'marketing' && !showAds) return false;
-    return true;
-  });
-
-  // Build sales chart from real data if available — sorted by date
+  // Sales chart by month, sorted
   const salesChartData = (() => {
     if (!hasData || realVentas.length === 0) return [];
     const map = new Map<string, { value: number; date: Date }>();
@@ -212,51 +104,100 @@ export default function Dashboard() {
       if (!raw) continue;
       const d = parseDate(raw);
       if (!d) continue;
-      const key = d.toLocaleDateString('es-AR', { month: 'short', year: 'numeric' });
+      const key = d.toLocaleDateString('es-AR', { month: 'short', year: '2-digit' }).replace('.', '');
       const amt = findNumber(r, FIELD_AMOUNT, mV?.amount);
       const existing = map.get(key);
-      if (existing) {
-        existing.value += amt;
-      } else {
-        map.set(key, { value: amt, date: d });
-      }
+      if (existing) existing.value += amt;
+      else map.set(key, { value: amt, date: d });
     }
     return Array.from(map.entries())
       .sort(([, a], [, b]) => a.date.getTime() - b.date.getTime())
-      .slice(-30)
       .map(([day, { value }]) => ({ day, value }));
   })();
 
-  return (
-    <TooltipProvider>
-      <div className="space-y-5 max-w-[1400px]">
-        {/* Greeting */}
-        <Stagger index={0}>
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-2xl font-bold tracking-tight">{getGreeting()}, {name.split(' ')[0]}.</h1>
-              <p className="text-muted-foreground mt-0.5">Resumen de <span className="font-semibold text-foreground">{company}</span></p>
-            </div>
-            <PeriodPills value={period} onChange={setPeriod} availableMonths={availableMonths} />
-          </div>
-        </Stagger>
+  // Forecast: last 6 real points + 3 projected (simple trend extrapolation)
+  const forecastData = (() => {
+    if (salesChartData.length < 3) return [] as { day: string; real: number | null; proyectado: number | null }[];
+    const last = salesChartData.slice(-6);
+    const result: { day: string; real: number | null; proyectado: number | null }[] = last.map(d => ({
+      day: d.day, real: d.value, proyectado: null,
+    }));
+    // Bridge last real to projection
+    const lastVal = last[last.length - 1].value;
+    result[result.length - 1].proyectado = lastVal;
+    // Simple linear trend from last 3
+    const tail = last.slice(-3);
+    const slope = tail.length >= 2 ? (tail[tail.length - 1].value - tail[0].value) / Math.max(tail.length - 1, 1) : 0;
+    const monthNames = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+    const lastDate = (() => {
+      const lastEntry = salesChartData[salesChartData.length - 1];
+      // Reparse from month name: fallback to today
+      return new Date();
+    })();
+    for (let i = 1; i <= 3; i++) {
+      const d = new Date(lastDate.getFullYear(), lastDate.getMonth() + i, 1);
+      const day = `${monthNames[d.getMonth()]} ${String(d.getFullYear()).slice(2)}`;
+      result.push({ day, real: null, proyectado: Math.max(lastVal + slope * i * 0.7, 0) });
+    }
+    return result;
+  })();
 
-        {/* Data source banner */}
-        <Stagger index={1}>
-          <DataSourceBanner hasData={hasData} loading={dataLoading} />
+  // Stock breakdown
+  const stockBreakdown = (() => {
+    if (realStock.length === 0) return { ok: 0, bajo: 0, critico: 0 };
+    let ok = 0, bajo = 0, critico = 0;
+    for (const r of realStock) {
+      const qty = findNumber(r, FIELD_STOCK_QTY);
+      const min = findNumber(r, FIELD_STOCK_MIN);
+      if (qty <= 0) critico++;
+      else if (min > 0 && qty <= min) bajo++;
+      else if (min > 0 && qty <= min * 1.5) bajo++;
+      else ok++;
+    }
+    return { ok, bajo, critico };
+  })();
+
+  return (
+    <div className="space-y-6 max-w-[1400px]">
+      <Topbar userName={name} pageTitle="Dashboard" breadcrumb={company} />
+
+      {/* Period filter */}
+      <Stagger index={0}>
+        <div className="flex items-center justify-between flex-wrap gap-3">
+          <p className="text-sm text-muted-foreground">
+            Resumen de <span className="font-semibold text-foreground">{company}</span>
+          </p>
+          <PeriodPills value={period} onChange={setPeriod} availableMonths={availableMonths} />
+        </div>
+      </Stagger>
+
+      {/* Banners */}
+      <Stagger index={1}>
+        <div className="space-y-2">
+          {!dataLoading && (
+            <div className={`rounded-2xl px-4 py-2.5 text-xs flex items-center gap-2 ${hasData ? 'alert-success' : 'bg-card text-muted-foreground border border-border'}`}>
+              <Database className="h-3.5 w-3.5 shrink-0" />
+              {hasData ? (
+                <span>Mostrando datos reales extraídos de tus archivos cargados</span>
+              ) : (
+                <span>Sin datos cargados. <Link to="/carga-datos" className="underline font-medium">Cargá tus archivos</Link> para ver tus métricas.</span>
+              )}
+            </div>
+          )}
+
           {duplicatedPeriods.length > 0 && !duplicateBannerDismissed && (
-            <div className="rounded-lg px-4 py-3 text-xs flex items-start gap-3 alert-warning mt-2">
+            <div className="rounded-2xl px-4 py-3 text-xs flex items-start gap-3 alert-warning">
               <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
               <span className="flex-1">
-                ⚠️ Datos posiblemente duplicados: los meses {duplicatedPeriods.map(p => {
+                Datos posiblemente duplicados: los meses {duplicatedPeriods.map(p => {
                   const [y, m] = p.split('-');
                   const d = new Date(parseInt(y), parseInt(m) - 1, 1);
                   return d.toLocaleDateString('es-AR', { month: 'long', year: 'numeric' });
-                }).join(', ')} aparecen en más de un archivo. Los totales pueden estar inflados. <Link to="/carga-datos" className="underline font-medium">Revisá tus archivos en Carga de Datos</Link>.
+                }).join(', ')} aparecen en más de un archivo. <Link to="/carga-datos" className="underline font-medium">Revisá tus archivos</Link>.
               </span>
               <button
                 type="button"
-                aria-label="Cerrar advertencia de duplicados"
+                aria-label="Cerrar"
                 onClick={() => setDuplicateBannerDismissed(true)}
                 className="shrink-0 text-foreground/70 hover:text-foreground transition-colors"
               >
@@ -265,186 +206,84 @@ export default function Dashboard() {
             </div>
           )}
           {(hasCurrencyMix.ventas || hasCurrencyMix.gastos) && (
-            <div className="rounded-lg px-4 py-2.5 text-xs flex items-start gap-2 alert-warning mt-2">
+            <div className="rounded-2xl px-4 py-2.5 text-xs flex items-start gap-2 alert-warning">
               <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
-              <span>
-                <strong>⚠️ Múltiples monedas detectadas</strong> en {[hasCurrencyMix.ventas && 'ventas', hasCurrencyMix.gastos && 'gastos'].filter(Boolean).join(' y ')}.
-                Los totales mostrados pueden no ser precisos. Recomendamos cargar archivos separados por moneda.
-              </span>
+              <span>Múltiples monedas detectadas en {[hasCurrencyMix.ventas && 'ventas', hasCurrencyMix.gastos && 'gastos'].filter(Boolean).join(' y ')}. Los totales pueden no ser precisos.</span>
             </div>
           )}
           {realOtro.length > 0 && (
-            <div className="rounded-lg px-4 py-2.5 text-xs flex items-center gap-2 alert-warning mt-2">
+            <div className="rounded-2xl px-4 py-2.5 text-xs flex items-center gap-2 alert-warning">
               <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-              <span>
-                Hay <strong>{realOtro.length}</strong> filas que no pudieron clasificarse automáticamente. 
-                <Link to="/carga-datos" className="underline font-medium ml-1">Revisá en Carga de datos</Link> para reprocesarlas.
-              </span>
+              <span>Hay <strong>{realOtro.length}</strong> filas sin clasificar. <Link to="/carga-datos" className="underline font-medium">Revisá en Carga de datos</Link>.</span>
             </div>
           )}
-        </Stagger>
+        </div>
+      </Stagger>
 
-        {/* Ticker */}
-        {highlights.length > 0 && (
-          <Stagger index={2}>
-            <TickerBar highlights={highlights} />
-          </Stagger>
-        )}
-
-        {/* Health Radar */}
-        <Stagger index={3}>
-          <div className="grid gap-2 grid-cols-2 sm:grid-cols-3 lg:grid-cols-6">
-            {visibleHealth.map((dim) => (
-              <button
-                key={dim.key}
-                onClick={() => navigate(dim.url)}
-                className={`module-border-${dim.key} rounded-xl bg-card border border-border p-3 text-left transition-all duration-200 hover:border-[#3a3a3a]`}
-              >
-                <div className="flex items-center gap-1.5 mb-1.5">
-                  <StatusIcon status={dim.status} />
-                  <span className="text-xs font-semibold truncate">{dim.label}</span>
-                </div>
-                <p className="text-[11px] text-muted-foreground leading-tight truncate">{dim.detail}</p>
-              </button>
-            ))}
-          </div>
-        </Stagger>
-
-        {/* KPIs */}
-        <Stagger index={4}>
-          <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
-            <Link to="/ventas">
-              <KPICard
-                label="Ventas"
-                value={salesTotal !== null ? formatCurrency(salesTotal) : '—'}
-                subtext={salesTotal !== null ? `${realVentas.length} ${realVentas.length === 1 ? 'período' : 'períodos'}` : 'Sin datos'}
-                accent={salesTotal !== null}
-                icon={<ShoppingCart className="h-4 w-4" />}
-              />
-            </Link>
-
-            <Link to="/finanzas">
-              <KPICard
-                label="Gastos cargados"
-                value={gastosTotal !== null ? formatCurrency(gastosTotal) : '—'}
-                subtext={gastosTotal !== null ? `${realGastos.length} registros` : 'Sin datos'}
-                icon={<Wallet className="h-4 w-4" />}
-              />
-            </Link>
-
-            <Link to="/finanzas">
-              <KPICard
-                label="Resultado neto"
-                value={salesTotal !== null && gastosTotal !== null ? formatCurrency(salesTotal - gastosTotal) : '—'}
-                subtext={salesTotal !== null && gastosTotal !== null ? 'Ventas − Gastos' : 'Sin datos'}
-                icon={<DollarSign className="h-4 w-4" />}
-              />
-            </Link>
-
-            {showAds && (
-              <Link to="/marketing">
-                <KPICard
-                  label="Marketing"
-                  value={marketingSpend !== null ? formatCurrency(marketingSpend) : '—'}
-                  subtext={marketingSpend !== null ? 'gasto en publicidad' : 'Sin datos'}
-                  icon={<Megaphone className="h-4 w-4" />}
-                />
+      {/* Empty state */}
+      {!hasData && !dataLoading && (
+        <Stagger index={2}>
+          <Card className="border-dashed rounded-3xl">
+            <CardContent className="flex flex-col items-center justify-center py-12 gap-4 text-center">
+              <Upload className="h-10 w-10 text-muted-foreground/40" />
+              <div>
+                <p className="font-semibold">Cargá tus primeros archivos</p>
+                <p className="text-sm text-muted-foreground mt-1 max-w-md">
+                  Subí tus Excel de ventas, PDFs de facturas o CSVs de stock. La plataforma los procesa con IA automáticamente.
+                </p>
+              </div>
+              <Link to="/carga-datos">
+                <Button className="rounded-full gap-2">
+                  <Upload className="h-4 w-4" />
+                  Ir a Carga de datos
+                </Button>
               </Link>
+            </CardContent>
+          </Card>
+        </Stagger>
+      )}
+
+      {/* Grid 4×2 */}
+      {hasData && (
+        <Stagger index={2}>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
+            {/* Row 1 */}
+            <div className="md:col-span-2 lg:col-span-2">
+              <ResumenEjecutivoCard highlights={highlights} />
+            </div>
+            <VentasMesCard total={salesTotal} data={salesChartData} />
+            <GananciaCard ganancia={ganancia} margenPct={margenPct} />
+
+            {/* Row 2 */}
+            <FlujoCajaCard ingresos={salesTotal} egresos={gastosTotal} />
+            <div className="md:col-span-2 lg:col-span-2">
+              <ForecastCard data={forecastData} />
+            </div>
+            {showStock ? (
+              <StockCard ok={stockBreakdown.ok} bajo={stockBreakdown.bajo} critico={stockBreakdown.critico} />
+            ) : showAds ? (
+              <InversionPublicitariaCard
+                metaSpend={marketingSpend ?? 0}
+                metaBudget={(marketingSpend ?? 0) * 1.2}
+                googleSpend={0}
+                googleBudget={0}
+              />
+            ) : null}
+
+            {/* Row 3 — ads if both stock and ads visible */}
+            {showStock && showAds && (
+              <div className="md:col-span-2 lg:col-span-4">
+                <InversionPublicitariaCard
+                  metaSpend={marketingSpend ?? 0}
+                  metaBudget={(marketingSpend ?? 0) * 1.2}
+                  googleSpend={0}
+                  googleBudget={0}
+                />
+              </div>
             )}
           </div>
         </Stagger>
-
-        {/* Sales Chart — only if there's real data */}
-        {salesChartData.length >= 2 && (
-          <Stagger index={5}>
-            <Card>
-              <CardHeader className="pb-1">
-                <CardTitle className="text-sm font-semibold text-muted-foreground">Ventas por mes</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="h-56">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <AreaChart data={salesChartData}>
-                      <defs>
-                        <linearGradient id="salesGrad" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="0%" stopColor="#c8f135" stopOpacity={0.08} />
-                          <stop offset="100%" stopColor="#c8f135" stopOpacity={0} />
-                        </linearGradient>
-                      </defs>
-                      <XAxis dataKey="day" tick={AXIS_STYLE.tick} axisLine={false} tickLine={false} tickFormatter={formatXAxisDate} />
-                      <YAxis tick={AXIS_STYLE.tick} axisLine={false} tickLine={false} tickFormatter={formatAmount} />
-                      <RTooltip formatter={(v: number) => formatCurrency(v)} labelFormatter={formatXAxisDate} {...TOOLTIP_STYLE} />
-                      <Area type="monotone" dataKey="value" stroke="#c8f135" fill="url(#salesGrad)" strokeWidth={2.5} />
-                    </AreaChart>
-                  </ResponsiveContainer>
-                </div>
-              </CardContent>
-            </Card>
-          </Stagger>
-        )}
-
-        {/* Empty CTA — only shown when no data at all */}
-        {!hasData && !dataLoading && (
-          <Stagger index={5}>
-            <Card className="border-dashed">
-              <CardContent className="flex flex-col items-center justify-center py-10 gap-4 text-center">
-                <Upload className="h-10 w-10 text-muted-foreground/30" />
-                <div>
-                  <p className="font-medium">Cargá tus primeros archivos</p>
-                  <p className="text-sm text-muted-foreground mt-1">
-                    Subí tus Excel de ventas, PDFs de facturas, CSVs de stock o cualquier reporte de tu empresa.
-                    La plataforma los procesa automáticamente con IA.
-                  </p>
-                </div>
-                <Link to="/carga-datos">
-                  <Button className="flex items-center gap-2">
-                    <Upload className="h-4 w-4" />
-                    Ir a Carga de datos
-                  </Button>
-                </Link>
-              </CardContent>
-            </Card>
-          </Stagger>
-        )}
-
-        {/* Stock + Clientes summary */}
-        {hasData && (realStock.length > 0 || realClientes.length > 0) && (
-          <div className="grid gap-3 md:grid-cols-2">
-            {showStock && realStock.length > 0 && (
-              <Stagger index={6}>
-                <Link to="/stock">
-                  <Card className="module-border-stock transition-all cursor-pointer h-full hover:border-[#3a3a3a]">
-                    <CardContent className="p-4">
-                      <div className="flex items-center gap-1.5 text-muted-foreground mb-2">
-                        <Package className="h-3.5 w-3.5" />
-                        <span className="text-xs font-semibold">Inventario</span>
-                      </div>
-                      <p className="text-sm">{realStock.length} productos cargados</p>
-                      <p className="text-xs text-muted-foreground mt-1">Ver detalle en Stock →</p>
-                    </CardContent>
-                  </Card>
-                </Link>
-              </Stagger>
-            )}
-            {realClientes.length > 0 && (
-              <Stagger index={7}>
-                <Link to="/clientes">
-                  <Card className="module-border-clientes transition-all cursor-pointer h-full hover:border-[#3a3a3a]">
-                    <CardContent className="p-4">
-                      <div className="flex items-center gap-1.5 text-muted-foreground mb-2">
-                        <Users className="h-3.5 w-3.5" />
-                        <span className="text-xs font-semibold">Clientes</span>
-                      </div>
-                      <p className="text-sm">{realClientes.length} clientes cargados</p>
-                      <p className="text-xs text-muted-foreground mt-1">Ver detalle en Clientes →</p>
-                    </CardContent>
-                  </Card>
-                </Link>
-              </Stagger>
-            )}
-          </div>
-        )}
-      </div>
-    </TooltipProvider>
+      )}
+    </div>
   );
 }
