@@ -16,9 +16,9 @@ export function ResumenEjecutivoCard({ highlights }: ResumenEjecutivoCardProps) 
 
   return (
     <div
-      className="relative overflow-hidden rounded-3xl p-7 text-white h-full min-h-[260px] flex flex-col"
+      className="relative overflow-hidden rounded-3xl p-7 text-white h-full min-h-[260px] flex flex-col shadow-card"
       style={{
-        background: 'linear-gradient(135deg, #0f0f0f 0%, #1a1a1a 100%)',
+        background: 'linear-gradient(135deg, hsl(var(--accent)) 0%, hsl(240 10% 18%) 100%)',
       }}
     >
       {/* Pastel glows decorativos */}
