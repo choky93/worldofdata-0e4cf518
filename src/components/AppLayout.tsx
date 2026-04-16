@@ -3,10 +3,17 @@ import { SidebarProvider, SidebarTrigger } from '@/components/ui/sidebar';
 import { AppSidebar } from '@/components/AppSidebar';
 import { AICopilot } from '@/components/AICopilot';
 import { ExtractedDataProvider } from '@/hooks/useExtractedData';
+import { usePeriodAutoDefault } from '@/hooks/usePeriodAutoDefault';
+
+function PeriodAutoSetter() {
+  usePeriodAutoDefault();
+  return null;
+}
 
 export function AppLayout({ children }: { children: ReactNode }) {
   return (
     <ExtractedDataProvider>
+      <PeriodAutoSetter />
       <SidebarProvider defaultOpen={false}>
         <div className="min-h-screen flex w-full">
           <AppSidebar />
