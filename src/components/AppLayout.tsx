@@ -3,8 +3,10 @@ import { SidebarProvider, SidebarTrigger } from '@/components/ui/sidebar';
 import { AppSidebar } from '@/components/AppSidebar';
 import { AICopilot } from '@/components/AICopilot';
 import { ExtractedDataProvider } from '@/hooks/useExtractedData';
+import { usePeriodAutoDefault } from '@/hooks/usePeriodAutoDefault';
 
-export function AppLayout({ children }: { children: ReactNode }) {
+function AppLayoutInner({ children }: { children: ReactNode }) {
+  usePeriodAutoDefault();
   return (
     <ExtractedDataProvider>
       <SidebarProvider defaultOpen={false}>
