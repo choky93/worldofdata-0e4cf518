@@ -14,6 +14,38 @@ export type Database = {
   }
   public: {
     Tables: {
+      alert_states: {
+        Row: {
+          alert_key: string
+          company_id: string
+          id: string
+          is_read: boolean
+          read_at: string | null
+        }
+        Insert: {
+          alert_key: string
+          company_id: string
+          id?: string
+          is_read?: boolean
+          read_at?: string | null
+        }
+        Update: {
+          alert_key?: string
+          company_id?: string
+          id?: string
+          is_read?: boolean
+          read_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "alert_states_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       audit_logs: {
         Row: {
           action: string
