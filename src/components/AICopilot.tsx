@@ -219,7 +219,7 @@ function ModeToggle({ mode, onChange }: { mode: Mode; onChange: (m: Mode) => voi
       <button
         onClick={() => onChange('chat')}
         className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-colors ${
-          mode === 'chat' ? 'bg-[#1f2a0f] text-primary shadow-sm' : 'text-muted-foreground hover:text-foreground'
+          mode === 'chat' ? 'bg-primary/30 text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
         }`}
       >
         <MessageSquare className="h-3.5 w-3.5" />
@@ -228,7 +228,7 @@ function ModeToggle({ mode, onChange }: { mode: Mode; onChange: (m: Mode) => voi
       <button
         onClick={() => onChange('search')}
         className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-colors ${
-          mode === 'search' ? 'bg-[#1f2a0f] text-primary shadow-sm' : 'text-muted-foreground hover:text-foreground'
+          mode === 'search' ? 'bg-primary/30 text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
         }`}
       >
         <Globe className="h-3.5 w-3.5" />
@@ -412,13 +412,13 @@ export function AICopilot() {
               animate={{ x: 0, opacity: 1 }}
               exit={{ x: '100%', opacity: 0 }}
               transition={{ type: 'spring', stiffness: 300, damping: 30 }}
-              className="fixed right-0 top-0 bottom-0 w-full sm:max-w-md bg-background border-l border-[#1f1f1f] z-50 flex flex-col"
+              className="fixed right-0 top-0 bottom-0 w-full sm:max-w-md bg-background border-l border-border z-50 flex flex-col"
             >
               {/* Header */}
-              <div className="flex items-center justify-between px-5 py-4 border-b border-[#1f1f1f]">
+              <div className="flex items-center justify-between px-5 py-4 border-b border-border">
                 <div className="flex items-center gap-3">
-                  <div className="h-9 w-9 rounded-xl bg-[#1f2a0f] flex items-center justify-center">
-                    <Sparkles className="h-4.5 w-4.5 text-primary" />
+                  <div className="h-9 w-9 rounded-xl bg-primary/30 flex items-center justify-center">
+                    <Sparkles className="h-4.5 w-4.5 text-foreground" />
                   </div>
                   <div>
                     <p className="text-sm font-bold tracking-tight">Preguntale a {APP_NAME}</p>
@@ -438,7 +438,7 @@ export function AICopilot() {
               </div>
 
               {/* Mode toggle */}
-              <div className="px-5 py-2.5 border-b border-[#1f1f1f]">
+              <div className="px-5 py-2.5 border-b border-border">
                 <ModeToggle mode={mode} onChange={setMode} />
               </div>
 
@@ -446,8 +446,8 @@ export function AICopilot() {
               <div ref={scrollRef} className="flex-1 overflow-auto p-5 space-y-4">
                 {!hasMessages && (
                   <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }} className="text-center pt-8">
-                    <div className="h-14 w-14 rounded-2xl bg-[#1f2a0f] flex items-center justify-center mx-auto mb-4">
-                      {mode === 'search' ? <Globe className="h-7 w-7 text-primary" /> : <Sparkles className="h-7 w-7 text-primary" />}
+                    <div className="h-14 w-14 rounded-2xl bg-primary/30 flex items-center justify-center mx-auto mb-4">
+                      {mode === 'search' ? <Globe className="h-7 w-7 text-foreground" /> : <Sparkles className="h-7 w-7 text-foreground" />}
                     </div>
                     <h3 className="text-base font-bold tracking-tight mb-1">
                       {mode === 'search' ? '¿Qué querés investigar?' : '¿En qué te puedo ayudar?'}
@@ -470,7 +470,7 @@ export function AICopilot() {
                                   animate={{ opacity: 1, y: 0 }}
                                   transition={{ delay: 0.3 + gi * 0.1 + ci * 0.04 }}
                                   onClick={() => sendMessage(chip)}
-                                  className="bg-[#1a1a1a] border border-[#2a2a2a] rounded-full px-3 py-1.5 text-xs text-muted-foreground hover:border-primary/50 hover:text-primary transition-colors"
+                                  className="bg-muted border border-border rounded-full px-3 py-1.5 text-xs text-muted-foreground hover:border-foreground/40 hover:text-foreground transition-colors"
                                 >
                                   {chip}
                                 </motion.button>
@@ -502,7 +502,7 @@ export function AICopilot() {
               </div>
 
               {/* Input */}
-               <form onSubmit={handleSubmit} className="p-4 border-t border-[#1f1f1f]">
+               <form onSubmit={handleSubmit} className="p-4 border-t border-border">
                  <div className="flex items-center gap-2 bg-card rounded-xl px-4 py-3 border border-border focus-within:border-primary/50 transition-colors">
                   <input
                     ref={inputRef}
