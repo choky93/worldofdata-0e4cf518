@@ -62,6 +62,8 @@ export function ExtractedDataProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [hasData, setHasData] = useState(false);
   const [taggedVentasRows, setTaggedVentasRows] = useState<{ row: any; fileUploadId: string }[]>([]);
+  const [taggedGastosRows, setTaggedGastosRows] = useState<{ row: any; fileUploadId: string }[]>([]);
+  const [taggedMarketingRows, setTaggedMarketingRows] = useState<{ row: any; fileUploadId: string }[]>([]);
 
   const fetchData = useCallback(async () => {
     if (!profile?.company_id) return;
@@ -92,6 +94,8 @@ export function ExtractedDataProvider({ children }: { children: ReactNode }) {
 
       // Track rows with their source file for overlap detection
       const taggedVentas: { row: any; fileUploadId: string }[] = [];
+      const taggedGastos: { row: any; fileUploadId: string }[] = [];
+      const taggedMarketing: { row: any; fileUploadId: string }[] = [];
 
       const mergedMappings: CategoryMappings = {
         ventas: {}, gastos: {}, stock: {}, clientes: {},
@@ -123,11 +127,14 @@ export function ExtractedDataProvider({ children }: { children: ReactNode }) {
           if (!Array.isArray(rows) || rows.length === 0) continue;
           if (agg[cat]) {
             agg[cat].push(...rows);
-            // Track ventas rows with source file for overlap detection
             if (cat === 'ventas') {
-              for (const row of rows) {
-                taggedVentas.push({ row, fileUploadId: r.file_upload_id });
-              }
+              for (const row of rows) taggedVentas.push({ row, fileUploadId: r.file_upload_id });
+            }
+            if (cat === 'gastos') {
+              for (const row of rows) taggedGastos.push({ row, fileUploadId: r.file_upload_id });
+            }
+            if (cat === 'marketing') {
+              for (const row of rows) taggedMarketing.push({ row, fileUploadId: r.file_upload_id });
             }
           } else {
             agg.otro.push(...rows);
@@ -141,6 +148,8 @@ export function ExtractedDataProvider({ children }: { children: ReactNode }) {
       setData(agg);
       setMappings(mergedMappings);
       setTaggedVentasRows(taggedVentas);
+      setTaggedGastosRows(taggedGastos);
+      setTaggedMarketingRows(taggedMarketing);
     } catch (err) {
       console.error('useExtractedData error:', err);
       setHasData(false);
@@ -167,13 +176,27 @@ export function ExtractedDataProvider({ children }: { children: ReactNode }) {
     return Array.from(months).sort();
   }, [data, mappings]);
 
-  // Detect periods with data from multiple source files (ventas only for now)
+  // Detect periods with data from multiple source files across ventas, gastos y marketing
   const duplicatedPeriods = useMemo(() => {
-    if (!data || taggedVentasRows.length === 0) return [];
-    const mV = mappings.ventas;
-    const finder = (row: any, kw: string[]) => findString(row, kw, mV?.date);
-    return detectMultiSourcePeriods(taggedVentasRows, FIELD_DATE, finder);
-  }, [taggedVentasRows, mappings]);
+    if (!data) return [];
+
+    const duplicated = new Set<string>();
+    const ventasFinder = (row: any, kw: string[]) => findString(row, kw, mappings.ventas?.date);
+    const gastosFinder = (row: any, kw: string[]) => findString(row, kw, mappings.gastos?.date);
+    const marketingFinder = (row: any, kw: string[]) => findString(row, kw, mappings.marketing?.date);
+
+    if (taggedVentasRows.length > 0) {
+      for (const month of detectMultiSourcePeriods(taggedVentasRows, FIELD_DATE, ventasFinder)) duplicated.add(month);
+    }
+    if (taggedGastosRows.length > 0) {
+      for (const month of detectMultiSourcePeriods(taggedGastosRows, FIELD_DATE, gastosFinder)) duplicated.add(month);
+    }
+    if (taggedMarketingRows.length > 0) {
+      for (const month of detectMultiSourcePeriods(taggedMarketingRows, FIELD_DATE, marketingFinder)) duplicated.add(month);
+    }
+
+    return Array.from(duplicated).sort();
+  }, [data, mappings, taggedVentasRows, taggedGastosRows, taggedMarketingRows]);
 
   // Detect currency mix in ventas and gastos
   const hasCurrencyMix = useMemo(() => {
