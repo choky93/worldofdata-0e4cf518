@@ -137,6 +137,9 @@ export default function Marketing() {
   const hasConversionsField = fieldExists(filteredMarketing, FIELD_CONVERSIONS, m?.conversions);
   const hasReachField = fieldExists(filteredMarketing, FIELD_REACH, m?.reach);
   const hasImpressionsField = fieldExists(filteredMarketing, FIELD_IMPRESSIONS, m?.impressions);
+  const hasStartDateField = fieldExists(filteredMarketing, FIELD_START_DATE, m?.start_date);
+  const hasEndDateField = fieldExists(filteredMarketing, FIELD_END_DATE, m?.end_date);
+  const hasDateRange = hasStartDateField || hasEndDateField;
 
   // Check if we have campaign names or just date-based rows
   const hasCampaignNames = realCampaigns.some(c => {
@@ -224,6 +227,8 @@ export default function Marketing() {
             <Table>
               <TableHeader><TableRow>
                 <TableHead>{hasCampaignNames ? 'Campaña' : 'Período'}</TableHead>
+                {hasDateRange && <TableHead>Desde</TableHead>}
+                {hasDateRange && <TableHead>Hasta</TableHead>}
                 <TableHead className="text-right">Gasto</TableHead>
                 {totalRevenue > 0 && <TableHead className="text-right">Ingresos</TableHead>}
                 {globalRoas > 0 && <TableHead className="text-right">ROAS</TableHead>}
@@ -236,6 +241,8 @@ export default function Marketing() {
                 {realCampaigns.map((c, i) => (
                   <TableRow key={i}>
                     <TableCell className="font-medium">{c.name}</TableCell>
+                    {hasDateRange && <TableCell className="tabular-nums text-muted-foreground">{formatDateShort(c.startDate)}</TableCell>}
+                    {hasDateRange && <TableCell className="tabular-nums text-muted-foreground">{formatDateShort(c.endDate)}</TableCell>}
                     <TableCell className="text-right tabular-nums">{formatCurrency(c.spend)}</TableCell>
                     {totalRevenue > 0 && <TableCell className="text-right tabular-nums">{formatCurrency(c.revenue)}</TableCell>}
                     {globalRoas > 0 && <TableCell className="text-right font-bold tabular-nums">{c.roas > 0 ? `${c.roas}x` : '—'}</TableCell>}
