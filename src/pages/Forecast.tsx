@@ -2,75 +2,17 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { formatCurrency } from '@/lib/formatters';
 import { formatXAxisDate, formatAmount, TOOLTIP_STYLE, AXIS_STYLE } from '@/lib/chart-config';
-import { findNumber, findString, FIELD_AMOUNT, FIELD_DATE } from '@/lib/field-utils';
 import { useExtractedData } from '@/hooks/useExtractedData';
-import { parseDate } from '@/lib/data-cleaning';
-import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
+import { aggregateSalesByMonth, buildForecast } from '@/lib/forecast-engine';
+import type { ForecastPoint } from '@/lib/forecast-engine';
+import {
+  LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer,
+  CartesianGrid, Area, ComposedChart,
+} from 'recharts';
 import { Tooltip as UITooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip';
 import { TrendingUp, Upload, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Link } from 'react-router-dom';
-
-function aggregateSalesByMonth(ventas: any[], mappedDate?: string, mappedAmount?: string): { month: string; value: number; date: Date }[] {
-  const buckets = new Map<string, { total: number; date: Date }>();
-
-  for (const r of ventas) {
-    const raw = findString(r, FIELD_DATE, mappedDate);
-    if (!raw) continue;
-
-    const d = parseDate(raw);
-    if (!d) continue;
-
-    const key = d.toLocaleDateString('es-AR', { month: 'short', year: 'numeric' });
-    const amount = findNumber(r, FIELD_AMOUNT, mappedAmount);
-    const existing = buckets.get(key);
-    if (existing) {
-      existing.total += amount;
-    } else {
-      buckets.set(key, { total: amount, date: new Date(d.getFullYear(), d.getMonth(), 1) });
-    }
-  }
-
-  return Array.from(buckets.entries())
-    .sort(([, a], [, b]) => a.date.getTime() - b.date.getTime())
-    .map(([month, { total, date }]) => ({ month, value: total, date }));
-}
-
-function buildForecast(history: { month: string; value: number; date: Date }[]) {
-  if (history.length < 2) return { chartData: history.map(d => ({ ...d, type: 'real' })), projections: null };
-
-  const last = history[history.length - 1];
-  const prev = history[history.length - 2];
-  const trend = prev.value > 0 ? (last.value - prev.value) / prev.value : 0;
-
-  const forecastPoints = [1, 2, 3].map(offset => {
-    const forecastDate = new Date(last.date);
-    forecastDate.setMonth(forecastDate.getMonth() + offset);
-    const month = forecastDate.toLocaleDateString('es-AR', { month: 'short', year: 'numeric' });
-    const value = Math.round(last.value * Math.pow(1 + trend * 0.7, offset));
-    return { month, value, type: 'forecast' };
-  });
-
-  const chartData = [
-    ...history.map(d => ({ ...d, type: 'real' })),
-    ...forecastPoints,
-  ].map((d: any) => ({
-    month: d.month,
-    real: d.type === 'real' ? d.value : undefined,
-    forecast: d.type === 'forecast' ? d.value :
-      (d.month === last.month ? d.value : undefined),
-  }));
-
-  return {
-    chartData,
-    projections: {
-      currentEstimate: Math.round(last.value * (1 + trend * 0.7)),
-      nextMonth: forecastPoints[1]?.value || 0,
-      quarterly: forecastPoints.reduce((s, p) => s + p.value, 0),
-      trend,
-    },
-  };
-}
 
 export default function Forecast() {
   const { data: extractedData, mappings, hasData, loading } = useExtractedData();
@@ -134,7 +76,7 @@ export default function Forecast() {
     );
   }
 
-  const { chartData, projections } = buildForecast(salesHistory);
+  const { chartData, projections, usesSeasonality } = buildForecast(salesHistory);
 
   return (
     <TooltipProvider>
@@ -156,7 +98,9 @@ export default function Forecast() {
               <CardContent className="pt-6">
                 <p className="text-sm text-muted-foreground">En 2 meses</p>
                 <p className="text-3xl font-bold tabular-nums">{formatCurrency(projections.nextMonth)}</p>
-                <Badge className="border-0 bg-muted text-muted-foreground mt-1">Confianza media</Badge>
+                <Badge className={`border-0 mt-1 ${usesSeasonality ? 'bg-success/15 text-success' : 'bg-muted text-muted-foreground'}`}>
+                  {usesSeasonality ? 'Con estacionalidad' : 'Solo tendencia'}
+                </Badge>
               </CardContent>
             </Card>
             <Card>
@@ -165,11 +109,19 @@ export default function Forecast() {
                   Próximos 3 meses
                   <UITooltip>
                     <TooltipTrigger asChild><span className="cursor-help">ⓘ</span></TooltipTrigger>
-                    <TooltipContent><p className="text-xs max-w-[250px]">Estimación basada en la tendencia reciente de tus datos históricos.</p></TooltipContent>
+                    <TooltipContent>
+                      <p className="text-xs max-w-[250px]">
+                        {usesSeasonality
+                          ? 'Proyección basada en tendencia (promedio ponderado últimos 6 meses) + factores de estacionalidad histórica.'
+                          : 'Proyección basada en tendencia (promedio ponderado últimos 6 meses). Se necesita al menos 1 año de datos para incluir estacionalidad.'}
+                      </p>
+                    </TooltipContent>
                   </UITooltip>
                 </p>
                 <p className="text-3xl font-bold tabular-nums">{formatCurrency(projections.quarterly)}</p>
-                <Badge className="border-0 bg-muted text-muted-foreground mt-1">Confianza baja</Badge>
+                <Badge className="border-0 bg-muted text-muted-foreground mt-1">
+                  {usesSeasonality ? 'Confianza media' : 'Confianza baja'}
+                </Badge>
               </CardContent>
             </Card>
           </div>
@@ -180,25 +132,84 @@ export default function Forecast() {
           <CardContent>
             <div className="h-72">
               <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={chartData}>
-                   <CartesianGrid strokeDasharray="3 3" stroke="#1f1f1f" />
-                   <XAxis dataKey="month" tick={AXIS_STYLE.tick} tickFormatter={formatXAxisDate} />
-                   <YAxis tick={AXIS_STYLE.tick} tickFormatter={formatAmount} />
-                   <Tooltip formatter={(v: number) => formatCurrency(v)} labelFormatter={formatXAxisDate} {...TOOLTIP_STYLE} />
-                   <Line type="monotone" dataKey="real" stroke="#c8f135" strokeWidth={2} dot={{ r: 3, fill: '#c8f135' }} name="Real" connectNulls={false} />
-                   <Line type="monotone" dataKey="forecast" stroke="#c8f135" strokeWidth={2} strokeDasharray="6 4" dot={{ r: 3, fill: '#c8f135' }} name="Proyección" connectNulls={false} />
-                </LineChart>
+                <ComposedChart data={chartData}>
+                  <defs>
+                    <linearGradient id="confidenceBand" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="#c8f135" stopOpacity={0.12} />
+                      <stop offset="100%" stopColor="#c8f135" stopOpacity={0.03} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#1f1f1f" />
+                  <XAxis dataKey="month" tick={AXIS_STYLE.tick} tickFormatter={formatXAxisDate} />
+                  <YAxis tick={AXIS_STYLE.tick} tickFormatter={formatAmount} />
+                  <Tooltip
+                    formatter={(v: number, name: string) => {
+                      const labels: Record<string, string> = {
+                        real: 'Real',
+                        forecast: 'Proyección',
+                        forecastUpper: 'Banda superior (+15%)',
+                        forecastLower: 'Banda inferior (−15%)',
+                      };
+                      return [formatCurrency(v), labels[name] || name];
+                    }}
+                    labelFormatter={formatXAxisDate}
+                    {...TOOLTIP_STYLE}
+                  />
+                  {/* Confidence band */}
+                  <Area
+                    type="monotone"
+                    dataKey="forecastUpper"
+                    stroke="none"
+                    fill="url(#confidenceBand)"
+                    connectNulls={false}
+                    activeDot={false}
+                    name="forecastUpper"
+                  />
+                  <Area
+                    type="monotone"
+                    dataKey="forecastLower"
+                    stroke="none"
+                    fill="#0d0d0d"
+                    connectNulls={false}
+                    activeDot={false}
+                    name="forecastLower"
+                  />
+                  {/* Real data */}
+                  <Line
+                    type="monotone"
+                    dataKey="real"
+                    stroke="#c8f135"
+                    strokeWidth={2}
+                    dot={{ r: 3, fill: '#c8f135' }}
+                    name="real"
+                    connectNulls={false}
+                  />
+                  {/* Forecast line */}
+                  <Line
+                    type="monotone"
+                    dataKey="forecast"
+                    stroke="#c8f135"
+                    strokeWidth={2}
+                    strokeDasharray="6 4"
+                    dot={{ r: 3, fill: '#c8f135' }}
+                    name="forecast"
+                    connectNulls={false}
+                  />
+                </ComposedChart>
               </ResponsiveContainer>
             </div>
             <div className="flex gap-4 mt-2 text-xs text-muted-foreground">
-               <span className="flex items-center gap-1"><span className="w-4 h-0.5 bg-primary inline-block" /> Real</span>
-               <span className="flex items-center gap-1"><span className="w-4 h-0.5 inline-block" style={{ borderTop: '2px dashed #c8f135', height: 0, background: 'none' }} /> Proyección</span>
+              <span className="flex items-center gap-1"><span className="w-4 h-0.5 bg-primary inline-block" /> Real</span>
+              <span className="flex items-center gap-1"><span className="w-4 h-0.5 inline-block" style={{ borderTop: '2px dashed #c8f135', height: 0, background: 'none' }} /> Proyección</span>
+              <span className="flex items-center gap-1"><span className="w-4 h-2 inline-block rounded-sm" style={{ background: 'rgba(200,241,53,0.1)' }} /> Banda ±15%</span>
             </div>
           </CardContent>
         </Card>
 
         <p className="text-xs text-muted-foreground text-center">
-          Proyección basada en {salesHistory.length} períodos de historial de ventas. Mayor historial = mayor precisión.
+          {usesSeasonality
+            ? `Proyección basada en ${salesHistory.length} períodos con tendencia ponderada + estacionalidad histórica.`
+            : `Proyección basada en tendencia (${salesHistory.length} períodos). Se necesita al menos 1 año de datos para incluir estacionalidad.`}
         </p>
       </div>
     </TooltipProvider>
