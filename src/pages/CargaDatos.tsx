@@ -1192,7 +1192,11 @@ export default function CargaDatos() {
 
       if (!allExtracted) { setOverlapInfo(null); return; }
 
-      const catMapping = overlapInfo.category === 'ventas' ? globalMappings.ventas : globalMappings.gastos;
+      const catMapping = overlapInfo.category === 'ventas' 
+        ? globalMappings.ventas 
+        : overlapInfo.category === 'marketing'
+        ? globalMappings.marketing
+        : globalMappings.gastos;
       const finder = (row: any, kw: string[]) => findString(row, kw, catMapping?.date);
       const overlapSet = new Set(overlapInfo.overlappingMonths);
 
