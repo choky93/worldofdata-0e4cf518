@@ -156,32 +156,57 @@ export default function Dashboard() {
     return { ok, bajo, critico };
   })();
 
+  // Build available periods for Topbar dropdown (mismo set que PeriodPills usaba)
+  const formatPeriodLabel = (val: string): string => {
+    if (val === 'all') return 'Todo el período';
+    if (/^\d{4}$/.test(val)) return val;
+    if (/^\d{4}-\d{2}$/.test(val)) {
+      const [y, m] = val.split('-');
+      const d = new Date(Number(y), Number(m) - 1, 1);
+      return d.toLocaleDateString('es-AR', { month: 'short', year: '2-digit' })
+        .replace('.', '')
+        .replace(/^\w/, c => c.toUpperCase());
+    }
+    return val;
+  };
+  const years = [...new Set(availableMonths.map(m => m.split('-')[0]))].sort().reverse().slice(0, 3);
+  const recentMonths = [...availableMonths].sort().reverse().slice(0, 3);
+  const periodOptions = ['all', ...years, ...recentMonths].map(v => ({ value: v, label: formatPeriodLabel(v) }));
+  const currentPeriodLabel = formatPeriodLabel(period);
+
   return (
     <div className="space-y-6 max-w-[1400px]">
-      <Topbar userName={name} pageTitle="Dashboard" breadcrumb={company} />
-
-      {/* Period filter */}
-      <Stagger index={0}>
-        <div className="flex items-center justify-between flex-wrap gap-3">
-          <p className="text-sm text-muted-foreground">
-            Resumen de <span className="font-semibold text-foreground">{company}</span>
-          </p>
-          <PeriodPills value={period} onChange={setPeriod} availableMonths={availableMonths} />
-        </div>
-      </Stagger>
+      <Topbar
+        userName={name}
+        pageTitle="Dashboard"
+        breadcrumb={company}
+        currentPeriod={period}
+        onPeriodChange={setPeriod}
+        availablePeriods={periodOptions}
+      />
 
       {/* Banners */}
       <Stagger index={1}>
         <div className="space-y-2">
           {!dataLoading && (
-            <div className={`rounded-2xl px-4 py-2.5 text-xs flex items-center gap-2 ${hasData ? 'alert-success' : 'bg-card text-muted-foreground border border-border'}`}>
-              <Database className="h-3.5 w-3.5 shrink-0" />
-              {hasData ? (
+            hasData ? (
+              <div
+                className="rounded-2xl px-5 py-3 text-xs flex items-center gap-2"
+                style={{
+                  background: 'hsl(var(--pastel-mint) / 0.3)',
+                  color: 'hsl(155 45% 25%)',
+                  border: '1px solid hsl(var(--pastel-mint) / 0.5)',
+                }}
+              >
+                <Database className="h-3.5 w-3.5 shrink-0" />
                 <span>Mostrando datos reales extraídos de tus archivos cargados</span>
-              ) : (
+              </div>
+            ) : (
+              <div className="rounded-2xl px-4 py-2.5 text-xs flex items-center gap-2 bg-card text-muted-foreground border border-border">
+                <Database className="h-3.5 w-3.5 shrink-0" />
                 <span>Sin datos cargados. <Link to="/carga-datos" className="underline font-medium">Cargá tus archivos</Link> para ver tus métricas.</span>
-              )}
-            </div>
+              </div>
+            )
           )}
 
           {duplicatedPeriods.length > 0 && !duplicateBannerDismissed && (
