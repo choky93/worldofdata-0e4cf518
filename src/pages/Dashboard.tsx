@@ -8,7 +8,6 @@ import { findNumber, findString, FIELD_AMOUNT, FIELD_SPEND, FIELD_DATE, FIELD_ST
 import { parseDate } from '@/lib/data-cleaning';
 import { useExtractedData } from '@/hooks/useExtractedData';
 import { filterByPeriod } from '@/lib/data-cleaning';
-import { PeriodPills } from '@/components/ui/PeriodPills';
 import { Topbar } from '@/components/layout/Topbar';
 import { ResumenEjecutivoCard } from '@/components/dashboard/ResumenEjecutivoCard';
 import { VentasMesCard } from '@/components/dashboard/VentasMesCard';
