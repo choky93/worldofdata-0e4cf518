@@ -37,6 +37,11 @@ export interface CategoryMappings {
   otro: ColumnMapping;
 }
 
+export interface TaggedRow {
+  row: any;
+  fileUploadId: string;
+}
+
 interface ExtractedDataContextValue {
   data: AggregatedData | null;
   mappings: CategoryMappings;
@@ -45,6 +50,9 @@ interface ExtractedDataContextValue {
   availableMonths: string[];
   duplicatedPeriods: string[];
   hasCurrencyMix: { ventas: boolean; gastos: boolean };
+  taggedVentasRows: TaggedRow[];
+  taggedGastosRows: TaggedRow[];
+  taggedMarketingRows: TaggedRow[];
   refetch: () => Promise<void>;
 }
 
@@ -208,7 +216,7 @@ export function ExtractedDataProvider({ children }: { children: ReactNode }) {
   }, [data]);
 
   return (
-    <ExtractedDataContext.Provider value={{ data, mappings, loading, hasData, availableMonths, duplicatedPeriods, hasCurrencyMix, refetch: fetchData }}>
+    <ExtractedDataContext.Provider value={{ data, mappings, loading, hasData, availableMonths, duplicatedPeriods, hasCurrencyMix, taggedVentasRows, taggedGastosRows, taggedMarketingRows, refetch: fetchData }}>
       {children}
     </ExtractedDataContext.Provider>
   );

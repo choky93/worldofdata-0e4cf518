@@ -412,7 +412,7 @@ function StatusDashboard({ files, totalCount }: { files: FileRecord[]; totalCoun
 
 export default function CargaDatos() {
   const { user, profile, role, companySettings } = useAuth();
-  const { refetch: refetchExtractedData, data: globalExtractedData, mappings: globalMappings } = useExtractedData();
+  const { refetch: refetchExtractedData, data: globalExtractedData, mappings: globalMappings, taggedVentasRows, taggedGastosRows, taggedMarketingRows } = useExtractedData();
   const [files, setFiles] = useState<FileRecord[]>([]);
   const [totalCount, setTotalCount] = useState(0);
   const [extractedDataMap, setExtractedDataMap] = useState<Record<string, ExtractedData[]>>({});
@@ -988,19 +988,21 @@ export default function CargaDatos() {
         // Group by file_upload_id to find new rows
         for (const ext of newExtracted) {
           const cat = ext.data_category as string;
-          if (cat !== 'ventas' && cat !== 'gastos') continue;
+          if (cat !== 'ventas' && cat !== 'gastos' && cat !== 'marketing') continue;
           const json = ext.extracted_json as any;
           const newRows = json?.data || [];
           if (!Array.isArray(newRows) || newRows.length === 0) continue;
 
-          // Compare with existing data from global context
-          const existingRows = cat === 'ventas'
-            ? (globalExtractedData?.ventas || [])
-            : (globalExtractedData?.gastos || []);
+          const newFileUploadId = ext.file_upload_id;
 
-          // Filter out rows from the same file
-          // We can't easily do this without file tracking, so use the full set
-          const catMapping = cat === 'ventas' ? globalMappings.ventas : globalMappings.gastos;
+          // Use tagged rows from context, filtering out rows from the same file to avoid self-overlap
+          const existingRows = cat === 'ventas'
+            ? taggedVentasRows.filter(t => t.fileUploadId !== newFileUploadId).map(t => t.row)
+            : cat === 'gastos'
+            ? taggedGastosRows.filter(t => t.fileUploadId !== newFileUploadId).map(t => t.row)
+            : taggedMarketingRows.filter(t => t.fileUploadId !== newFileUploadId).map(t => t.row);
+
+          const catMapping = cat === 'ventas' ? globalMappings.ventas : cat === 'gastos' ? globalMappings.gastos : globalMappings.marketing;
           const finder = (row: any, kw: string[]) => findString(row, kw, catMapping?.date);
           const overlap = detectPeriodOverlap(existingRows, newRows, FIELD_DATE, finder);
 
