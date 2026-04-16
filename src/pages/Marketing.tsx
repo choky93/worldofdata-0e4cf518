@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { formatCurrency, formatPercent, formatNumber, safeDiv } from '@/lib/formatters';
 import { formatAmount, TOOLTIP_STYLE, AXIS_STYLE } from '@/lib/chart-config';
 import { useExtractedData } from '@/hooks/useExtractedData';
-import { findNumber, findString, findField, FIELD_CAMPAIGN_NAME, FIELD_SPEND, FIELD_REVENUE, FIELD_ROAS, FIELD_CLICKS, FIELD_CTR, FIELD_CONVERSIONS, FIELD_REACH, FIELD_IMPRESSIONS, FIELD_DATE } from '@/lib/field-utils';
+import { findNumber, findString, findField, FIELD_CAMPAIGN_NAME, FIELD_SPEND, FIELD_REVENUE, FIELD_ROAS, FIELD_CLICKS, FIELD_CTR, FIELD_CONVERSIONS, FIELD_REACH, FIELD_IMPRESSIONS, FIELD_DATE, FIELD_START_DATE, FIELD_END_DATE } from '@/lib/field-utils';
 import { filterByPeriod, parseDate, type PeriodKey } from '@/lib/data-cleaning';
 import { PeriodPills } from '@/components/ui/PeriodPills';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -24,6 +24,8 @@ interface CampaignRow {
   reach: number;
   impressions: number;
   date: string;
+  startDate: string;
+  endDate: string;
 }
 
 /** Check if a field (by keywords or mapping) exists in at least one row */
@@ -32,6 +34,13 @@ function fieldExists(rows: any[], keywords: string[], mappedCol?: string | null)
     if (mappedCol && r[mappedCol] !== undefined && r[mappedCol] !== null && String(r[mappedCol]).trim() !== '') return true;
     return findField(r, keywords) !== null && findField(r, keywords) !== undefined;
   });
+}
+
+function formatDateShort(raw: string): string {
+  if (!raw) return '—';
+  const d = parseDate(raw);
+  if (!d) return raw;
+  return d.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' });
 }
 
 function normalizeMarketing(rows: any[], m?: any): CampaignRow[] {
@@ -52,6 +61,8 @@ function normalizeMarketing(rows: any[], m?: any): CampaignRow[] {
       reach: Math.round(findNumber(r, FIELD_REACH, m?.reach)),
       impressions: Math.round(findNumber(r, FIELD_IMPRESSIONS, m?.impressions)),
       date: rawDate,
+      startDate: findString(r, FIELD_START_DATE, m?.start_date),
+      endDate: findString(r, FIELD_END_DATE, m?.end_date),
     };
   });
 }
