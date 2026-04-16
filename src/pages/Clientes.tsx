@@ -40,11 +40,50 @@ function normalizeClients(rawData: any[], m?: ColumnMapping): ClientRow[] {
   });
 }
 
+/** Build client list by grouping ventas rows by client name */
+function buildClientsFromVentas(ventasRows: any[], mV?: ColumnMapping): ClientRow[] {
+  const map = new Map<string, { total: number; count: number; lastDate: Date | null }>();
+
+  for (const r of ventasRows) {
+    const name = findString(r, FIELD_CLIENT, mV?.client);
+    if (!name) continue;
+
+    const amount = findNumber(r, FIELD_AMOUNT, mV?.amount);
+    const dateStr = findString(r, FIELD_DATE, mV?.date);
+    const date = dateStr ? parseDate(dateStr) : null;
+
+    const existing = map.get(name);
+    if (existing) {
+      existing.total += amount;
+      existing.count += 1;
+      if (date && (!existing.lastDate || date > existing.lastDate)) {
+        existing.lastDate = date;
+      }
+    } else {
+      map.set(name, { total: amount, count: 1, lastDate: date });
+    }
+  }
+
+  return Array.from(map.entries()).map(([name, info], i) => ({
+    id: String(i + 1),
+    name,
+    totalPurchases: info.total,
+    pendingPayment: 0,
+    lastPurchase: info.lastDate ? info.lastDate.toISOString().split('T')[0] : '',
+    purchaseCount: info.count,
+    avgTicket: info.count > 0 ? info.total / info.count : 0,
+  }));
+}
+
 export default function Clientes() {
   const { data: extractedData, mappings, hasData, loading } = useExtractedData();
   const mC = mappings.clientes;
+  const mV = mappings.ventas;
   const realClientes = extractedData?.clientes || [];
-  const useReal = hasData && realClientes.length > 0;
+  const realVentas = extractedData?.ventas || [];
+  const useClientesDirectos = hasData && realClientes.length > 0;
+  const useClientesDesdeVentas = hasData && realClientes.length === 0 && realVentas.length > 0;
+  const useReal = useClientesDirectos || useClientesDesdeVentas;
 
   if (loading) {
     return (
