@@ -1,3 +1,4 @@
+import { Megaphone } from 'lucide-react';
 import { formatCurrency } from '@/lib/formatters';
 
 interface InversionPublicitariaCardProps {
@@ -11,20 +12,34 @@ export function InversionPublicitariaCard({
   metaSpend, metaBudget, googleSpend, googleBudget,
 }: InversionPublicitariaCardProps) {
   const total = metaSpend + googleSpend;
+  const hasData = total > 0;
 
   return (
-    <div className="rounded-3xl bg-card border border-border p-6 shadow-soft hover:shadow-card-hover transition-shadow h-full min-h-[260px] flex flex-col">
+    <div className="rounded-3xl bg-card border border-border p-6 shadow-soft hover:shadow-card-hover transition-shadow h-full min-h-[240px] flex flex-col">
       <p className="text-xs uppercase tracking-widest text-muted-foreground mb-1">
         Inversión publicitaria
       </p>
-      <h3 className="text-2xl font-bold text-foreground tracking-tight mb-5">
-        {total > 0 ? formatCurrency(total) : '—'}
-      </h3>
 
-      <div className="space-y-4 mt-auto">
-        <Bar label="Meta Ads" spend={metaSpend} budget={metaBudget} color="hsl(var(--pastel-pink-strong))" />
-        <Bar label="Google Ads" spend={googleSpend} budget={googleBudget} color="hsl(var(--pastel-sky-strong))" />
-      </div>
+      {!hasData ? (
+        <div className="flex-1 flex flex-col items-center justify-center gap-2 text-muted-foreground">
+          <Megaphone className="w-8 h-8 opacity-40" strokeWidth={1.5} />
+          <span className="text-xs">Sin inversión registrada</span>
+        </div>
+      ) : (
+        <>
+          <h3 className="text-2xl font-bold text-foreground tracking-tight mb-5">
+            {formatCurrency(total)}
+          </h3>
+          <div className="space-y-4 mt-auto">
+            {(metaSpend > 0 || metaBudget > 0) && (
+              <Bar label="Meta Ads" spend={metaSpend} budget={metaBudget} color="hsl(var(--pastel-pink-strong))" />
+            )}
+            {(googleSpend > 0 || googleBudget > 0) && (
+              <Bar label="Google Ads" spend={googleSpend} budget={googleBudget} color="hsl(var(--pastel-sky-strong))" />
+            )}
+          </div>
+        </>
+      )}
     </div>
   );
 }

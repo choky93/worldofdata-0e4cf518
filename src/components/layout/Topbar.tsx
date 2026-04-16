@@ -1,13 +1,35 @@
-import { Search, Filter, Calendar, Plus } from 'lucide-react';
-import { Button } from '@/components/ui/button';
+import { Calendar, Filter } from 'lucide-react';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+  DropdownMenuSeparator,
+  DropdownMenuLabel,
+} from '@/components/ui/dropdown-menu';
+
+interface PeriodOption {
+  label: string;
+  value: string;
+}
 
 interface TopbarProps {
   userName?: string;
   pageTitle?: string;
   breadcrumb?: string;
+  currentPeriod?: string;
+  onPeriodChange?: (period: string) => void;
+  availablePeriods?: PeriodOption[];
 }
 
-export function Topbar({ userName = 'Usuario', pageTitle = 'Dashboard', breadcrumb = 'Inicio' }: TopbarProps) {
+export function Topbar({
+  userName = 'Usuario',
+  pageTitle = 'Dashboard',
+  breadcrumb = 'Inicio',
+  currentPeriod,
+  onPeriodChange,
+  availablePeriods = [],
+}: TopbarProps) {
   const hoy = new Date().toLocaleDateString('es-AR', {
     day: 'numeric',
     month: 'short',
@@ -28,26 +50,36 @@ export function Topbar({ userName = 'Usuario', pageTitle = 'Dashboard', breadcru
       </div>
 
       <div className="flex items-center gap-3 flex-wrap">
-        <button
-          aria-label="Buscar"
-          className="w-10 h-10 rounded-full bg-card border border-border flex items-center justify-center hover:bg-secondary transition-colors"
-        >
-          <Search className="w-4 h-4" strokeWidth={2} />
-        </button>
-        <button
-          aria-label="Filtrar"
-          className="w-10 h-10 rounded-full bg-card border border-border flex items-center justify-center hover:bg-secondary transition-colors"
-        >
-          <Filter className="w-4 h-4" strokeWidth={2} />
-        </button>
-        <button className="h-10 px-4 rounded-full bg-card border border-border flex items-center gap-2 text-sm hover:bg-secondary transition-colors">
+        {availablePeriods.length > 0 && (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                aria-label="Filtrar por período"
+                className="w-10 h-10 rounded-full bg-card border border-border flex items-center justify-center hover:bg-secondary transition-colors"
+              >
+                <Filter className="w-4 h-4" strokeWidth={2} />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-52">
+              <DropdownMenuLabel>Filtrar por período</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              {availablePeriods.map((p) => (
+                <DropdownMenuItem
+                  key={p.value}
+                  onClick={() => onPeriodChange?.(p.value)}
+                  className={currentPeriod === p.value ? 'bg-secondary font-medium' : ''}
+                >
+                  {p.label}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
+
+        <button className="h-10 px-4 rounded-full bg-card border border-border flex items-center gap-2 text-sm">
           <Calendar className="w-4 h-4" strokeWidth={2} />
           <span>{hoy}</span>
         </button>
-        <Button className="h-10 rounded-full bg-accent hover:bg-accent/90 text-accent-foreground px-5 gap-2">
-          <Plus className="w-4 h-4" strokeWidth={2.5} />
-          Crear Reporte
-        </Button>
       </div>
     </header>
   );
