@@ -4,15 +4,9 @@ import {
 } from 'lucide-react';
 import { NavLink } from '@/components/NavLink';
 import { useAuth } from '@/contexts/AuthContext';
-import { APP_NAME } from '@/lib/constants';
 import { useExtractedData } from '@/hooks/useExtractedData';
-import {
-  Sidebar, SidebarContent, SidebarGroup, SidebarGroupContent,
-  SidebarMenu, SidebarMenuButton, SidebarMenuItem, SidebarHeader, SidebarFooter,
-  useSidebar,
-} from '@/components/ui/sidebar';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 
 const adminItems = [
   { title: 'Dashboard', url: '/dashboard', icon: LayoutDashboard },
@@ -36,9 +30,7 @@ const employeeItems = [
 
 export function AppSidebar() {
   const { role, companySettings, signOut } = useAuth();
-  const { state, isMobile, setOpenMobile } = useSidebar();
   const { data: extractedData } = useExtractedData();
-  const collapsed = !isMobile && state === 'collapsed';
 
   const items = role === 'employee' ? employeeItems : adminItems;
 
@@ -54,69 +46,54 @@ export function AppSidebar() {
   });
 
   return (
-    <Sidebar collapsible="icon" className="border-r border-[#1f1f1f]">
-      <div className="sidebar-gradient h-full flex flex-col">
-        <SidebarHeader className="p-4">
-          {!collapsed && (
-            <div className="flex items-center gap-2.5">
-              <div className="h-9 w-9 rounded-xl bg-primary flex items-center justify-center">
-                <BarChart3 className="h-4.5 w-4.5 text-primary-foreground" />
-              </div>
-              <span className="font-bold text-sm text-foreground tracking-tight">
-                World of <span className="text-primary">Data</span>
-              </span>
-            </div>
-          )}
-          {collapsed && (
-            <div className="flex justify-center">
-              <div className="h-9 w-9 rounded-xl bg-primary flex items-center justify-center">
-                <BarChart3 className="h-4.5 w-4.5 text-primary-foreground" />
-              </div>
-            </div>
-          )}
-        </SidebarHeader>
+    <TooltipProvider delayDuration={200}>
+      <aside className="fixed left-0 top-0 h-screen w-[72px] bg-card border-r border-border flex flex-col items-center py-5 z-40">
+        {/* Logo */}
+        <div className="w-10 h-10 rounded-xl bg-accent flex items-center justify-center mb-6 shrink-0">
+          <span className="text-accent-foreground font-bold text-sm tracking-tight">WD</span>
+        </div>
 
-        <SidebarContent className="px-2">
-          <SidebarGroup>
-            <SidebarGroupContent>
-              <SidebarMenu>
-                {visibleItems.map((item) => (
-                  <SidebarMenuItem key={item.title}>
-                    <SidebarMenuButton asChild>
-                      <NavLink
-                        to={item.url}
-                        end={item.url === '/'}
-                        className="text-[#666666] hover:bg-sidebar-accent/60 rounded-lg transition-all duration-200"
-                        activeClassName="bg-[#1f2a0f] text-primary font-semibold"
-                        onClick={() => isMobile && setOpenMobile(false)}
-                      >
-                        <item.icon className="h-4 w-4" />
-                        {!collapsed && <span>{item.title}</span>}
-                        {!collapsed && 'badge' in item && item.badge && (
-                          <Badge variant="destructive" className="ml-auto h-5 min-w-5 text-xs font-semibold">
-                            {String(item.badge)}
-                          </Badge>
-                        )}
-                      </NavLink>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                ))}
-              </SidebarMenu>
-            </SidebarGroupContent>
-          </SidebarGroup>
-        </SidebarContent>
+        {/* Nav */}
+        <nav className="flex flex-col gap-1.5 flex-1 overflow-y-auto overflow-x-hidden w-full items-center px-2">
+          {visibleItems.map((item) => (
+            <Tooltip key={item.title}>
+              <TooltipTrigger asChild>
+                <NavLink
+                  to={item.url}
+                  end={item.url === '/'}
+                  className={cn(
+                    "w-11 h-11 rounded-xl flex items-center justify-center transition-all duration-200",
+                    "text-muted-foreground hover:bg-secondary hover:text-foreground"
+                  )}
+                  activeClassName="!bg-accent !text-accent-foreground hover:!bg-accent hover:!text-accent-foreground"
+                >
+                  <item.icon className="h-[18px] w-[18px]" strokeWidth={2} />
+                </NavLink>
+              </TooltipTrigger>
+              <TooltipContent side="right" className="font-medium">
+                {item.title}
+              </TooltipContent>
+            </Tooltip>
+          ))}
+        </nav>
 
-        <SidebarFooter className="p-2">
-          <Button
-            variant="ghost"
-            className="w-full justify-start text-[#666666] hover:text-foreground hover:bg-sidebar-accent/50"
-            onClick={signOut}
-          >
-            <LogOut className="h-4 w-4 mr-2" />
-            {!collapsed && <span>Cerrar sesión</span>}
-          </Button>
-        </SidebarFooter>
-      </div>
-    </Sidebar>
+        {/* Logout */}
+        <div className="pt-2 mt-2 border-t border-border w-full flex justify-center">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                onClick={signOut}
+                className="w-11 h-11 rounded-xl flex items-center justify-center text-muted-foreground hover:bg-secondary hover:text-foreground transition-all duration-200"
+              >
+                <LogOut className="h-[18px] w-[18px]" strokeWidth={2} />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="right" className="font-medium">
+              Cerrar sesión
+            </TooltipContent>
+          </Tooltip>
+        </div>
+      </aside>
+    </TooltipProvider>
   );
 }
