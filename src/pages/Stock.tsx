@@ -78,7 +78,7 @@ export default function Stock() {
         <Package className="h-12 w-12 text-muted-foreground" />
         <h2 className="text-xl font-semibold">Sin datos de stock</h2>
         <p className="text-muted-foreground max-w-md">Cargá un archivo con datos de inventario para ver el análisis completo.</p>
-        <Link to="/carga-datos" className="text-primary hover:underline text-sm">Ir a Carga de Datos →</Link>
+        <Link to="/carga-datos" className="text-sm font-medium text-foreground underline underline-offset-4 hover:text-foreground/80">Ir a Carga de Datos →</Link>
       </div>
     );
   }
