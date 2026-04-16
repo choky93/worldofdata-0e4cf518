@@ -1,83 +1,62 @@
 
 
-# Rediseño Visual Completo — Dark Theme Lima/Verde
+## Análisis
 
-## Resumen
-Cambiar toda la estética de la plataforma a un tema dark con acento amarillo-lima (#c8f135), sin modificar lógica, hooks ni estructura de datos. Solo CSS, colores, tipografía y clases de Tailwind.
+**Sí, se puede implementar — recomiendo en 2 fases.** El documento es claro y autocontenido. Pero hay 3 conflictos con el código actual que requieren decisiones:
 
-## Archivos a modificar
+### Conflictos detectados
 
-### 1. `src/index.css` — Variables CSS y clases utilitarias
-- Reemplazar todas las CSS variables (`:root` y `.dark`) con la nueva paleta oscura
-- Background: `#0d0d0d`, card: `#1a1a1a`, border: `#2a2a2a`
-- Primary: `#c8f135`, success: `#4ade80`, destructive: `#f87171`
-- Texto: `#f5f5f5` (principal), `#888888` (secundario), `#555555` (terciario)
-- Sidebar: fondo `#111111`, border `#1f1f1f`, active `#1f2a0f`
-- Reemplazar `.sidebar-gradient` con fondo plano `#111111`
-- Nuevas clases para alertas: `.alert-warning`, `.alert-error`, `.alert-success`, `.alert-info` con fondos/bordes oscuros específicos
-- Actualizar shadow tokens a valores para tema oscuro
-- Eliminar modo claro — todo es dark por defecto
+1. **Sidebar actual ≠ Sidebar del doc.** El `AppSidebar.tsx` actual tiene 13 items con condicionales (`has_stock`, `has_ads`), roles (admin/employee), badge de empresa, signOut, y usa el sistema `Sidebar` de shadcn dentro de `AppLayout`. El doc propone un sidebar fijo de 72px con solo 6 items hardcodeados y sin roles.
+   - **Decisión:** rediseñar visualmente el `AppSidebar.tsx` existente al estilo nuevo (72px, blanco, íconos minimalistas, activo en negro) **manteniendo los 13 items, roles y signOut**. No crear `src/components/layout/Sidebar.tsx` nuevo.
 
-### 2. `src/components/ui/card.tsx` — Estilo base de cards
-- Cambiar clases por defecto: `bg-[#1a1a1a] border-[#2a2a2a] rounded-xl`
-- Eliminar backdrop-blur y sombras, solo bordes sutiles
-- CardTitle: `text-xs font-medium text-[#888888] uppercase tracking-widest` para labels
+2. **Topbar vs AppLayout.** El doc asume que Dashboard renderiza Sidebar+Topbar directamente. En el código real, `AppLayout` envuelve todas las páginas con el sidebar y un header con `SidebarTrigger`. Si Dashboard renderiza otro sidebar, queda doble.
+   - **Decisión:** crear `Topbar.tsx` y usarlo **dentro** del Dashboard como cabecera de la página (no como reemplazo del layout). El AppLayout sigue dando el sidebar global.
 
-### 3. `src/components/ui/button.tsx` — Botones
-- Primario: `bg-[#c8f135] text-[#0d0d0d] font-semibold rounded-lg`
-- Secundario: transparente con `border-[#2a2a2a] text-[#f5f5f5]`
-- Destructivo: `bg-[#2a0a0a] text-[#f87171] border-[#4a1010]`
+3. **Tema dark global.** `index.html` tiene `class="dark"` y `index.css` está en modo dark-only (memoria visual previa). El doc pide light mode puro.
+   - **Decisión:** quitar `class="dark"` del html y reescribir tokens a la paleta pastel. Esto **afectará visualmente todas las otras páginas** (Ventas, Finanzas, etc.) porque comparten los tokens. El doc lo acepta ("rediseño visual del Dashboard… para validar lenguaje visual"), pero el resto de páginas se verán raras hasta rediseñarlas. Confirmado por el doc en "QUÉ DEJAR PARA DESPUÉS".
 
-### 4. `src/components/ui/badge.tsx` — Badges
-- `rounded-full` (ya está), ajustar colores para tema dark
+### Hooks de datos del Dashboard
 
-### 5. `src/components/ui/table.tsx` — Tablas
-- Filas alternas: `#141414` y `#111111`
-- Header: `text-[#555555] uppercase text-xs tracking-widest`
-- Bordes: `border-b border-[#1f1f1f]`
-- Hover: `bg-[#1f2a0f]`
+El Dashboard actual tiene mucha lógica real (`useExtractedData`, `usePeriod`, cálculos de KPIs, ticker, health radar). Las 7 cards nuevas aceptan props con defaults mock. **Mantengo todos los hooks** y conecto los valores reales calculados a las props de las cards donde sea directo (ventas mes, ganancia, ingresos, costos). Donde no haya dato directo (forecast trimestral, ROAS publicitario, donut stock), uso los defaults del doc.
 
-### 6. `src/components/PeriodFilter.tsx` — Selector de período como pills
-- Reemplazar dropdown por pill buttons horizontales
-- Inactivo: `bg-[#1a1a1a] border-[#2a2a2a] text-[#666666]`
-- Activo: `bg-[#c8f135] text-[#0d0d0d]`
+---
 
-### 7. `src/components/AppSidebar.tsx` — Sidebar
-- Item inactivo: `text-[#666666]`
-- Item activo: `bg-[#1f2a0f] text-[#c8f135]`
-- Logo con acento lima
+## Plan de implementación — 2 fases
 
-### 8. `src/components/AppLayout.tsx` — Header
-- Fondo `#0d0d0d`, border bottom `#1f1f1f`
+### Fase 1 — Tokens, layout y componentes base
 
-### 9. `src/pages/Dashboard.tsx` — Dashboard completo
-- KPI cards con nuevo estilo (label uppercase, número blanco grande)
-- Card destacada (primera) con fondo `#c8f135` y texto `#0d0d0d`
-- Gráfico: gradiente barras `#c8f135` → `#4ade80`, grid `#1f1f1f`, ejes `#555555`
-- Tooltip: fondo `#1a1a1a`, border `#2a2a2a`, números en `#c8f135`
-- Alertas con estilos dark específicos (warning: `#2a1f00`, etc.)
-- Header del módulo con separador `border-b border-[#1f1f1f]`
+1. `index.html` → import Inter, quitar `class="dark"`.
+2. `tailwind.config.ts` → agregar fontFamily Inter, radios `2xl`/`3xl`, sombras `soft`/`card`/`card-hover` (mergear con lo existente, no borrar).
+3. `src/index.css` → reemplazar tokens `:root` y `.dark` por paleta pastel del doc. Conservar imports de fuentes y la estructura `@layer base/components/utilities`.
+4. `src/components/AppSidebar.tsx` → rediseñar visualmente al estilo nuevo (sidebar collapsado 72px, fondo blanco, ícono activo en fondo negro, hover gris, logo "WD" arriba). **Mantener:** los 13 items, lógica de roles, condicionales y signOut.
+5. `src/components/AppLayout.tsx` → ajustar header para que sea blanco/claro y combine con el nuevo tema (quitar el border `#1f1f1f`).
+6. `src/components/layout/Topbar.tsx` → crear nuevo según doc (breadcrumb, "Hola, {userName}", search/filter/date pill, botón "Crear Reporte").
 
-### 10-16. Todos los módulos (Ventas, Marketing, Finanzas, Clientes, Forecast, Alertas, Metricas, Operaciones, Stock, CargaDatos)
-- Aplicar mismo patrón de header: título izq + pills derecha + badge verde
-- KPI cards con label uppercase + número blanco
-- Gráficos con paleta lima/verde
-- Tablas con filas alternas y hover verde oscuro
-- Separador bajo header
+### Fase 2 — Cards del Dashboard + integración
 
-### 17. `src/components/AICopilot.tsx` — Copilot flotante
-- Adaptar colores al nuevo tema dark
+7. Crear las 7 cards en `src/components/dashboard/`:
+   - `ResumenEjecutivoCard.tsx` (fondo negro + glows pastel)
+   - `VentasMesCard.tsx` (bar chart, barra max destacada)
+   - `GananciaCard.tsx` (número grande + badge margen)
+   - `FlujoCajaCard.tsx` (gradiente menta pastel)
+   - `ForecastCard.tsx` (línea real + línea proyectada punteada)
+   - `StockCard.tsx` (donut 3 estados)
+   - `InversionPublicitariaCard.tsx` (2 progress bars)
+8. `src/pages/Dashboard.tsx` → reescribir el JSX del return con el grid 4×2 del doc. **Mantener** todos los hooks (`useExtractedData`, `usePeriod`, `useAuth`, cálculos de KPIs). Pasar valores reales como props a las cards (totalMes, ganancia, ingresos, costos, mensajes ejecutivos derivados de `highlights`/alertas existentes). Quitar `<AICopilot>` del flujo no, sigue en `AppLayout`.
 
-### 18. `src/components/ui/sidebar.tsx` — Base sidebar
-- Ajustar variables de color del sidebar
+### Lo que NO se toca (según doc)
 
-### 19. `index.html` — Forzar dark
-- Agregar `class="dark"` al `<html>` tag para asegurar tema oscuro
+- `useExtractedData`, edge functions, `CargaDatos`, auth, routing.
+- Otras páginas (Ventas, Finanzas, etc.) — quedarán visualmente desalineadas hasta rediseño futuro.
+- Memoria `mem://style/visual-identity` quedará obsoleta — la actualizo al final para reflejar el nuevo light/pastel.
 
-## Notas técnicas
-- Se eliminará el modo claro — la app será dark-only
-- Los colores se definirán tanto como CSS variables (para componentes shadcn) como clases directas de Tailwind donde sea necesario
-- No se tocan: hooks, contextos, edge functions, lógica de datos, estructura de rutas
-- La fuente Inter ya está importada y configurada
-- Los gráficos de Recharts se estilizarán inline con los nuevos colores
+### Checklist de verificación al final
+
+Pasaré las dos rondas del checklist del doc (código + visual) antes de cerrar.
+
+### Recomendación
+
+Ejecutar **Fase 1 primero** (8 archivos). Vos validás el shell visual (sidebar, topbar, fondo, tipografía). Si te gusta, sigo con **Fase 2** (8 archivos más). Si algo no convence, corregimos antes de hacer las 7 cards.
+
+¿Confirmás arrancar con Fase 1?
 
