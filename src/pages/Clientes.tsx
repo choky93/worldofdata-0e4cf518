@@ -156,6 +156,15 @@ export default function Clientes() {
           </div>
         </div>
 
+        {useClientesDesdeVentas && (
+          <Alert className="border-primary/30 bg-primary/5">
+            <Info className="h-4 w-4 text-primary" />
+            <AlertDescription className="text-sm">
+              Clientes detectados desde datos de ventas. Para más detalle (deuda, frecuencia exacta), cargá un archivo de clientes.
+            </AlertDescription>
+          </Alert>
+        )}
+
         <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 md:grid-cols-4">
           <Card><CardContent className="pt-6">
             <p className="text-sm text-muted-foreground">Total clientes</p>
