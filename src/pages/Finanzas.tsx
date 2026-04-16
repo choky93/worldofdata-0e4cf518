@@ -227,7 +227,7 @@ export default function Finanzas() {
               </Card>
             </div>
 
-            <div className="bg-[#1f2a0f] border border-[#2a3a1a] rounded-xl px-4 py-3 flex items-start gap-3">
+            <div className="rounded-xl px-4 py-3 flex items-start gap-3 border border-border" style={{ background: 'hsl(var(--pastel-mint) / 0.4)' }}>
               <BookOpen className="h-4 w-4 text-primary mt-0.5 shrink-0" />
               <div>
                 <p className="text-sm font-medium">Registro de la realidad económica</p>

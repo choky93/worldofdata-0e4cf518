@@ -205,13 +205,13 @@ export default function Marketing() {
               <div className="h-52">
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={chartData}>
-                     <CartesianGrid strokeDasharray="3 3" stroke="#1f1f1f" />
+                     <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
                      <XAxis dataKey="name" tick={AXIS_STYLE.tick} />
                      <YAxis tick={AXIS_STYLE.tick} tickFormatter={formatAmount} />
                      <RTooltip formatter={(v: number) => formatCurrency(v)} {...TOOLTIP_STYLE} />
                      <Legend />
-                     <Bar dataKey="gasto" name="Gasto" fill="#f87171" opacity={0.7} radius={[2, 2, 0, 0]} />
-                     <Bar dataKey="ingresos" name="Ingresos" fill="#c8f135" opacity={0.8} radius={[2, 2, 0, 0]} />
+                     <Bar dataKey="gasto" name="Gasto" fill="hsl(var(--pastel-peach-strong))" opacity={0.85} radius={[4, 4, 0, 0]} />
+                     <Bar dataKey="ingresos" name="Ingresos" fill="hsl(var(--pastel-mint-strong))" opacity={0.9} radius={[4, 4, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
               </div>

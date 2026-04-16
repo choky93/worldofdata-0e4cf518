@@ -207,11 +207,11 @@ export default function Clientes() {
                         <stop offset="100%" stopColor="hsl(var(--primary))" stopOpacity={0.4} />
                       </linearGradient>
                     </defs>
-                     <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#1f1f1f" />
+                     <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="hsl(var(--border))" />
                      <XAxis type="number" tick={AXIS_STYLE.tick} tickFormatter={formatAmount} />
                      <YAxis type="category" dataKey="name" tick={AXIS_STYLE.tick} width={100} />
                      <RTooltip formatter={(v: number) => formatCurrency(v)} {...TOOLTIP_STYLE} />
-                     <Bar dataKey="compras" fill="#c8f135" radius={[0, 4, 4, 0]} />
+                     <Bar dataKey="compras" fill="hsl(var(--pastel-mint-strong))" radius={[0, 4, 4, 0]} />
                    </BarChart>
                 </ResponsiveContainer>
               </div>

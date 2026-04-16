@@ -135,11 +135,11 @@ export default function Forecast() {
                 <ComposedChart data={chartData}>
                   <defs>
                     <linearGradient id="confidenceBand" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor="#c8f135" stopOpacity={0.12} />
-                      <stop offset="100%" stopColor="#c8f135" stopOpacity={0.03} />
+                      <stop offset="0%" stopColor="hsl(var(--pastel-mint-strong))" stopOpacity={0.25} />
+                      <stop offset="100%" stopColor="hsl(var(--pastel-mint-strong))" stopOpacity={0.05} />
                     </linearGradient>
                   </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#1f1f1f" />
+                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
                   <XAxis dataKey="month" tick={AXIS_STYLE.tick} tickFormatter={formatXAxisDate} />
                   <YAxis tick={AXIS_STYLE.tick} tickFormatter={formatAmount} />
                   <Tooltip
@@ -169,7 +169,7 @@ export default function Forecast() {
                     type="monotone"
                     dataKey="forecastLower"
                     stroke="none"
-                    fill="#0d0d0d"
+                    fill="hsl(var(--background))"
                     connectNulls={false}
                     activeDot={false}
                     name="forecastLower"
@@ -178,9 +178,9 @@ export default function Forecast() {
                   <Line
                     type="monotone"
                     dataKey="real"
-                    stroke="#c8f135"
+                    stroke="hsl(var(--pastel-mint-strong))"
                     strokeWidth={2}
-                    dot={{ r: 3, fill: '#c8f135' }}
+                    dot={{ r: 3, fill: 'hsl(var(--pastel-mint-strong))' }}
                     name="real"
                     connectNulls={false}
                   />
@@ -188,10 +188,10 @@ export default function Forecast() {
                   <Line
                     type="monotone"
                     dataKey="forecast"
-                    stroke="#c8f135"
+                    stroke="hsl(var(--pastel-lavender-strong))"
                     strokeWidth={2}
                     strokeDasharray="6 4"
-                    dot={{ r: 3, fill: '#c8f135' }}
+                    dot={{ r: 3, fill: 'hsl(var(--pastel-lavender-strong))' }}
                     name="forecast"
                     connectNulls={false}
                   />
@@ -199,9 +199,9 @@ export default function Forecast() {
               </ResponsiveContainer>
             </div>
             <div className="flex gap-4 mt-2 text-xs text-muted-foreground">
-              <span className="flex items-center gap-1"><span className="w-4 h-0.5 bg-primary inline-block" /> Real</span>
-              <span className="flex items-center gap-1"><span className="w-4 h-0.5 inline-block" style={{ borderTop: '2px dashed #c8f135', height: 0, background: 'none' }} /> Proyección</span>
-              <span className="flex items-center gap-1"><span className="w-4 h-2 inline-block rounded-sm" style={{ background: 'rgba(200,241,53,0.1)' }} /> Banda ±15%</span>
+              <span className="flex items-center gap-1"><span className="w-4 h-0.5 inline-block" style={{ background: 'hsl(var(--pastel-mint-strong))' }} /> Real</span>
+              <span className="flex items-center gap-1"><span className="w-4 h-0.5 inline-block" style={{ borderTop: '2px dashed hsl(var(--pastel-lavender-strong))', height: 0, background: 'none' }} /> Proyección</span>
+              <span className="flex items-center gap-1"><span className="w-4 h-2 inline-block rounded-sm" style={{ background: 'hsl(var(--pastel-mint) / 0.4)' }} /> Banda ±15%</span>
             </div>
           </CardContent>
         </Card>
