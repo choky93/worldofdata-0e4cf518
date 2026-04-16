@@ -36,6 +36,11 @@
     --pastel-lavender: 260 50% 88%;
     --pastel-peach: 20 80% 88%;
     --pastel-sky: 205 60% 88%;
+    --pastel-pink: 340 70% 88%;
+    --pastel-mint-strong: 155 50% 65%;
+    --pastel-peach-strong: 20 85% 72%;
+    --pastel-pink-strong: 340 75% 72%;
+    --pastel-sky-strong: 205 70% 70%;
 
     /* Estados — mutados, no saturados */
     --destructive: 0 60% 65%;
