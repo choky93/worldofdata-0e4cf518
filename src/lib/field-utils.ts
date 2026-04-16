@@ -285,3 +285,7 @@ export const FIELD_TOTAL_PURCHASES = ['total_compras', 'total', 'monto_total', '
 export const FIELD_DEBT = ['deuda', 'saldo', 'pendiente', 'deuda_pendiente', 'cobro_pendiente', 'saldo_pendiente'];
 export const FIELD_LAST_PURCHASE = ['ultima_compra', 'fecha_ultima', 'last_purchase', 'fecha', 'ultimo_pedido'];
 export const FIELD_PURCHASE_COUNT = ['cantidad_compras', 'frecuencia', 'pedidos', 'cantidad_pedidos', 'compras', 'num_pedidos'];
+
+// Date range fields (marketing campaigns, reporting periods)
+export const FIELD_START_DATE = ['inicio', 'start', 'desde', 'fecha_inicio', 'inicio_informe', 'fecha_de_inicio', 'start_date', 'period_start', 'inicio_del_informe'];
+export const FIELD_END_DATE = ['fin', 'end', 'hasta', 'fecha_fin', 'fin_informe', 'fecha_de_fin', 'end_date', 'period_end', 'fin_del_informe'];

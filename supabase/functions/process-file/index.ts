@@ -324,7 +324,7 @@ CAMPOS SEMÁNTICOS POR CATEGORÍA:
 
 - gastos: {"amount":"monto del gasto","date":"fecha","name":"descripción del gasto","category":"tipo de gasto","status":"estado (pagado/pendiente)","supplier":"proveedor","payment_method":"forma de pago"}
 
-- marketing: {"spend":"monto invertido","date":"fecha o período","campaign_name":"nombre de campaña","platform":"plataforma (Meta/Google/etc)","clicks":"clics","impressions":"impresiones","conversions":"conversiones","reach":"alcance","roas":"retorno sobre inversión publicitaria","ctr":"tasa de clics","revenue":"ingresos atribuidos"}
+- marketing: {"spend":"monto invertido","date":"fecha o período","start_date":"fecha de inicio del período o campaña","end_date":"fecha de fin del período o campaña","campaign_name":"nombre de campaña","platform":"plataforma (Meta/Google/etc)","clicks":"clics","impressions":"impresiones","conversions":"conversiones","reach":"alcance","roas":"retorno sobre inversión publicitaria","ctr":"tasa de clics","revenue":"ingresos atribuidos"}
 
 - stock: {"name":"nombre del producto","quantity":"unidades en stock","price":"precio de venta","cost":"costo de compra","min_stock":"stock mínimo","category":"categoría del producto","sku":"código de producto","supplier":"proveedor"}
 
