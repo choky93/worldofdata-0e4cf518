@@ -70,20 +70,20 @@ function VentasTooltip({ active, payload, label }: any) {
 
   return (
     <div style={{
-      background: '#1a1a1a',
-      border: '1px solid rgba(255,255,255,0.08)',
+      background: 'hsl(var(--card))',
+      border: '1px solid hsl(var(--border))',
       borderRadius: '10px',
       padding: '12px 16px',
-      boxShadow: '0 8px 32px rgba(0,0,0,0.6)',
+      boxShadow: 'var(--shadow-card-hover)',
       minWidth: '160px',
     }}>
-      <div style={{ fontSize: '11px', color: '#666', marginBottom: '6px', fontWeight: 500 }}>
+      <div style={{ fontSize: '11px', color: 'hsl(var(--muted-foreground))', marginBottom: '6px', fontWeight: 500 }}>
         {mes}
       </div>
       <div style={{
         fontSize: '18px',
         fontWeight: 700,
-        color: '#c8f135',
+        color: 'hsl(var(--foreground))',
         fontFamily: "'DM Mono', monospace",
         letterSpacing: '-0.02em',
       }}>
@@ -101,11 +101,11 @@ function GradientBar(props: any) {
     <g>
       <defs>
         <linearGradient id="barGrad" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="#c8f135" stopOpacity={0.9} />
-          <stop offset="100%" stopColor="#7ab800" stopOpacity={0.6} />
+          <stop offset="0%" stopColor="hsl(var(--pastel-mint-strong))" stopOpacity={0.95} />
+          <stop offset="100%" stopColor="hsl(var(--pastel-mint))" stopOpacity={0.7} />
         </linearGradient>
       </defs>
-      <rect x={x} y={y} width={width} height={height} fill="url(#barGrad)" rx={3} ry={3} />
+      <rect x={x} y={y} width={width} height={height} fill="url(#barGrad)" rx={4} ry={4} />
     </g>
   );
 }
@@ -211,16 +211,16 @@ export default function Ventas() {
 
         <div className="grid gap-4 lg:grid-cols-2">
           {dailyChart.length >= 2 ? (
-            <div style={{ background: '#0d0d0d', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.06)', padding: '20px 16px 12px' }}>
-              <div style={{ fontSize: '10px', letterSpacing: '0.1em', textTransform: 'uppercase', color: '#555', marginBottom: '16px', fontWeight: 500, paddingLeft: '4px' }}>
+            <div className="bg-card border border-border rounded-2xl shadow-card" style={{ padding: '20px 16px 12px' }}>
+              <div className="text-[10px] tracking-widest uppercase text-muted-foreground font-medium mb-4 pl-1">
                 Ventas por fecha
               </div>
               <ResponsiveContainer width="100%" height={220}>
                 <BarChart data={dailyChart} barCategoryGap="28%">
-                  <CartesianGrid vertical={false} stroke="#1a1a1a" strokeDasharray="0" />
+                  <CartesianGrid vertical={false} stroke="hsl(var(--border))" strokeDasharray="0" />
                   <XAxis dataKey="day" tickFormatter={formatXAxisDate} tick={AXIS_STYLE.tick} axisLine={false} tickLine={false} interval="preserveStartEnd" />
                   <YAxis tickFormatter={formatAmount} tick={AXIS_STYLE.tick} axisLine={false} tickLine={false} width={52} />
-                  <Tooltip content={<VentasTooltip />} cursor={{ fill: 'rgba(255,255,255,0.02)' }} />
+                  <Tooltip content={<VentasTooltip />} cursor={{ fill: 'hsl(var(--muted) / 0.4)' }} />
                   <Bar dataKey="value" shape={<GradientBar />} />
                 </BarChart>
               </ResponsiveContainer>
@@ -235,23 +235,23 @@ export default function Ventas() {
           )}
 
           {monthlyChart.length >= 2 ? (
-            <div style={{ background: '#0d0d0d', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.06)', padding: '20px 16px 12px' }}>
-              <div style={{ fontSize: '10px', letterSpacing: '0.1em', textTransform: 'uppercase', color: '#555', marginBottom: '16px', fontWeight: 500, paddingLeft: '4px' }}>
+            <div className="bg-card border border-border rounded-2xl shadow-card" style={{ padding: '20px 16px 12px' }}>
+              <div className="text-[10px] tracking-widest uppercase text-muted-foreground font-medium mb-4 pl-1">
                 Evolución mensual
               </div>
               <ResponsiveContainer width="100%" height={220}>
                 <AreaChart data={monthlyChart}>
                   <defs>
                     <linearGradient id="lineGrad" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor="#c8f135" stopOpacity={0.15} />
-                      <stop offset="100%" stopColor="#c8f135" stopOpacity={0} />
+                      <stop offset="0%" stopColor="hsl(var(--pastel-mint-strong))" stopOpacity={0.35} />
+                      <stop offset="100%" stopColor="hsl(var(--pastel-mint-strong))" stopOpacity={0} />
                     </linearGradient>
                   </defs>
-                  <CartesianGrid stroke="#1a1a1a" strokeDasharray="0" />
+                  <CartesianGrid stroke="hsl(var(--border))" strokeDasharray="0" />
                   <XAxis dataKey="month" tickFormatter={formatXAxisDate} tick={AXIS_STYLE.tick} axisLine={false} tickLine={false} interval="preserveStartEnd" />
                   <YAxis tickFormatter={formatAmount} tick={AXIS_STYLE.tick} axisLine={false} tickLine={false} width={52} />
                   <Tooltip content={<VentasTooltip />} />
-                  <Area type="monotone" dataKey="value" stroke="#c8f135" strokeWidth={2} fill="url(#lineGrad)" dot={false} activeDot={{ r: 4, fill: '#c8f135', stroke: '#0d0d0d', strokeWidth: 2 }} />
+                  <Area type="monotone" dataKey="value" stroke="hsl(var(--pastel-mint-strong))" strokeWidth={2} fill="url(#lineGrad)" dot={false} activeDot={{ r: 4, fill: 'hsl(var(--pastel-mint-strong))', stroke: 'hsl(var(--card))', strokeWidth: 2 }} />
                 </AreaChart>
               </ResponsiveContainer>
             </div>
