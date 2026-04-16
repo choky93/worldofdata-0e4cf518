@@ -5,10 +5,15 @@ import { AICopilot } from '@/components/AICopilot';
 import { ExtractedDataProvider } from '@/hooks/useExtractedData';
 import { usePeriodAutoDefault } from '@/hooks/usePeriodAutoDefault';
 
-function AppLayoutInner({ children }: { children: ReactNode }) {
+function PeriodAutoSetter() {
   usePeriodAutoDefault();
+  return null;
+}
+
+export function AppLayout({ children }: { children: ReactNode }) {
   return (
     <ExtractedDataProvider>
+      <PeriodAutoSetter />
       <SidebarProvider defaultOpen={false}>
         <div className="min-h-screen flex w-full">
           <AppSidebar />
