@@ -412,7 +412,7 @@ function StatusDashboard({ files, totalCount }: { files: FileRecord[]; totalCoun
 
 export default function CargaDatos() {
   const { user, profile, role, companySettings } = useAuth();
-  const { refetch: refetchExtractedData, data: globalExtractedData, mappings: globalMappings } = useExtractedData();
+  const { refetch: refetchExtractedData, data: globalExtractedData, mappings: globalMappings, taggedVentasRows, taggedGastosRows, taggedMarketingRows } = useExtractedData();
   const [files, setFiles] = useState<FileRecord[]>([]);
   const [totalCount, setTotalCount] = useState(0);
   const [extractedDataMap, setExtractedDataMap] = useState<Record<string, ExtractedData[]>>({});
