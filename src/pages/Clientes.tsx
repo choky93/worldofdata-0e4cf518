@@ -2,15 +2,16 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { formatCurrency, formatDate } from '@/lib/formatters';
 import { formatAmount, TOOLTIP_STYLE, AXIS_STYLE } from '@/lib/chart-config';
-import { findNumber, findString, FIELD_CLIENT, FIELD_TOTAL_PURCHASES, FIELD_DEBT, FIELD_LAST_PURCHASE, FIELD_PURCHASE_COUNT, type ColumnMapping } from '@/lib/field-utils';
+import { findNumber, findString, FIELD_CLIENT, FIELD_TOTAL_PURCHASES, FIELD_DEBT, FIELD_LAST_PURCHASE, FIELD_PURCHASE_COUNT, FIELD_AMOUNT, FIELD_DATE, type ColumnMapping } from '@/lib/field-utils';
 import { parseDate } from '@/lib/data-cleaning';
 import { useExtractedData } from '@/hooks/useExtractedData';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip';
-import { AlertTriangle, Users, Crown, Award, Star, Upload, Loader2, Database } from 'lucide-react';
+import { AlertTriangle, Users, Crown, Award, Star, Upload, Loader2, Database, Info } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip as RTooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
 import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 
 interface ClientRow {
   id: string;
@@ -39,11 +40,50 @@ function normalizeClients(rawData: any[], m?: ColumnMapping): ClientRow[] {
   });
 }
 
+/** Build client list by grouping ventas rows by client name */
+function buildClientsFromVentas(ventasRows: any[], mV?: ColumnMapping): ClientRow[] {
+  const map = new Map<string, { total: number; count: number; lastDate: Date | null }>();
+
+  for (const r of ventasRows) {
+    const name = findString(r, FIELD_CLIENT, mV?.client);
+    if (!name) continue;
+
+    const amount = findNumber(r, FIELD_AMOUNT, mV?.amount);
+    const dateStr = findString(r, FIELD_DATE, mV?.date);
+    const date = dateStr ? parseDate(dateStr) : null;
+
+    const existing = map.get(name);
+    if (existing) {
+      existing.total += amount;
+      existing.count += 1;
+      if (date && (!existing.lastDate || date > existing.lastDate)) {
+        existing.lastDate = date;
+      }
+    } else {
+      map.set(name, { total: amount, count: 1, lastDate: date });
+    }
+  }
+
+  return Array.from(map.entries()).map(([name, info], i) => ({
+    id: String(i + 1),
+    name,
+    totalPurchases: info.total,
+    pendingPayment: 0,
+    lastPurchase: info.lastDate ? info.lastDate.toISOString().split('T')[0] : '',
+    purchaseCount: info.count,
+    avgTicket: info.count > 0 ? info.total / info.count : 0,
+  }));
+}
+
 export default function Clientes() {
   const { data: extractedData, mappings, hasData, loading } = useExtractedData();
   const mC = mappings.clientes;
+  const mV = mappings.ventas;
   const realClientes = extractedData?.clientes || [];
-  const useReal = hasData && realClientes.length > 0;
+  const realVentas = extractedData?.ventas || [];
+  const useClientesDirectos = hasData && realClientes.length > 0;
+  const useClientesDesdeVentas = hasData && realClientes.length === 0 && realVentas.length > 0;
+  const useReal = useClientesDirectos || useClientesDesdeVentas;
 
   if (loading) {
     return (
@@ -80,7 +120,9 @@ export default function Clientes() {
     );
   }
 
-  const clients = normalizeClients(realClientes, mC);
+  const clients = useClientesDirectos
+    ? normalizeClients(realClientes, mC)
+    : buildClientsFromVentas(realVentas, mV);
   const totalPending = clients.reduce((s, c) => s + c.pendingPayment, 0);
   const totalSales = clients.reduce((s, c) => s + c.totalPurchases, 0);
   const sorted = [...clients].sort((a, b) => b.totalPurchases - a.totalPurchases);
@@ -113,6 +155,15 @@ export default function Clientes() {
             Datos reales ({clients.length} clientes)
           </div>
         </div>
+
+        {useClientesDesdeVentas && (
+          <Alert className="border-primary/30 bg-primary/5">
+            <Info className="h-4 w-4 text-primary" />
+            <AlertDescription className="text-sm">
+              Clientes detectados desde datos de ventas. Para más detalle (deuda, frecuencia exacta), cargá un archivo de clientes.
+            </AlertDescription>
+          </Alert>
+        )}
 
         <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 md:grid-cols-4">
           <Card><CardContent className="pt-6">
