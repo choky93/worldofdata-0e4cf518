@@ -126,6 +126,11 @@ export default function Dashboard() {
   // Show marketing if configured OR if marketing data actually exists
   const hasMarketingData = (extractedData?.marketing || []).length > 0;
   const showAds = !companySettings || companySettings.uses_meta_ads || companySettings.uses_google_ads || hasMarketingData;
+  const [duplicateBannerDismissed, setDuplicateBannerDismissed] = useState(false);
+
+  useEffect(() => {
+    setDuplicateBannerDismissed(false);
+  }, [duplicatedPeriods.join('|')]);
 
   const allVentas = extractedData?.ventas || [];
   const allGastos = extractedData?.gastos || [];
@@ -239,19 +244,24 @@ export default function Dashboard() {
         {/* Data source banner */}
         <Stagger index={1}>
           <DataSourceBanner hasData={hasData} loading={dataLoading} />
-          {duplicatedPeriods.length > 0 && (
-            <div className="rounded-lg px-4 py-2.5 text-xs flex items-start gap-2 alert-warning mt-2">
-              <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
-              <span>
-                <strong>⚠️ Datos posiblemente duplicados:</strong> los períodos{' '}
-                {duplicatedPeriods.map(p => {
+          {duplicatedPeriods.length > 0 && !duplicateBannerDismissed && (
+            <div className="rounded-lg px-4 py-3 text-xs flex items-start gap-3 alert-warning mt-2">
+              <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+              <span className="flex-1">
+                ⚠️ Datos posiblemente duplicados: los meses {duplicatedPeriods.map(p => {
                   const [y, m] = p.split('-');
                   const d = new Date(parseInt(y), parseInt(m) - 1, 1);
                   return d.toLocaleDateString('es-AR', { month: 'long', year: 'numeric' });
-                }).join(', ')}{' '}
-                aparecen en más de un archivo cargado. Los totales pueden estar inflados.{' '}
-                <Link to="/carga-datos" className="underline font-medium">Revisá tus archivos en Carga de Datos</Link>.
+                }).join(', ')} aparecen en más de un archivo. Los totales pueden estar inflados. <Link to="/carga-datos" className="underline font-medium">Revisá tus archivos en Carga de Datos</Link>.
               </span>
+              <button
+                type="button"
+                aria-label="Cerrar advertencia de duplicados"
+                onClick={() => setDuplicateBannerDismissed(true)}
+                className="shrink-0 text-foreground/70 hover:text-foreground transition-colors"
+              >
+                ✕
+              </button>
             </div>
           )}
           {(hasCurrencyMix.ventas || hasCurrencyMix.gastos) && (
