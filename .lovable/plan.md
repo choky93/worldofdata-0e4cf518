@@ -1,62 +1,64 @@
 
 
-## Análisis
+## Auditoría — qué quedó mal
 
-**Sí, se puede implementar — recomiendo en 2 fases.** El documento es claro y autocontenido. Pero hay 3 conflictos con el código actual que requieren decisiones:
+Hice grep de colores hardcoded oscuros (`#1a1a1a`, `#1f1f1f`, `bg-[#...]`, `text-[#666]`, `border-[#...]`) y **encontré 30 ocurrencias residuales en 8 archivos de páginas/componentes funcionales**, más un problema estructural grave en `KPICard`. La Fase 1 cambió tokens globales pero las páginas internas seguían con colores absolutos del tema dark anterior, por eso se ven rotas.
 
-### Conflictos detectados
+### Hallazgos concretos
 
-1. **Sidebar actual ≠ Sidebar del doc.** El `AppSidebar.tsx` actual tiene 13 items con condicionales (`has_stock`, `has_ads`), roles (admin/employee), badge de empresa, signOut, y usa el sistema `Sidebar` de shadcn dentro de `AppLayout`. El doc propone un sidebar fijo de 72px con solo 6 items hardcodeados y sin roles.
-   - **Decisión:** rediseñar visualmente el `AppSidebar.tsx` existente al estilo nuevo (72px, blanco, íconos minimalistas, activo en negro) **manteniendo los 13 items, roles y signOut**. No crear `src/components/layout/Sidebar.tsx` nuevo.
+1. **`KPICard.tsx` — el más grave (esto es lo que ves como "fichas rectangulares con puntas" en Ventas/Métricas)**
+   Usa CSS vars que **ya no existen**: `--bg-card`, `--border-default`, `--shadow-card`, `--text-primary`, `--text-secondary`, `--radius-lg`, `--font-sans`, `--font-mono`, `--positive-dim`, `--negative-dim`, `--accent-glow`. Como los styles inline fallan a `undefined`, el navegador renderiza un div sin fondo, sin borde, sin radius → caja rectangular blanca/transparente con esquinas en pico. Y el "accent" verde lima (`#d4f73a`) ya no combina con el pastel.
 
-2. **Topbar vs AppLayout.** El doc asume que Dashboard renderiza Sidebar+Topbar directamente. En el código real, `AppLayout` envuelve todas las páginas con el sidebar y un header con `SidebarTrigger`. Si Dashboard renderiza otro sidebar, queda doble.
-   - **Decisión:** crear `Topbar.tsx` y usarlo **dentro** del Dashboard como cabecera de la página (no como reemplazo del layout). El AppLayout sigue dando el sidebar global.
+2. **`Ventas.tsx`** — Tooltip custom con `background: '#1a1a1a'`, `color: '#666'` (cuadro negro flotando sobre fondo claro). Charts con `stroke="#1a1a1a"` (líneas de grilla negras gruesas). 
 
-3. **Tema dark global.** `index.html` tiene `class="dark"` y `index.css` está en modo dark-only (memoria visual previa). El doc pide light mode puro.
-   - **Decisión:** quitar `class="dark"` del html y reescribir tokens a la paleta pastel. Esto **afectará visualmente todas las otras páginas** (Ventas, Finanzas, etc.) porque comparten los tokens. El doc lo acepta ("rediseño visual del Dashboard… para validar lenguaje visual"), pero el resto de páginas se verán raras hasta rediseñarlas. Confirmado por el doc en "QUÉ DEJAR PARA DESPUÉS".
+3. **`Marketing.tsx`** — `CartesianGrid stroke="#1f1f1f"` (grilla negra).
 
-### Hooks de datos del Dashboard
+4. **`Forecast.tsx`, `Metricas.tsx`, `Clientes.tsx`** — varios `stroke="#1a1a1a"` y posibles tooltips/badges con colores oscuros.
 
-El Dashboard actual tiene mucha lógica real (`useExtractedData`, `usePeriod`, cálculos de KPIs, ticker, health radar). Las 7 cards nuevas aceptan props con defaults mock. **Mantengo todos los hooks** y conecto los valores reales calculados a las props de las cards donde sea directo (ventas mes, ganancia, ingresos, costos). Donde no haya dato directo (forecast trimestral, ROAS publicitario, donut stock), uso los defaults del doc.
+5. **`Finanzas.tsx`** — banner de Bitácora con `bg-[#1f2a0f] border-[#2a3a1a]` (verde militar oscuro, residuo del tema dark previo).
+
+6. **`AICopilot.tsx`** — drawer con `border-[#1f1f1f]`, chips con `bg-[#1a1a1a]`, badges modo con `bg-[#1f2a0f]`. El drawer queda con bordes negros sobre fondo claro.
+
+7. **`PeriodFilter.tsx`** — `hover:border-[#3a3a3a]` (hover invisible en light).
+
+8. **`ResumenEjecutivoCard.tsx`** — gradient hardcodeado `#0f0f0f → #1a1a1a`. Esto **es intencional** según el doc original ("fondo negro con glows pastel"), pero conviene tokenizarlo a `hsl(var(--accent))` para que sea consistente y se pueda ajustar.
+
+9. **`Operaciones.tsx`** — revisado y **está OK** (usa `Card`, `text-muted-foreground`, `alert-success`). Lo que ves como "fondo negro horrible" muy probablemente sea **el AICopilot drawer abierto encima** (por sus bordes/chips negros del punto 6) o el `ResumenEjecutivoCard` si se filtró a otra vista. Si después del fix seguís viendo negro, hago un screenshot para confirmar.
+
+10. **Componentes shadcn (`alert-dialog`, `dialog`, `drawer`, `sheet`)** — usan `bg-black/80` para overlays. Esto es **correcto y estándar** para modales (se ven igual en light y dark). **No tocar.**
+
+11. **`button.tsx`, `table.tsx`** — los matches son cosas tipo `data-[state=...]` o `border-[1px]` (no son colores). **No tocar.**
 
 ---
 
-## Plan de implementación — 2 fases
+## Plan de corrección — 1 fase, ~7 archivos
 
-### Fase 1 — Tokens, layout y componentes base
+### Cambios
 
-1. `index.html` → import Inter, quitar `class="dark"`.
-2. `tailwind.config.ts` → agregar fontFamily Inter, radios `2xl`/`3xl`, sombras `soft`/`card`/`card-hover` (mergear con lo existente, no borrar).
-3. `src/index.css` → reemplazar tokens `:root` y `.dark` por paleta pastel del doc. Conservar imports de fuentes y la estructura `@layer base/components/utilities`.
-4. `src/components/AppSidebar.tsx` → rediseñar visualmente al estilo nuevo (sidebar collapsado 72px, fondo blanco, ícono activo en fondo negro, hover gris, logo "WD" arriba). **Mantener:** los 13 items, lógica de roles, condicionales y signOut.
-5. `src/components/AppLayout.tsx` → ajustar header para que sea blanco/claro y combine con el nuevo tema (quitar el border `#1f1f1f`).
-6. `src/components/layout/Topbar.tsx` → crear nuevo según doc (breadcrumb, "Hola, {userName}", search/filter/date pill, botón "Crear Reporte").
+1. **`src/components/ui/KPICard.tsx`** — reescribir completo migrando a Tailwind + tokens semánticos. Mantener exactamente la misma API de props (`label`, `value`, `subtext`, `trend`, `accent`, `icon`, `onClick`, `className`). Card en `bg-card border-border rounded-2xl shadow-card`, accent en `bg-accent text-accent-foreground` (negro pastel del nuevo tema, no lima). TrendBadge con `bg-success/15 text-success` y `bg-destructive/15 text-destructive`.
 
-### Fase 2 — Cards del Dashboard + integración
+2. **`src/pages/Ventas.tsx`** — Tooltip custom: `background: hsl(var(--card))`, borde `hsl(var(--border))`, texto `hsl(var(--foreground))` y `hsl(var(--muted-foreground))`, sombra `var(--shadow-card)`. Cambiar `stroke="#1a1a1a"` a `stroke="hsl(var(--border))"`.
 
-7. Crear las 7 cards en `src/components/dashboard/`:
-   - `ResumenEjecutivoCard.tsx` (fondo negro + glows pastel)
-   - `VentasMesCard.tsx` (bar chart, barra max destacada)
-   - `GananciaCard.tsx` (número grande + badge margen)
-   - `FlujoCajaCard.tsx` (gradiente menta pastel)
-   - `ForecastCard.tsx` (línea real + línea proyectada punteada)
-   - `StockCard.tsx` (donut 3 estados)
-   - `InversionPublicitariaCard.tsx` (2 progress bars)
-8. `src/pages/Dashboard.tsx` → reescribir el JSX del return con el grid 4×2 del doc. **Mantener** todos los hooks (`useExtractedData`, `usePeriod`, `useAuth`, cálculos de KPIs). Pasar valores reales como props a las cards (totalMes, ganancia, ingresos, costos, mensajes ejecutivos derivados de `highlights`/alertas existentes). Quitar `<AICopilot>` del flujo no, sigue en `AppLayout`.
+3. **`src/pages/Marketing.tsx`** — `stroke="#1f1f1f"` → `stroke="hsl(var(--border))"`.
 
-### Lo que NO se toca (según doc)
+4. **`src/pages/Forecast.tsx`, `Metricas.tsx`, `Clientes.tsx`** — buscar y reemplazar todos los `stroke="#1a1a1a"`, `#1f1f1f`, `#666` por tokens (`hsl(var(--border))`, `hsl(var(--muted-foreground))`).
 
-- `useExtractedData`, edge functions, `CargaDatos`, auth, routing.
-- Otras páginas (Ventas, Finanzas, etc.) — quedarán visualmente desalineadas hasta rediseño futuro.
-- Memoria `mem://style/visual-identity` quedará obsoleta — la actualizo al final para reflejar el nuevo light/pastel.
+5. **`src/pages/Finanzas.tsx`** — banner Bitácora: `bg-[#1f2a0f] border-[#2a3a1a]` → `bg-pastel-mint/40 border-border` (suave, en línea con el resto).
 
-### Checklist de verificación al final
+6. **`src/components/AICopilot.tsx`** — todos los `border-[#1f1f1f]` → `border-border`. Chips `bg-[#1a1a1a] border-[#2a2a2a]` → `bg-muted border-border`. Badges modo activo `bg-[#1f2a0f]` → `bg-primary/30`. El círculo del icono `bg-[#1f2a0f]` → `bg-primary/20`.
 
-Pasaré las dos rondas del checklist del doc (código + visual) antes de cerrar.
+7. **`src/components/PeriodFilter.tsx`** — `hover:border-[#3a3a3a]` → `hover:border-foreground/30`.
 
-### Recomendación
+8. **`src/components/dashboard/ResumenEjecutivoCard.tsx`** — el negro queda (es intencional) pero lo migro a `hsl(var(--accent))` con gradiente sutil para que sea coherente con el sistema.
 
-Ejecutar **Fase 1 primero** (8 archivos). Vos validás el shell visual (sidebar, topbar, fondo, tipografía). Si te gusta, sigo con **Fase 2** (8 archivos más). Si algo no convence, corregimos antes de hacer las 7 cards.
+### Lo que NO se toca
 
-¿Confirmás arrancar con Fase 1?
+- `Operaciones.tsx` (ya está bien, espero validación visual después del fix de AICopilot).
+- Overlays de shadcn (`bg-black/80` es correcto).
+- Lógica de datos, hooks, edge functions.
+- `chart-config.ts` ya parece estar bien — verifico `TOOLTIP_STYLE` y `AXIS_STYLE` y si tienen colores oscuros, los actualizo también.
+
+### Después del fix
+
+Te pido confirmación visual de Operaciones específicamente — si tras corregir AICopilot/KPICard seguís viendo "fondo negro", hago screenshot del preview para identificar el origen exacto.
 
