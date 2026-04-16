@@ -188,10 +188,10 @@ export default function Forecast() {
                   <Line
                     type="monotone"
                     dataKey="forecast"
-                    stroke="hsl(var(--pastel-lavender-strong))"
+                    stroke="hsl(var(--pastel-peach-strong))"
                     strokeWidth={2}
                     strokeDasharray="6 4"
-                    dot={{ r: 3, fill: 'hsl(var(--pastel-lavender-strong))' }}
+                    dot={{ r: 3, fill: 'hsl(var(--pastel-peach-strong))' }}
                     name="forecast"
                     connectNulls={false}
                   />
@@ -200,7 +200,7 @@ export default function Forecast() {
             </div>
             <div className="flex gap-4 mt-2 text-xs text-muted-foreground">
               <span className="flex items-center gap-1"><span className="w-4 h-0.5 inline-block" style={{ background: 'hsl(var(--pastel-mint-strong))' }} /> Real</span>
-              <span className="flex items-center gap-1"><span className="w-4 h-0.5 inline-block" style={{ borderTop: '2px dashed hsl(var(--pastel-lavender-strong))', height: 0, background: 'none' }} /> Proyección</span>
+              <span className="flex items-center gap-1"><span className="w-4 h-0.5 inline-block" style={{ borderTop: '2px dashed hsl(var(--pastel-peach-strong))', height: 0, background: 'none' }} /> Proyección</span>
               <span className="flex items-center gap-1"><span className="w-4 h-2 inline-block rounded-sm" style={{ background: 'hsl(var(--pastel-mint) / 0.4)' }} /> Banda ±15%</span>
             </div>
           </CardContent>
