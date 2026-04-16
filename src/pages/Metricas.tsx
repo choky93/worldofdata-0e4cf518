@@ -50,15 +50,15 @@ function MetricChart({ data, title, formatter, tooltip }: {
             <AreaChart data={data}>
                <defs>
                  <linearGradient id={`grad-${title.replace(/\s/g, '')}`} x1="0" y1="0" x2="0" y2="1">
-                   <stop offset="5%" stopColor="#c8f135" stopOpacity={0.08} />
-                   <stop offset="95%" stopColor="#c8f135" stopOpacity={0} />
+                   <stop offset="5%" stopColor="hsl(var(--pastel-mint-strong))" stopOpacity={0.3} />
+                   <stop offset="95%" stopColor="hsl(var(--pastel-mint-strong))" stopOpacity={0} />
                  </linearGradient>
                </defs>
-               <CartesianGrid strokeDasharray="3 3" stroke="#1f1f1f" />
+               <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
                <XAxis dataKey="month" tick={AXIS_STYLE.tick} tickFormatter={formatXAxisDate} />
                <YAxis tick={AXIS_STYLE.tick} tickFormatter={(v) => formatter(v)} />
                <Tooltip formatter={(v: number) => formatter(v)} labelFormatter={formatXAxisDate} {...TOOLTIP_STYLE} />
-               <Area type="monotone" dataKey="value" stroke="#c8f135" fill={`url(#grad-${title.replace(/\s/g, '')})`} strokeWidth={2} />
+               <Area type="monotone" dataKey="value" stroke="hsl(var(--pastel-mint-strong))" fill={`url(#grad-${title.replace(/\s/g, '')})`} strokeWidth={2} />
             </AreaChart>
           </ResponsiveContainer>
         </div>

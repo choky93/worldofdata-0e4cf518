@@ -1,14 +1,14 @@
 // src/components/ui/KPICard.tsx
-// Drop-in replacement — preserva todas las props existentes
-
+// Light pastel theme — drop-in replacement, misma API de props
 import React from 'react';
+import { cn } from '@/lib/utils';
 
 interface KPICardProps {
   label: string;
   value: string | number;
   subtext?: string;
-  trend?: number;        // porcentaje, ej: 12.4 o -3.2
-  accent?: boolean;      // card destacada en lima
+  trend?: number;
+  accent?: boolean;
   icon?: React.ReactNode;
   onClick?: () => void;
   className?: string;
@@ -18,18 +18,10 @@ function TrendBadge({ value }: { value: number }) {
   const up = value >= 0;
   return (
     <span
-      style={{
-        display: 'inline-flex',
-        alignItems: 'center',
-        gap: '2px',
-        fontSize: '11px',
-        fontWeight: 500,
-        fontFamily: 'var(--font-mono)',
-        padding: '2px 7px',
-        borderRadius: '99px',
-        background: up ? 'var(--positive-dim)' : 'var(--negative-dim)',
-        color: up ? 'var(--positive)' : 'var(--negative)',
-      }}
+      className={cn(
+        'inline-flex items-center gap-0.5 text-[11px] font-medium tabular-nums px-2 py-0.5 rounded-full',
+        up ? 'bg-success/15 text-success' : 'bg-destructive/15 text-destructive',
+      )}
     >
       {up ? '↑' : '↓'} {Math.abs(value).toFixed(1)}%
     </span>
@@ -49,101 +41,54 @@ export function KPICard({
   return (
     <div
       onClick={onClick}
-      className={className}
-      style={{
-        position: 'relative',
-        overflow: 'hidden',
-        borderRadius: 'var(--radius-lg)',
-        padding: '20px 22px',
-        cursor: onClick ? 'pointer' : 'default',
-        transition: 'transform 0.15s ease, box-shadow 0.15s ease',
-        userSelect: 'none',
-
-        /* Accent vs normal */
-        background: accent
-          ? 'linear-gradient(135deg, #d4f73a 0%, #b8e020 100%)'
-          : 'var(--bg-card)',
-        border: accent
-          ? 'none'
-          : '1px solid var(--border-default)',
-        boxShadow: accent
-          ? 'var(--shadow-accent)'
-          : 'var(--shadow-card)',
-        color: accent ? '#0d0d0d' : 'var(--text-primary)',
-      }}
-      onMouseEnter={e => {
-        if (!onClick) return;
-        (e.currentTarget as HTMLDivElement).style.transform = 'translateY(-2px)';
-        (e.currentTarget as HTMLDivElement).style.boxShadow = accent
-          ? '0 0 32px var(--accent-glow)'
-          : '0 4px 24px rgba(0,0,0,0.4), 0 1px 0 var(--border-default)';
-      }}
-      onMouseLeave={e => {
-        (e.currentTarget as HTMLDivElement).style.transform = 'translateY(0)';
-        (e.currentTarget as HTMLDivElement).style.boxShadow = accent
-          ? 'var(--shadow-accent)'
-          : 'var(--shadow-card)';
-      }}
+      className={cn(
+        'relative overflow-hidden rounded-2xl p-5 transition-all duration-150 select-none',
+        accent
+          ? 'bg-accent text-accent-foreground shadow-card'
+          : 'bg-card text-card-foreground border border-border shadow-card',
+        onClick && 'cursor-pointer hover:-translate-y-0.5 hover:shadow-card-hover',
+        className,
+      )}
     >
-      {/* Decorative corner dot */}
       {accent && (
-        <div style={{
-          position: 'absolute', top: 14, right: 14,
-          width: 8, height: 8, borderRadius: '50%',
-          background: 'rgba(0,0,0,0.25)',
-        }} />
+        <div className="absolute top-3.5 right-3.5 w-2 h-2 rounded-full bg-white/30" />
       )}
 
-      {/* Label row */}
-      <div style={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        marginBottom: '10px',
-      }}>
-        <span style={{
-          fontSize: '11px',
-          fontWeight: 500,
-          letterSpacing: '0.08em',
-          textTransform: 'uppercase',
-          opacity: accent ? 0.6 : undefined,
-          color: accent ? undefined : 'var(--text-secondary)',
-        }}>
+      <div className="flex items-center justify-between mb-2.5">
+        <span
+          className={cn(
+            'text-[11px] font-medium uppercase tracking-widest',
+            accent ? 'text-accent-foreground/60' : 'text-muted-foreground',
+          )}
+        >
           {label}
         </span>
         {icon && (
-          <span style={{ opacity: 0.4, fontSize: '14px' }}>{icon}</span>
+          <span className={cn('text-sm', accent ? 'opacity-50' : 'text-muted-foreground/60')}>
+            {icon}
+          </span>
         )}
       </div>
 
-      {/* Value */}
-      <div style={{
-        fontSize: '28px',
-        fontWeight: 600,
-        letterSpacing: '-0.03em',
-        fontFamily: 'var(--font-sans)',
-        lineHeight: 1,
-        marginBottom: trend !== undefined || subtext ? '10px' : 0,
-        animation: 'count-in 0.35s ease forwards',
-        color: accent ? '#0d0d0d' : 'var(--text-primary)',
-      }}>
+      <div
+        className={cn(
+          'text-[28px] font-semibold leading-none tracking-tight tabular-nums',
+          (trend !== undefined || subtext) && 'mb-2.5',
+        )}
+      >
         {value}
       </div>
 
-      {/* Footer row */}
       {(trend !== undefined || subtext) && (
-        <div style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: '8px',
-          flexWrap: 'wrap',
-        }}>
+        <div className="flex items-center gap-2 flex-wrap">
           {trend !== undefined && !accent && <TrendBadge value={trend} />}
           {subtext && (
-            <span style={{
-              fontSize: '12px',
-              color: accent ? 'rgba(0,0,0,0.55)' : 'var(--text-secondary)',
-            }}>
+            <span
+              className={cn(
+                'text-xs',
+                accent ? 'text-accent-foreground/65' : 'text-muted-foreground',
+              )}
+            >
               {subtext}
             </span>
           )}

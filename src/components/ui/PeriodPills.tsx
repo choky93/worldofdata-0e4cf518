@@ -1,7 +1,7 @@
 // src/components/ui/PeriodPills.tsx
-// Reemplaza el PeriodFilter actual con este diseño premium
-
+// Light pastel theme — píldoras de período con tokens semánticos
 import React from 'react';
+import { cn } from '@/lib/utils';
 
 interface PeriodPillsProps {
   value: string;
@@ -28,8 +28,6 @@ function formatLabel(val: string): string {
 
 export function PeriodPills({ value, onChange, availableMonths = [] }: PeriodPillsProps) {
   const years = [...new Set(availableMonths.map(m => m.split('-')[0]))].sort().reverse();
-
-  // Mostrar: Todo + últimos 3 años + últimos 3 meses disponibles
   const recentMonths = [...availableMonths].sort().reverse().slice(0, 3);
 
   const pills = [
@@ -39,45 +37,19 @@ export function PeriodPills({ value, onChange, availableMonths = [] }: PeriodPil
   ];
 
   return (
-    <div style={{
-      display: 'flex',
-      alignItems: 'center',
-      gap: '4px',
-      flexWrap: 'wrap',
-    }}>
+    <div className="flex items-center gap-1 flex-wrap">
       {pills.map(pill => {
         const active = value === pill;
         return (
           <button
             key={pill}
             onClick={() => onChange(pill)}
-            style={{
-              padding: '5px 12px',
-              borderRadius: '99px',
-              fontSize: '12px',
-              fontWeight: active ? 600 : 400,
-              fontFamily: 'var(--font-sans)',
-              cursor: 'pointer',
-              transition: 'all 0.12s ease',
-              border: active ? 'none' : '1px solid var(--border-default)',
-              background: active ? '#c8f135' : 'transparent',
-              color: active ? '#0d0d0d' : 'var(--text-secondary)',
-              letterSpacing: active ? '-0.01em' : '0',
-              boxShadow: active ? 'var(--shadow-accent)' : 'none',
-              outline: 'none',
-            }}
-            onMouseEnter={e => {
-              if (!active) {
-                (e.currentTarget as HTMLButtonElement).style.background = 'var(--bg-raised)';
-                (e.currentTarget as HTMLButtonElement).style.color = 'var(--text-primary)';
-              }
-            }}
-            onMouseLeave={e => {
-              if (!active) {
-                (e.currentTarget as HTMLButtonElement).style.background = 'transparent';
-                (e.currentTarget as HTMLButtonElement).style.color = 'var(--text-secondary)';
-              }
-            }}
+            className={cn(
+              'px-3 py-1 rounded-full text-xs transition-all duration-150 border',
+              active
+                ? 'bg-accent text-accent-foreground border-transparent font-semibold shadow-card'
+                : 'bg-card text-muted-foreground border-border hover:bg-muted hover:text-foreground font-normal',
+            )}
           >
             {formatLabel(pill)}
           </button>

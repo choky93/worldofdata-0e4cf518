@@ -57,7 +57,7 @@ export function PeriodFilter({ value, onChange, availableMonths = [] }: PeriodFi
           className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors border ${
             value === pill.key
               ? 'bg-primary text-primary-foreground border-transparent'
-              : 'bg-card border-border text-muted-foreground hover:text-foreground hover:border-[#3a3a3a]'
+              : 'bg-card border-border text-muted-foreground hover:text-foreground hover:border-foreground/30'
           }`}
         >
           {pill.label}
