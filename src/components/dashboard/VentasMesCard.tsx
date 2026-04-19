@@ -1,6 +1,6 @@
 import { BarChart, Bar, XAxis, ResponsiveContainer, Cell, Tooltip } from 'recharts';
 import { BarChart3 } from 'lucide-react';
-import { formatCurrency } from '@/lib/formatters';
+import { formatCurrency, formatCurrencyCompact } from '@/lib/formatters';
 
 interface VentasMesCardProps {
   total: number | null;
@@ -29,8 +29,12 @@ export function VentasMesCard({ total, data, periodLabel }: VentasMesCardProps) 
         </div>
       ) : (
         <>
-          <h3 className="text-3xl font-bold text-foreground tracking-tight mb-3">
-            {formatCurrency(total!)}
+          <h3
+            className="font-bold text-foreground tracking-tight mb-3 truncate"
+            style={{ fontSize: 'clamp(18px, 2.6vw, 30px)' }}
+            title={formatCurrency(total!)}
+          >
+            {formatCurrencyCompact(total!)}
           </h3>
 
           {hasMultiplePoints ? (

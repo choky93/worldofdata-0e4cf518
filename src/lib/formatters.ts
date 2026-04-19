@@ -2,6 +2,19 @@ export function formatCurrency(value: number): string {
   return '$' + value.toLocaleString('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
 }
 
+/**
+ * Compact currency format for KPI cards: $1.34B, $226M, $12K.
+ * Use only in cards/badges, NOT in tables or tooltips.
+ */
+export function formatCurrencyCompact(value: number): string {
+  const abs = Math.abs(value);
+  const sign = value < 0 ? '-' : '';
+  if (abs >= 1_000_000_000) return `${sign}$${(abs / 1_000_000_000).toFixed(2).replace(/\.?0+$/, '')}B`;
+  if (abs >= 1_000_000) return `${sign}$${(abs / 1_000_000).toFixed(1).replace(/\.0$/, '')}M`;
+  if (abs >= 10_000) return `${sign}$${Math.round(abs / 1_000)}K`;
+  return formatCurrency(value);
+}
+
 export function formatCurrencyFull(value: number): string {
   return '$' + value.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }

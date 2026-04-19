@@ -72,9 +72,11 @@ export function KPICard({
 
       <div
         className={cn(
-          'text-[28px] font-semibold leading-none tracking-tight tabular-nums',
+          'font-semibold leading-none tracking-tight tabular-nums truncate',
           (trend !== undefined || subtext) && 'mb-2.5',
         )}
+        style={{ fontSize: 'clamp(14px, 2.2vw, 28px)' }}
+        title={value !== undefined && value !== null ? String(value) : undefined}
       >
         {value}
       </div>

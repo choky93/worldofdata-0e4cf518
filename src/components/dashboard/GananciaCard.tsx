@@ -1,5 +1,5 @@
 import { TrendingUp } from 'lucide-react';
-import { formatCurrency } from '@/lib/formatters';
+import { formatCurrency, formatCurrencyCompact } from '@/lib/formatters';
 
 interface GananciaCardProps {
   ganancia: number | null;
@@ -28,8 +28,12 @@ export function GananciaCard({ ganancia, margenPct, ingresos, costos }: Ganancia
       ) : (
         <>
           <div>
-            <h3 className="text-4xl font-bold text-foreground tracking-tight mb-3">
-              {formatCurrency(ganancia!)}
+            <h3
+              className="font-bold text-foreground tracking-tight mb-3 truncate"
+              style={{ fontSize: 'clamp(20px, 3vw, 36px)' }}
+              title={formatCurrency(ganancia!)}
+            >
+              {formatCurrencyCompact(ganancia!)}
             </h3>
             {margenPct !== null && margenPct !== undefined && !isNaN(margenPct) && (
               <span

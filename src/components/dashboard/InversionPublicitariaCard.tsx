@@ -1,5 +1,5 @@
 import { Megaphone } from 'lucide-react';
-import { formatCurrency } from '@/lib/formatters';
+import { formatCurrency, formatCurrencyCompact } from '@/lib/formatters';
 
 interface InversionPublicitariaCardProps {
   metaSpend: number;
@@ -27,8 +27,12 @@ export function InversionPublicitariaCard({
         </div>
       ) : (
         <>
-          <h3 className="text-2xl font-bold text-foreground tracking-tight mb-5">
-            {formatCurrency(total)}
+          <h3
+            className="font-bold text-foreground tracking-tight mb-5 truncate"
+            style={{ fontSize: 'clamp(16px, 2.4vw, 26px)' }}
+            title={formatCurrency(total)}
+          >
+            {formatCurrencyCompact(total)}
           </h3>
           <div className="space-y-4 mt-auto">
             {(metaSpend > 0 || metaBudget > 0) && (

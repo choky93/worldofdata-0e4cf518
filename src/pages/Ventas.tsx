@@ -1,7 +1,7 @@
 import { usePeriod } from '@/contexts/PeriodContext';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { KPICard } from '@/components/ui/KPICard';
-import { formatCurrency, formatDate } from '@/lib/formatters';
+import { formatCurrency, formatCurrencyCompact, formatDate } from '@/lib/formatters';
 import { formatXAxisDate, formatAmount, formatAmountFull, TOOLTIP_STYLE, AXIS_STYLE } from '@/lib/chart-config';
 import { findNumber, findString, FIELD_AMOUNT, FIELD_DATE, FIELD_CLIENT, FIELD_NAME, FIELD_COST, FIELD_PROFIT } from '@/lib/field-utils';
 import { useExtractedData } from '@/hooks/useExtractedData';
@@ -229,12 +229,12 @@ export default function Ventas() {
         </div>
 
         <div className={`grid gap-4 ${hasCostData ? 'md:grid-cols-3 lg:grid-cols-6' : 'md:grid-cols-4'}`}>
-          <KPICard label="Total cargado" value={formatCurrency(salesTotal)} accent />
-          {hasCostData && <KPICard label="Costo total" value={formatCurrency(totalCost)} />}
-          {(hasCostData || hasProfitData) && <KPICard label="Ganancia bruta" value={formatCurrency(totalProfit)} />}
-          <KPICard label="Promedio mensual" value={formatCurrency(promedioMensual)} />
+          <KPICard label="Total cargado" value={formatCurrencyCompact(salesTotal)} accent />
+          {hasCostData && <KPICard label="Costo total" value={formatCurrencyCompact(totalCost)} />}
+          {(hasCostData || hasProfitData) && <KPICard label="Ganancia bruta" value={formatCurrencyCompact(totalProfit)} />}
+          <KPICard label="Promedio mensual" value={formatCurrencyCompact(promedioMensual)} />
           <KPICard label="Registros" value={realVentas.length} />
-          <KPICard label="Ticket promedio" value={realVentas.length > 0 ? formatCurrency(salesTotal / realVentas.length) : '—'} />
+          <KPICard label="Ticket promedio" value={realVentas.length > 0 ? formatCurrencyCompact(salesTotal / realVentas.length) : '—'} />
         </div>
 
         <div className="grid gap-4 lg:grid-cols-2">
