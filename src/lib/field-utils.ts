@@ -280,8 +280,8 @@ export const FIELD_SALE_QTY = ['cantidad', 'unidades', 'qty', 'cant', 'cantidad_
 export const FIELD_STOCK_MIN = ['stock_minimo', 'min_stock', 'minimo', 'punto_reorden'];
 export const FIELD_STOCK_MAX = ['stock_maximo', 'max_stock', 'maximo'];
 export const FIELD_PRICE = ['precio', 'price', 'precio_venta', 'pv', 'precio_unitario'];
-export const FIELD_COST = ['costo', 'cost', 'precio_costo', 'pc', 'costo_unitario'];
-
+export const FIELD_COST = ['costo', 'cost', 'precio_costo', 'precio_de_costo', 'pc', 'costo_unitario', 'costo_total'];
+export const FIELD_PROFIT = ['ganancia', 'profit', 'margen', 'utilidad', 'resultado'];
 // Client-specific
 export const FIELD_TOTAL_PURCHASES = ['total_compras', 'total', 'monto_total', 'ventas_totales', 'compras_totales', 'facturacion'];
 export const FIELD_DEBT = ['deuda', 'saldo', 'pendiente', 'deuda_pendiente', 'cobro_pendiente', 'saldo_pendiente'];

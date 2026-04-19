@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { KPICard } from '@/components/ui/KPICard';
 import { formatCurrency, formatDate } from '@/lib/formatters';
 import { formatXAxisDate, formatAmount, formatAmountFull, TOOLTIP_STYLE, AXIS_STYLE } from '@/lib/chart-config';
-import { findNumber, findString, FIELD_AMOUNT, FIELD_DATE, FIELD_CLIENT, FIELD_NAME } from '@/lib/field-utils';
+import { findNumber, findString, FIELD_AMOUNT, FIELD_DATE, FIELD_CLIENT, FIELD_NAME, FIELD_COST, FIELD_PROFIT } from '@/lib/field-utils';
 import { useExtractedData } from '@/hooks/useExtractedData';
 import { filterByPeriod, parseDate, type PeriodKey } from '@/lib/data-cleaning';
 import { PeriodPills } from '@/components/ui/PeriodPills';
@@ -164,12 +164,26 @@ export default function Ventas() {
   // salesTotal se calcula desde el gráfico para garantizar que card y barras coincidan
   const salesTotal = dailyChart.reduce((sum, d) => sum + d.value, 0);
 
+  // MEJORA 2: detectar si hay datos de costo / ganancia
+  const hasCostData = !!m?.cost || realVentas.some((r: any) => findNumber(r, FIELD_COST, m?.cost) > 0);
+  const hasProfitData = !!m?.profit || realVentas.some((r: any) => findNumber(r, FIELD_PROFIT, m?.profit) > 0);
+
   const salesHistory = realVentas.slice(0, 50).map((r: any) => ({
     date: findString(r, FIELD_DATE, m?.date) || '—',
     client: findString(r, FIELD_CLIENT, m?.client) || '',
     product: findString(r, FIELD_NAME, m?.name) || '',
     amount: findNumber(r, FIELD_AMOUNT, m?.amount),
+    cost: hasCostData ? findNumber(r, FIELD_COST, m?.cost) : 0,
+    profit: hasProfitData ? findNumber(r, FIELD_PROFIT, m?.profit) : 0,
   }));
+
+  // Totales de costo y ganancia (sobre todo el período filtrado, no solo los 50 mostrados)
+  const totalCost = hasCostData
+    ? realVentas.reduce((s: number, r: any) => s + findNumber(r, FIELD_COST, m?.cost), 0)
+    : 0;
+  const totalProfit = hasProfitData
+    ? realVentas.reduce((s: number, r: any) => s + findNumber(r, FIELD_PROFIT, m?.profit), 0)
+    : (hasCostData ? salesTotal - totalCost : 0);
 
   // Detect if client/product columns have real data
   const hasClients = salesHistory.some(s => s.client && s.client !== '—');
@@ -202,8 +216,10 @@ export default function Ventas() {
           </div>
         </div>
 
-        <div className="grid gap-4 md:grid-cols-4">
+        <div className={`grid gap-4 ${hasCostData ? 'md:grid-cols-3 lg:grid-cols-6' : 'md:grid-cols-4'}`}>
           <KPICard label="Total cargado" value={formatCurrency(salesTotal)} accent />
+          {hasCostData && <KPICard label="Costo total" value={formatCurrency(totalCost)} />}
+          {(hasCostData || hasProfitData) && <KPICard label="Ganancia bruta" value={formatCurrency(totalProfit)} />}
           <KPICard label="Promedio mensual" value={formatCurrency(promedioMensual)} />
           <KPICard label="Registros" value={realVentas.length} />
           <KPICard label="Ticket promedio" value={realVentas.length > 0 ? formatCurrency(salesTotal / realVentas.length) : '—'} />
@@ -274,16 +290,27 @@ export default function Ventas() {
                 {hasClients && <TableHead>Cliente</TableHead>}
                 {hasProducts && <TableHead>Detalle</TableHead>}
                 <TableHead className="text-right">Monto</TableHead>
+                {hasCostData && <TableHead className="text-right">Costo</TableHead>}
+                {(hasCostData || hasProfitData) && <TableHead className="text-right">Ganancia</TableHead>}
               </TableRow></TableHeader>
               <TableBody>
-                {salesHistory.map((s, i) => (
-                  <TableRow key={i}>
-                    <TableCell className="tabular-nums">{fmtDate(s.date)}</TableCell>
-                    {hasClients && <TableCell className="font-medium">{s.client || '—'}</TableCell>}
-                    {hasProducts && <TableCell className="text-muted-foreground">{s.product || '—'}</TableCell>}
-                    <TableCell className="text-right font-medium tabular-nums">{formatCurrency(s.amount)}</TableCell>
-                  </TableRow>
-                ))}
+                {salesHistory.map((s, i) => {
+                  const rowProfit = hasProfitData ? s.profit : (hasCostData ? s.amount - s.cost : 0);
+                  return (
+                    <TableRow key={i}>
+                      <TableCell className="tabular-nums">{fmtDate(s.date)}</TableCell>
+                      {hasClients && <TableCell className="font-medium">{s.client || '—'}</TableCell>}
+                      {hasProducts && <TableCell className="text-muted-foreground">{s.product || '—'}</TableCell>}
+                      <TableCell className="text-right font-medium tabular-nums">{formatCurrency(s.amount)}</TableCell>
+                      {hasCostData && <TableCell className="text-right tabular-nums text-muted-foreground">{formatCurrency(s.cost)}</TableCell>}
+                      {(hasCostData || hasProfitData) && (
+                        <TableCell className={`text-right tabular-nums font-medium ${rowProfit >= 0 ? 'text-success' : 'text-destructive'}`}>
+                          {formatCurrency(rowProfit)}
+                        </TableCell>
+                      )}
+                    </TableRow>
+                  );
+                })}
               </TableBody>
             </Table>
             {realVentas.length > 50 && (

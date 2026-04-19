@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { usePeriod } from '@/contexts/PeriodContext';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { formatCurrency, formatPercent, formatNumber, safeDiv } from '@/lib/formatters';
@@ -71,6 +72,7 @@ export default function Marketing() {
   const { data: extractedData, mappings, hasData, loading, availableMonths } = useExtractedData();
   const m = mappings.marketing;
   const { period, setPeriod } = usePeriod();
+  const [showInactive, setShowInactive] = useState(false);
   const allMarketing = extractedData?.marketing || [];
   const filteredMarketing = period === 'all' ? allMarketing : filterByPeriod(allMarketing, FIELD_DATE, period, (row, kw) => findString(row, kw, m?.date));
   const useReal = hasData && allMarketing.length > 0;
@@ -124,6 +126,12 @@ export default function Marketing() {
     SUMMARY_NAMES.includes(c.name.toLowerCase().trim());
 
   const realCampaigns = campaigns.filter(c => !isSummaryRow(c));
+
+  // MEJORA 1: separar campañas inactivas (sin gasto, conversiones ni impresiones)
+  const isInactive = (c: CampaignRow) => c.spend === 0 && c.conversions === 0 && c.impressions === 0;
+  const activeCampaigns = realCampaigns.filter(c => !isInactive(c));
+  const inactiveCount = realCampaigns.length - activeCampaigns.length;
+  const displayedCampaigns = showInactive ? realCampaigns : activeCampaigns;
 
   const totalSpend = realCampaigns.reduce((s, c) => s + c.spend, 0);
   const totalRevenue = realCampaigns.reduce((s, c) => s + c.revenue, 0);
@@ -238,7 +246,7 @@ export default function Marketing() {
                 {totalClicks > 0 && <TableHead className="text-right">Clicks</TableHead>}
               </TableRow></TableHeader>
               <TableBody>
-                {realCampaigns.map((c, i) => (
+                {displayedCampaigns.map((c, i) => (
                   <TableRow key={i}>
                     <TableCell className="font-medium">{c.name}</TableCell>
                     {hasDateRange && <TableCell className="tabular-nums text-muted-foreground">{formatDateShort(c.startDate)}</TableCell>}
@@ -254,6 +262,14 @@ export default function Marketing() {
                 ))}
               </TableBody>
             </Table>
+            {inactiveCount > 0 && (
+              <div className="mt-3 flex items-center justify-between text-xs text-muted-foreground border-t pt-3">
+                <span>{inactiveCount} campaña{inactiveCount === 1 ? '' : 's'} sin actividad {showInactive ? 'incluida' + (inactiveCount === 1 ? '' : 's') : 'oculta' + (inactiveCount === 1 ? '' : 's')}</span>
+                <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => setShowInactive(v => !v)}>
+                  {showInactive ? 'Ocultar inactivas' : 'Mostrar todas'}
+                </Button>
+              </div>
+            )}
           </CardContent>
         </Card>
       </div>
