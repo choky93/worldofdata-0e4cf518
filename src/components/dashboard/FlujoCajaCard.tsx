@@ -1,4 +1,4 @@
-import { formatCurrency } from '@/lib/formatters';
+import { formatCurrency, formatCurrencyCompact } from '@/lib/formatters';
 import { Wallet } from 'lucide-react';
 
 interface FlujoCajaCardProps {
@@ -23,8 +23,12 @@ export function FlujoCajaCard({ ingresos, egresos }: FlujoCajaCardProps) {
       </div>
 
       <div>
-        <h3 className="text-3xl font-bold text-foreground tracking-tight">
-          {ingresos !== null || egresos !== null ? formatCurrency(flujo) : '—'}
+        <h3
+          className="font-bold text-foreground tracking-tight truncate"
+          style={{ fontSize: 'clamp(18px, 2.6vw, 30px)' }}
+          title={ingresos !== null || egresos !== null ? formatCurrency(flujo) : undefined}
+        >
+          {ingresos !== null || egresos !== null ? formatCurrencyCompact(flujo) : '—'}
         </h3>
         <div className="mt-3 space-y-1 text-xs text-foreground/70">
           <div className="flex justify-between">
