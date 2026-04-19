@@ -246,7 +246,7 @@ export default function Marketing() {
                 {totalClicks > 0 && <TableHead className="text-right">Clicks</TableHead>}
               </TableRow></TableHeader>
               <TableBody>
-                {realCampaigns.map((c, i) => (
+                {displayedCampaigns.map((c, i) => (
                   <TableRow key={i}>
                     <TableCell className="font-medium">{c.name}</TableCell>
                     {hasDateRange && <TableCell className="tabular-nums text-muted-foreground">{formatDateShort(c.startDate)}</TableCell>}
@@ -262,6 +262,14 @@ export default function Marketing() {
                 ))}
               </TableBody>
             </Table>
+            {inactiveCount > 0 && (
+              <div className="mt-3 flex items-center justify-between text-xs text-muted-foreground border-t pt-3">
+                <span>{inactiveCount} campaña{inactiveCount === 1 ? '' : 's'} sin actividad {showInactive ? 'incluida' + (inactiveCount === 1 ? '' : 's') : 'oculta' + (inactiveCount === 1 ? '' : 's')}</span>
+                <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => setShowInactive(v => !v)}>
+                  {showInactive ? 'Ocultar inactivas' : 'Mostrar todas'}
+                </Button>
+              </div>
+            )}
           </CardContent>
         </Card>
       </div>
