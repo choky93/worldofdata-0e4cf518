@@ -127,6 +127,12 @@ export default function Marketing() {
 
   const realCampaigns = campaigns.filter(c => !isSummaryRow(c));
 
+  // MEJORA 1: separar campañas inactivas (sin gasto, conversiones ni impresiones)
+  const isInactive = (c: CampaignRow) => c.spend === 0 && c.conversions === 0 && c.impressions === 0;
+  const activeCampaigns = realCampaigns.filter(c => !isInactive(c));
+  const inactiveCount = realCampaigns.length - activeCampaigns.length;
+  const displayedCampaigns = showInactive ? realCampaigns : activeCampaigns;
+
   const totalSpend = realCampaigns.reduce((s, c) => s + c.spend, 0);
   const totalRevenue = realCampaigns.reduce((s, c) => s + c.revenue, 0);
   const globalRoas = safeDiv(totalRevenue, totalSpend);
