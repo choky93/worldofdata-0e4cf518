@@ -1,7 +1,7 @@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { formatCurrency, formatPercent } from '@/lib/formatters';
 import { formatXAxisDate, TOOLTIP_STYLE, AXIS_STYLE } from '@/lib/chart-config';
-import { findNumber, findString, FIELD_AMOUNT, FIELD_DATE, FIELD_STOCK_QTY } from '@/lib/field-utils';
+import { findNumber, findString, findDateRaw, FIELD_AMOUNT, FIELD_DATE, FIELD_STOCK_QTY } from '@/lib/field-utils';
 import type { ColumnMapping } from '@/lib/field-utils';
 import { useExtractedData } from '@/hooks/useExtractedData';
 import { parseDate } from '@/lib/data-cleaning';
@@ -70,7 +70,7 @@ function MetricChart({ data, title, formatter, tooltip }: {
 function aggregateByMonth(rows: any[], fieldKeywords: string[], mappedDate?: string, mappedAmount?: string): { month: string; value: number }[] {
   const buckets = new Map<string, { total: number; date: Date }>();
   for (const r of rows) {
-    const raw = findString(r, FIELD_DATE, mappedDate);
+    const raw = findDateRaw(r, mappedDate);
     if (!raw) continue;
     const d = parseDate(raw);
     if (!d) continue;

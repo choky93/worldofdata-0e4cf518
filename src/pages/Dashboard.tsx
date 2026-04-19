@@ -4,7 +4,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/contexts/AuthContext';
 import { formatCurrency } from '@/lib/formatters';
-import { findNumber, findString, FIELD_AMOUNT, FIELD_SPEND, FIELD_DATE, FIELD_STOCK_QTY, FIELD_STOCK_MIN } from '@/lib/field-utils';
+import { findNumber, findString, findDateRaw, FIELD_AMOUNT, FIELD_SPEND, FIELD_DATE, FIELD_STOCK_QTY, FIELD_STOCK_MIN } from '@/lib/field-utils';
 import { parseDate } from '@/lib/data-cleaning';
 import { useExtractedData } from '@/hooks/useExtractedData';
 import { filterByPeriod } from '@/lib/data-cleaning';
@@ -99,7 +99,7 @@ export default function Dashboard() {
     if (!hasData || realVentas.length === 0) return [];
     const map = new Map<string, { value: number; date: Date }>();
     for (const r of realVentas) {
-      const raw = findString(r, FIELD_DATE, mV?.date);
+      const raw = findDateRaw(r, mV?.date);
       if (!raw) continue;
       const d = parseDate(raw);
       if (!d) continue;

@@ -1,7 +1,7 @@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { formatCurrency, formatPercent } from '@/lib/formatters';
-import { findNumber, findString, FIELD_NAME, FIELD_STOCK_QTY, FIELD_STOCK_MIN, FIELD_STOCK_MAX, FIELD_PRICE, FIELD_COST, FIELD_SALE_QTY, FIELD_DATE, type ColumnMapping } from '@/lib/field-utils';
+import { findNumber, findString, findDateRaw, FIELD_NAME, FIELD_STOCK_QTY, FIELD_STOCK_MIN, FIELD_STOCK_MAX, FIELD_PRICE, FIELD_COST, FIELD_SALE_QTY, FIELD_DATE, type ColumnMapping } from '@/lib/field-utils';
 import { useExtractedData } from '@/hooks/useExtractedData';
 import { parseDate } from '@/lib/data-cleaning';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -64,7 +64,7 @@ function buildSalesVelocityMap(
     if (!name) continue;
     const qty = findNumber(r, FIELD_SALE_QTY, mV?.quantity, ventasRows);
     if (!qty || qty <= 0) continue;
-    const dateStr = findString(r, FIELD_DATE, mV?.date, ventasRows);
+    const dateStr = findDateRaw(r, mV?.date);
     const d = dateStr ? parseDate(dateStr) : null;
     const monthKey = d ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}` : 'unknown';
 

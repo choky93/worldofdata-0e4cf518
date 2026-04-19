@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { formatCurrency, formatPercent, formatNumber, safeDiv } from '@/lib/formatters';
 import { formatAmount, TOOLTIP_STYLE, AXIS_STYLE } from '@/lib/chart-config';
 import { useExtractedData } from '@/hooks/useExtractedData';
-import { findNumber, findString, findField, FIELD_CAMPAIGN_NAME, FIELD_SPEND, FIELD_REVENUE, FIELD_ROAS, FIELD_CLICKS, FIELD_CTR, FIELD_CONVERSIONS, FIELD_REACH, FIELD_IMPRESSIONS, FIELD_DATE, FIELD_START_DATE, FIELD_END_DATE } from '@/lib/field-utils';
+import { findNumber, findString, findField, findDateRaw, FIELD_CAMPAIGN_NAME, FIELD_SPEND, FIELD_REVENUE, FIELD_ROAS, FIELD_CLICKS, FIELD_CTR, FIELD_CONVERSIONS, FIELD_REACH, FIELD_IMPRESSIONS, FIELD_DATE, FIELD_START_DATE, FIELD_END_DATE } from '@/lib/field-utils';
 import { filterByPeriod, parseDate, type PeriodKey } from '@/lib/data-cleaning';
 import { PeriodPills } from '@/components/ui/PeriodPills';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -49,7 +49,7 @@ function normalizeMarketing(rows: any[], m?: any): CampaignRow[] {
     const spend = findNumber(r, FIELD_SPEND, m?.spend);
     const revenue = findNumber(r, FIELD_REVENUE, m?.revenue);
     const roas = spend > 0 ? (revenue > 0 ? safeDiv(revenue, spend) : findNumber(r, FIELD_ROAS, m?.roas)) : findNumber(r, FIELD_ROAS, m?.roas);
-    const rawDate = findString(r, FIELD_DATE, m?.date);
+    const rawDate = findDateRaw(r, m?.date);
     const d = parseDate(rawDate);
     return {
       name: findString(r, FIELD_CAMPAIGN_NAME, m?.campaign_name) || (d ? d.toLocaleDateString('es-AR', { day: '2-digit', month: 'short', year: 'numeric' }) : 'Sin nombre'),

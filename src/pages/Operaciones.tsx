@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { formatCurrency } from '@/lib/formatters';
-import { findNumber, findString, FIELD_AMOUNT, FIELD_NAME, FIELD_DATE, FIELD_CLIENT, FIELD_CATEGORY } from '@/lib/field-utils';
+import { findNumber, findString, findDateRaw, FIELD_AMOUNT, FIELD_NAME, FIELD_DATE, FIELD_CLIENT, FIELD_CATEGORY } from '@/lib/field-utils';
 import type { ColumnMapping } from '@/lib/field-utils';
 import { parseDate } from '@/lib/data-cleaning';
 import { useExtractedData } from '@/hooks/useExtractedData';
@@ -32,7 +32,7 @@ function normalizeOps(ventas: any[], gastos: any[], mV?: ColumnMapping, mG?: Col
       type: 'sale',
       description: findString(r, FIELD_NAME, mV?.name) || 'Venta',
       amount: findNumber(r, FIELD_AMOUNT, mV?.amount),
-      date: findString(r, FIELD_DATE, mV?.date),
+      date: findDateRaw(r, mV?.date),
       counterpart: findString(r, FIELD_CLIENT, mV?.client),
       category: findString(r, FIELD_CATEGORY, mV?.category) || 'Ventas',
     });
@@ -44,7 +44,7 @@ function normalizeOps(ventas: any[], gastos: any[], mV?: ColumnMapping, mG?: Col
       type: 'purchase',
       description: findString(r, FIELD_NAME, mG?.name) || 'Gasto',
       amount: findNumber(r, FIELD_AMOUNT, mG?.amount),
-      date: findString(r, ['vencimiento', ...FIELD_DATE], mG?.date),
+      date: findString(r, ['vencimiento', ...FIELD_DATE], mG?.date) || findDateRaw(r, mG?.date),
       counterpart: findString(r, ['proveedor', 'supplier', ...FIELD_CLIENT], mG?.client),
       category: findString(r, FIELD_CATEGORY, mG?.category) || 'Gastos',
     });

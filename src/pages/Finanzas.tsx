@@ -3,7 +3,7 @@ import { usePeriod } from '@/contexts/PeriodContext';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { formatCurrency, formatDate } from '@/lib/formatters';
-import { findNumber, findString, FIELD_AMOUNT, FIELD_NAME, FIELD_DATE } from '@/lib/field-utils';
+import { findNumber, findString, findDateRaw, FIELD_AMOUNT, FIELD_NAME, FIELD_DATE } from '@/lib/field-utils';
 import { useExtractedData } from '@/hooks/useExtractedData';
 import { filterByPeriod, type PeriodKey } from '@/lib/data-cleaning';
 import { PeriodPills } from '@/components/ui/PeriodPills';
@@ -45,7 +45,7 @@ function normalizeExpenses(rows: any[], mG?: Record<string, string>): ExpenseRow
     return {
       name: findString(r, FIELD_NAME, mG?.name) || 'Gasto',
       amount: findNumber(r, FIELD_AMOUNT, mG?.amount),
-      dueDate: findString(r, ['vencimiento', 'fecha_vencimiento', 'due_date', ...FIELD_DATE], mG?.date),
+      dueDate: findString(r, ['vencimiento', 'fecha_vencimiento', 'due_date', ...FIELD_DATE], mG?.date) || findDateRaw(r, mG?.date),
       status,
     };
   });

@@ -1,7 +1,7 @@
 // src/lib/forecast-engine.ts
 // Forecast engine with weighted moving average + seasonal factors
 
-import { findNumber, findString, FIELD_AMOUNT, FIELD_DATE } from '@/lib/field-utils';
+import { findNumber, findString, findDateRaw, FIELD_AMOUNT, FIELD_DATE } from '@/lib/field-utils';
 import { parseDate } from '@/lib/data-cleaning';
 
 interface MonthBucket {
@@ -48,7 +48,7 @@ export function aggregateSalesByMonth(
   const buckets = new Map<string, MonthBucket>();
 
   for (const r of ventas) {
-    const raw = findString(r, FIELD_DATE, mappedDate);
+    const raw = findDateRaw(r, mappedDate);
     if (!raw) continue;
     const d = parseDate(raw);
     if (!d) continue;
