@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { usePeriod } from '@/contexts/PeriodContext';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { formatCurrency, formatPercent, formatNumber, safeDiv } from '@/lib/formatters';
@@ -71,6 +72,7 @@ export default function Marketing() {
   const { data: extractedData, mappings, hasData, loading, availableMonths } = useExtractedData();
   const m = mappings.marketing;
   const { period, setPeriod } = usePeriod();
+  const [showInactive, setShowInactive] = useState(false);
   const allMarketing = extractedData?.marketing || [];
   const filteredMarketing = period === 'all' ? allMarketing : filterByPeriod(allMarketing, FIELD_DATE, period, (row, kw) => findString(row, kw, m?.date));
   const useReal = hasData && allMarketing.length > 0;
