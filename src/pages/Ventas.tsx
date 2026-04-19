@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { KPICard } from '@/components/ui/KPICard';
 import { formatCurrency, formatDate } from '@/lib/formatters';
 import { formatXAxisDate, formatAmount, formatAmountFull, TOOLTIP_STYLE, AXIS_STYLE } from '@/lib/chart-config';
-import { findNumber, findString, FIELD_AMOUNT, FIELD_DATE, FIELD_CLIENT, FIELD_NAME } from '@/lib/field-utils';
+import { findNumber, findString, FIELD_AMOUNT, FIELD_DATE, FIELD_CLIENT, FIELD_NAME, FIELD_COST, FIELD_PROFIT } from '@/lib/field-utils';
 import { useExtractedData } from '@/hooks/useExtractedData';
 import { filterByPeriod, parseDate, type PeriodKey } from '@/lib/data-cleaning';
 import { PeriodPills } from '@/components/ui/PeriodPills';
@@ -164,12 +164,26 @@ export default function Ventas() {
   // salesTotal se calcula desde el gráfico para garantizar que card y barras coincidan
   const salesTotal = dailyChart.reduce((sum, d) => sum + d.value, 0);
 
+  // MEJORA 2: detectar si hay datos de costo / ganancia
+  const hasCostData = !!m?.cost || realVentas.some((r: any) => findNumber(r, FIELD_COST, m?.cost) > 0);
+  const hasProfitData = !!m?.profit || realVentas.some((r: any) => findNumber(r, FIELD_PROFIT, m?.profit) > 0);
+
   const salesHistory = realVentas.slice(0, 50).map((r: any) => ({
     date: findString(r, FIELD_DATE, m?.date) || '—',
     client: findString(r, FIELD_CLIENT, m?.client) || '',
     product: findString(r, FIELD_NAME, m?.name) || '',
     amount: findNumber(r, FIELD_AMOUNT, m?.amount),
+    cost: hasCostData ? findNumber(r, FIELD_COST, m?.cost) : 0,
+    profit: hasProfitData ? findNumber(r, FIELD_PROFIT, m?.profit) : 0,
   }));
+
+  // Totales de costo y ganancia (sobre todo el período filtrado, no solo los 50 mostrados)
+  const totalCost = hasCostData
+    ? realVentas.reduce((s: number, r: any) => s + findNumber(r, FIELD_COST, m?.cost), 0)
+    : 0;
+  const totalProfit = hasProfitData
+    ? realVentas.reduce((s: number, r: any) => s + findNumber(r, FIELD_PROFIT, m?.profit), 0)
+    : (hasCostData ? salesTotal - totalCost : 0);
 
   // Detect if client/product columns have real data
   const hasClients = salesHistory.some(s => s.client && s.client !== '—');
