@@ -1,3 +1,5 @@
+import { useMemo } from 'react';
+import { extractAvailableMonths } from '@/lib/data-cleaning';
 import { usePeriod } from '@/contexts/PeriodContext';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { KPICard } from '@/components/ui/KPICard';
@@ -123,10 +125,14 @@ function GradientBar(props: any) {
 }
 
 export default function Ventas() {
-  const { data: extractedData, mappings, hasData, loading, availableMonths } = useExtractedData();
+  const { data: extractedData, mappings, hasData, loading } = useExtractedData();
   const m = mappings.ventas;
   const { period, setPeriod } = usePeriod();
   const allVentas = extractedData?.ventas || [];
+  const availableMonths = useMemo(
+    () => extractAvailableMonths(allVentas, FIELD_DATE, (row, kw) => findDateRaw(row, m?.date) || findString(row, kw, m?.date)),
+    [allVentas, m]
+  );
   const realVentas = period === 'all' ? allVentas : filterByPeriod(allVentas, FIELD_DATE, period, (row, kw) => findString(row, kw, m?.date));
 
   if (loading) {
