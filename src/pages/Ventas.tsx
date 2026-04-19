@@ -1,7 +1,7 @@
 import { usePeriod } from '@/contexts/PeriodContext';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { KPICard } from '@/components/ui/KPICard';
-import { formatCurrency, formatDate } from '@/lib/formatters';
+import { formatCurrency, formatCurrencyCompact, formatDate } from '@/lib/formatters';
 import { formatXAxisDate, formatAmount, formatAmountFull, TOOLTIP_STYLE, AXIS_STYLE } from '@/lib/chart-config';
 import { findNumber, findString, FIELD_AMOUNT, FIELD_DATE, FIELD_CLIENT, FIELD_NAME, FIELD_COST, FIELD_PROFIT } from '@/lib/field-utils';
 import { useExtractedData } from '@/hooks/useExtractedData';
