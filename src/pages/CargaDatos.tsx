@@ -1734,6 +1734,37 @@ export default function CargaDatos() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* BUG 1: Stock duplicate dialog */}
+      <AlertDialog open={!!stockDuplicateInfo} onOpenChange={(open) => { if (!open) setStockDuplicateInfo(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <Package className="h-5 w-5 text-warning" />
+              Productos ya cargados
+            </AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-2">
+                <p>
+                  El archivo <strong>"{stockDuplicateInfo?.fileName}"</strong> parece contener productos ya cargados
+                  ({stockDuplicateInfo ? Math.round(stockDuplicateInfo.matchPct * 100) : 0}% de coincidencia con el inventario actual).
+                </p>
+                <p className="text-muted-foreground">
+                  ¿Querés reemplazar el inventario actual con estos productos, o agregarlos manteniendo ambos?
+                </p>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setStockDuplicateInfo(null)}>
+              Agregar
+            </AlertDialogCancel>
+            <AlertDialogAction onClick={handleStockDuplicateReplace} className="bg-warning text-warning-foreground hover:bg-warning/90">
+              Reemplazar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
