@@ -435,6 +435,14 @@ export default function CargaDatos() {
     category: string;
   } | null>(null);
 
+  // Stock duplicate detection state (BUG 1 fix)
+  const [stockDuplicateInfo, setStockDuplicateInfo] = useState<{
+    fileUploadId: string;
+    fileName: string;
+    matchPct: number;
+    newProductCount: number;
+  } | null>(null);
+
   // Pagination & filters
   const [currentPage, setCurrentPage] = useState(0);
   const [searchTerm, setSearchTerm] = useState('');
