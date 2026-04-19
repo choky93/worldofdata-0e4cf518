@@ -233,11 +233,11 @@ export function filterByPeriod(
   return rows.filter(row => {
     let raw = findStringFn(row, dateKeywords);
     if (!raw) {
-      // Fallback: buscar cualquier clave del row cuyo valor sea una fecha ISO o Date
+      // Fallback robusto: buscar cualquier clave con valor ISO o Date
       for (const key of Object.keys(row)) {
         const val = (row as any)[key];
-        if (typeof val === 'string' && /^\d{4}-\d{2}-\d{2}/.test(val)) { raw = val; break; }
         if (val instanceof Date) { raw = val.toISOString(); break; }
+        if (typeof val === 'string' && /^\d{4}-\d{2}-\d{2}/.test(val.trim())) { raw = val.trim(); break; }
       }
     }
     const d = parseDate(raw);
@@ -256,7 +256,15 @@ export function extractAvailableMonths(
 ): string[] {
   const monthSet = new Set<string>();
   for (const row of rows) {
-    const raw = findStringFn(row, dateKeywords);
+    let raw = findStringFn(row, dateKeywords);
+    if (!raw) {
+      // Fallback robusto: ISO string o Date en cualquier columna
+      for (const key of Object.keys(row)) {
+        const val = (row as any)[key];
+        if (val instanceof Date) { raw = val.toISOString(); break; }
+        if (typeof val === 'string' && /^\d{4}-\d{2}-\d{2}/.test(val.trim())) { raw = val.trim(); break; }
+      }
+    }
     if (!raw) continue;
     const d = parseDate(raw);
     if (!d) continue;

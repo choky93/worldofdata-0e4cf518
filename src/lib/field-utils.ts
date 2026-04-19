@@ -258,7 +258,35 @@ export interface ColumnMapping {
 
 export const FIELD_NAME = ['nombre', 'name', 'descripcion', 'producto', 'detalle', 'concepto', 'item', 'articulo'];
 export const FIELD_AMOUNT = ['monto', 'total', 'amount', 'valor', 'importe', 'ganancia', 'monto_total', 'monto_venta', 'total_mensual', 'precio', 'subtotal', 'neto', 'precio_de_venta', 'precio de venta', 'precio_venta', 'venta', 'valor_venta', 'total_venta'];
-export const FIELD_DATE = ['__EMPTY', '__empty', 'unnamed:_0', 'unnamed_0', 'unnamed', 'col_0', 'column_0', 'a', 'fecha', 'date', 'periodo', 'mes', 'month', 'dia', 'day', 'fecha_operacion', 'fecha_venta', 'fecha_compra'];
+// Claves semánticas normalizadas primero, luego aliases históricos para datos ya cargados.
+export const FIELD_DATE = ['fecha', 'date', 'periodo', 'mes', 'month', 'dia', 'day', 'fecha_operacion', 'fecha_venta', 'fecha_compra', '__EMPTY', '__empty', 'unnamed:_0', 'unnamed_0', 'unnamed', 'col_0', 'column_0'];
+
+/**
+ * Detección robusta de la fecha real de una fila.
+ * Orden:
+ *   1) campo mapeado explícito (mappedDate)
+ *   2) claves semánticas normalizadas y aliases históricos (FIELD_DATE)
+ *   3) fallback: cualquier valor con formato ISO (YYYY-MM-DD) o instancia Date
+ */
+export function findDateRaw(row: Record<string, unknown>, mappedDate?: string | null): string {
+  if (!row || typeof row !== 'object') return '';
+
+  if (mappedDate && row[mappedDate] !== undefined && row[mappedDate] !== null && row[mappedDate] !== '') {
+    const v = row[mappedDate];
+    if (v instanceof Date) return v.toISOString();
+    return String(v).trim();
+  }
+
+  const raw = findString(row, FIELD_DATE, mappedDate ?? undefined);
+  if (raw) return raw;
+
+  for (const key of Object.keys(row)) {
+    const val = (row as any)[key];
+    if (val instanceof Date) return val.toISOString();
+    if (typeof val === 'string' && /^\d{4}-\d{2}-\d{2}/.test(val.trim())) return val.trim();
+  }
+  return '';
+}
 export const FIELD_CLIENT = ['cliente', 'client', 'razon_social', 'empresa', 'comprador', 'nombre_cliente'];
 export const FIELD_CATEGORY = ['categoria', 'category', 'tipo', 'rubro', 'segmento', 'clase'];
 
