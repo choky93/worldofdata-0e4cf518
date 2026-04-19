@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { KPICard } from '@/components/ui/KPICard';
 import { formatCurrency, formatCurrencyCompact, formatDate } from '@/lib/formatters';
 import { formatXAxisDate, formatAmount, formatAmountFull, TOOLTIP_STYLE, AXIS_STYLE } from '@/lib/chart-config';
-import { findNumber, findString, FIELD_AMOUNT, FIELD_DATE, FIELD_CLIENT, FIELD_NAME, FIELD_COST, FIELD_PROFIT } from '@/lib/field-utils';
+import { findNumber, findString, findDateRaw, FIELD_AMOUNT, FIELD_DATE, FIELD_CLIENT, FIELD_NAME, FIELD_COST, FIELD_PROFIT } from '@/lib/field-utils';
 import { useExtractedData } from '@/hooks/useExtractedData';
 import { filterByPeriod, parseDate, type PeriodKey } from '@/lib/data-cleaning';
 import { PeriodPills } from '@/components/ui/PeriodPills';
@@ -15,18 +15,6 @@ import { Tooltip as UITooltip, TooltipContent, TooltipTrigger, TooltipProvider }
 import { TrendingUp, Database, Upload, Loader2, ShoppingCart } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
-
-function findDateRaw(row: any, mappedDate?: string): string {
-  const raw = findString(row, FIELD_DATE, mappedDate);
-  if (raw) return raw;
-  // Fallback: buscar cualquier clave del row cuyo valor sea una fecha ISO o Date
-  for (const key of Object.keys(row)) {
-    const val = row[key];
-    if (typeof val === 'string' && /^\d{4}-\d{2}-\d{2}/.test(val)) return val;
-    if (val instanceof Date) return val.toISOString();
-  }
-  return '';
-}
 
 function aggregateByDate(ventas: any[], m?: any): { day: string; value: number }[] {
   const map = new Map<string, { date: Date | null; value: number }>();
@@ -130,10 +118,10 @@ export default function Ventas() {
   const { period, setPeriod } = usePeriod();
   const allVentas = extractedData?.ventas || [];
   const availableMonths = useMemo(
-    () => extractAvailableMonths(allVentas, FIELD_DATE, (row, kw) => findDateRaw(row, m?.date) || findString(row, kw, m?.date)),
+    () => extractAvailableMonths(allVentas, FIELD_DATE, (row) => findDateRaw(row, m?.date)),
     [allVentas, m]
   );
-  const realVentas = period === 'all' ? allVentas : filterByPeriod(allVentas, FIELD_DATE, period, (row, kw) => findString(row, kw, m?.date));
+  const realVentas = period === 'all' ? allVentas : filterByPeriod(allVentas, FIELD_DATE, period, (row) => findDateRaw(row, m?.date));
 
   if (loading) {
     return (
@@ -187,7 +175,7 @@ export default function Ventas() {
   const hasProfitData = !!m?.profit || realVentas.some((r: any) => findNumber(r, FIELD_PROFIT, m?.profit) > 0);
 
   const salesHistory = realVentas.slice(0, 50).map((r: any) => ({
-    date: findString(r, FIELD_DATE, m?.date) || '—',
+    date: findDateRaw(r, m?.date) || '—',
     client: findString(r, FIELD_CLIENT, m?.client) || '',
     product: findString(r, FIELD_NAME, m?.name) || '',
     amount: findNumber(r, FIELD_AMOUNT, m?.amount),
