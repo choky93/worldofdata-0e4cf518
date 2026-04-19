@@ -110,15 +110,16 @@ export function parseDate(raw: string): Date | null {
   if (!raw || raw === '—' || raw === '-') return null;
   const trimmed = raw.trim();
 
-  // Si el valor ya es una fecha ISO válida, parsearla directamente
-  if (/^\d{4}-\d{2}-\d{2}/.test(trimmed)) {
-    const d = new Date(trimmed);
+  // Parsear fecha ISO como hora local para evitar bug de timezone (Argentina UTC-3)
+  const isoMatch = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (isoMatch) {
+    const d = new Date(
+      parseInt(isoMatch[1]),
+      parseInt(isoMatch[2]) - 1,
+      parseInt(isoMatch[3])
+    );
     if (!isNaN(d.getTime())) return d;
   }
-
-  // ISO format: 2023-11-01
-  const d = new Date(trimmed);
-  if (!isNaN(d.getTime()) && trimmed.includes('-')) return d;
   
   // dd/mm/yyyy or dd-mm-yyyy or dd.mm.yyyy
   const ddmmyyyy = trimmed.match(/^(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{4})$/);
