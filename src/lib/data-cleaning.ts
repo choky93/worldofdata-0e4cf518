@@ -109,7 +109,13 @@ const SPANISH_MONTHS: Record<string, number> = {
 export function parseDate(raw: string): Date | null {
   if (!raw || raw === '—' || raw === '-') return null;
   const trimmed = raw.trim();
-  
+
+  // Si el valor ya es una fecha ISO válida, parsearla directamente
+  if (/^\d{4}-\d{2}-\d{2}/.test(trimmed)) {
+    const d = new Date(trimmed);
+    if (!isNaN(d.getTime())) return d;
+  }
+
   // ISO format: 2023-11-01
   const d = new Date(trimmed);
   if (!isNaN(d.getTime()) && trimmed.includes('-')) return d;
