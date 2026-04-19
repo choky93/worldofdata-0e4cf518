@@ -14,10 +14,22 @@ import { TrendingUp, Database, Upload, Loader2, ShoppingCart } from 'lucide-reac
 import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 
+function findDateRaw(row: any, mappedDate?: string): string {
+  const raw = findString(row, FIELD_DATE, mappedDate);
+  if (raw) return raw;
+  // Fallback: buscar cualquier clave del row cuyo valor sea una fecha ISO o Date
+  for (const key of Object.keys(row)) {
+    const val = row[key];
+    if (typeof val === 'string' && /^\d{4}-\d{2}-\d{2}/.test(val)) return val;
+    if (val instanceof Date) return val.toISOString();
+  }
+  return '';
+}
+
 function aggregateByDate(ventas: any[], m?: any): { day: string; value: number }[] {
   const map = new Map<string, { date: Date | null; value: number }>();
   for (const r of ventas) {
-    const raw = findString(r, FIELD_DATE, m?.date);
+    const raw = findDateRaw(r, m?.date);
     if (!raw) continue;
     const d = parseDate(raw);
     const key = d
@@ -42,7 +54,7 @@ function aggregateByDate(ventas: any[], m?: any): { day: string; value: number }
 function aggregateByMonth(ventas: any[], m?: any): { month: string; value: number }[] {
   const map = new Map<string, { date: Date; value: number }>();
   for (const r of ventas) {
-    const raw = findString(r, FIELD_DATE, m?.date);
+    const raw = findDateRaw(r, m?.date);
     if (!raw) continue;
     const d = parseDate(raw);
     if (!d) continue;

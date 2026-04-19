@@ -230,7 +230,15 @@ export function filterByPeriod(
   }
 
   return rows.filter(row => {
-    const raw = findStringFn(row, dateKeywords);
+    let raw = findStringFn(row, dateKeywords);
+    if (!raw) {
+      // Fallback: buscar cualquier clave del row cuyo valor sea una fecha ISO o Date
+      for (const key of Object.keys(row)) {
+        const val = (row as any)[key];
+        if (typeof val === 'string' && /^\d{4}-\d{2}-\d{2}/.test(val)) { raw = val; break; }
+        if (val instanceof Date) { raw = val.toISOString(); break; }
+      }
+    }
     const d = parseDate(raw);
     if (!d) return false;
     return d >= from && d < to;
