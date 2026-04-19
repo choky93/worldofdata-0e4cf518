@@ -257,8 +257,8 @@ export interface ColumnMapping {
 // ─── Pre-built keyword sets for common business data ─────────
 
 export const FIELD_NAME = ['nombre', 'name', 'descripcion', 'producto', 'detalle', 'concepto', 'item', 'articulo'];
-export const FIELD_AMOUNT = ['monto', 'total', 'amount', 'valor', 'importe', 'ganancia', 'monto_total', 'monto_venta', 'total_mensual', 'precio', 'subtotal', 'neto'];
-export const FIELD_DATE = ['fecha', 'date', 'periodo', 'mes', 'month', 'dia', 'day'];
+export const FIELD_AMOUNT = ['monto', 'total', 'amount', 'valor', 'importe', 'ganancia', 'monto_total', 'monto_venta', 'total_mensual', 'precio', 'subtotal', 'neto', 'precio_de_venta', 'precio de venta', 'precio_venta', 'venta', 'valor_venta', 'total_venta'];
+export const FIELD_DATE = ['fecha', 'date', 'periodo', 'mes', 'month', 'dia', 'day', 'unnamed', 'fecha_operacion', 'fecha_venta', 'fecha_compra', 'unnamed:_0'];
 export const FIELD_CLIENT = ['cliente', 'client', 'razon_social', 'empresa', 'comprador', 'nombre_cliente'];
 export const FIELD_CATEGORY = ['categoria', 'category', 'tipo', 'rubro', 'segmento', 'clase'];
 
