@@ -783,6 +783,65 @@ function detectExtremeValues(rows: Record<string, unknown>[]): string[] {
   return extremeValues;
 }
 
+// ─── Semantic row normalization ───────────────────────────────
+// Asegura que las filas persistidas usen claves semánticas estables
+// (fecha, monto, costo, ganancia, producto, cantidad, etc.) sin importar
+// si el archivo original tenía headers genéricos como "__EMPTY", "Unnamed: 0",
+// "Total mensual (IVA inc.)" o nombres mapeados por la IA.
+const SEMANTIC_FIELD_MAP: Record<string, string[]> = {
+  fecha:     ['fecha', 'date', 'mes', 'dia', 'periodo', 'período', '__empty', 'unnamed: 0', 'unnamed:0', 'unnamed_0', 'unnamed', 'f.', 'fecha_operacion', 'fecha_venta', 'fecha_compra'],
+  monto:     ['monto', 'total', 'precio de venta', 'precio_de_venta', 'importe', 'total mensual (iva inc.)', 'total mensual', 'valor', 'ventas', 'ingreso', 'facturación', 'facturacion', 'amount', 'subtotal', 'neto'],
+  costo:     ['costo', 'cost', 'precio de costo', 'precio_de_costo', 'precio costo', 'costo unitario', 'costo_unitario', 'costo_total'],
+  ganancia:  ['ganancia', 'profit', 'margen', 'utilidad', 'resultado'],
+  producto:  ['producto', 'product', 'descripcion', 'descripción', 'artículo', 'articulo', 'item', 'nombre', 'detalle', 'concepto'],
+  cantidad:  ['cantidad', 'qty', 'unidades', 'units', 'cant.', 'cant', 'cantidad_vendida'],
+  stock:     ['stock', 'inventario', 'existencias', 'existencia', 'disponible'],
+  categoria: ['categoria', 'categoría', 'category', 'rubro', 'tipo'],
+  cliente:   ['cliente', 'client', 'razon_social', 'razón social', 'razon social', 'comprador'],
+};
+
+function resolveToSemantic(key: string): string {
+  const k = key.toLowerCase().trim();
+  for (const [semantic, variants] of Object.entries(SEMANTIC_FIELD_MAP)) {
+    if (variants.some(v => k === v || k.startsWith(v))) return semantic;
+  }
+  return key;
+}
+
+function normalizeRow(
+  row: Record<string, unknown>,
+  columnMapping: Record<string, string | null> = {},
+): Record<string, unknown> {
+  // Invertir mapping IA: original_header -> semantic
+  const inverseAI: Record<string, string> = {};
+  for (const [semantic, original] of Object.entries(columnMapping)) {
+    if (!original) continue;
+    inverseAI[original] = semantic;
+    inverseAI[String(original).toLowerCase().trim()] = semantic;
+  }
+
+  const out: Record<string, unknown> = {};
+  for (const [originalKey, value] of Object.entries(row)) {
+    // 1) prioridad: mapping de la IA
+    const aiSemantic = inverseAI[originalKey] || inverseAI[String(originalKey).toLowerCase().trim()];
+    if (aiSemantic) {
+      const norm = resolveToSemantic(aiSemantic);
+      // Mantener primer valor no vacío para esa clave semántica
+      if (out[norm] === undefined || out[norm] === null || out[norm] === '') out[norm] = value;
+      // Conservar también el original por trazabilidad
+      out[originalKey] = value;
+      continue;
+    }
+    // 2) fallback: resolver por nombre original
+    const norm = resolveToSemantic(originalKey);
+    if (norm !== originalKey && (out[norm] === undefined || out[norm] === null || out[norm] === '')) {
+      out[norm] = value;
+    }
+    out[originalKey] = value;
+  }
+  return out;
+}
+
 // ─── Deterministic row storage ────────────────────────────────
 async function storeRowBatch(
   sb: ReturnType<typeof createClient>,
@@ -793,6 +852,7 @@ async function storeRowBatch(
   fileUploadId: string,
   companyId: string,
   batchIndex: number,
+  columnMapping?: Record<string, string | null> | null,
 ): Promise<void> {
   // Delete previous data for this batch (but not metadata)
   const { error: delErr } = await sb.from("file_extracted_data")
@@ -801,20 +861,23 @@ async function storeRowBatch(
     .eq("chunk_index", batchIndex);
   if (delErr) console.error(`[process-file] DELETE batch ${batchIndex} error:`, delErr.message);
 
+  // Normalizar filas: agrega claves semánticas (fecha, monto, etc.) sin perder originales
+  const normalizedRows = rows.map(r => normalizeRow(r, columnMapping ?? {}));
+
   const { error: insErr } = await sb.from("file_extracted_data").insert({
     file_upload_id: fileUploadId,
     company_id: companyId,
     data_category: category,
-    extracted_json: { columns: headers, data: rows },
+    extracted_json: { columns: headers, data: normalizedRows },
     summary: batchIndex === 0 ? summary : `Lote ${batchIndex + 1}`,
-    row_count: rows.length,
+    row_count: normalizedRows.length,
     chunk_index: batchIndex,
   });
   if (insErr) {
     console.error(`[process-file] ❌ INSERT batch ${batchIndex} FAILED:`, insErr.message, insErr.details);
     throw new Error(`Failed to store batch ${batchIndex}: ${insErr.message}`);
   }
-  console.log(`[process-file] ✅ Stored batch ${batchIndex} with ${rows.length} rows (category: ${category})`);
+  console.log(`[process-file] ✅ Stored batch ${batchIndex} with ${normalizedRows.length} rows (category: ${category})`);
 }
 
 // ─── Process structured tabular data (the new deterministic path) ─
