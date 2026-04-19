@@ -5,7 +5,7 @@ import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Progress } from '@/components/ui/progress';
-import { Upload, FileText, Image, FileSpreadsheet, Trash2, Lightbulb, Loader2, RefreshCw, CheckCircle2, Search, ChevronLeft, ChevronRight, Filter, XCircle, BarChart3, Clock, AlertTriangle, Layers, Link2, ArrowUp, Globe } from 'lucide-react';
+import { Upload, FileText, Image, FileSpreadsheet, Trash2, Lightbulb, Loader2, RefreshCw, CheckCircle2, Search, ChevronLeft, ChevronRight, Filter, XCircle, BarChart3, Clock, AlertTriangle, Layers, Link2, ArrowUp, Globe, Package } from 'lucide-react';
 import { Textarea } from '@/components/ui/textarea';
 import { formatDate } from '@/lib/formatters';
 import { useAuth } from '@/contexts/AuthContext';
@@ -14,7 +14,7 @@ import { toast } from 'sonner';
 import * as XLSX from 'xlsx';
 import { cleanParsedRows, detectPeriodOverlap, parseDate } from '@/lib/data-cleaning';
 import { useExtractedData } from '@/hooks/useExtractedData';
-import { findString, FIELD_DATE } from '@/lib/field-utils';
+import { findString, FIELD_DATE, FIELD_NAME } from '@/lib/field-utils';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -433,6 +433,14 @@ export default function CargaDatos() {
     fileName: string;
     overlappingMonths: string[];
     category: string;
+  } | null>(null);
+
+  // Stock duplicate detection state (BUG 1 fix)
+  const [stockDuplicateInfo, setStockDuplicateInfo] = useState<{
+    fileUploadId: string;
+    fileName: string;
+    matchPct: number;
+    newProductCount: number;
   } | null>(null);
 
   // Pagination & filters
@@ -988,12 +996,50 @@ export default function CargaDatos() {
         // Group by file_upload_id to find new rows
         for (const ext of newExtracted) {
           const cat = ext.data_category as string;
-          if (cat !== 'ventas' && cat !== 'gastos' && cat !== 'marketing') continue;
           const json = ext.extracted_json as any;
           const newRows = json?.data || [];
           if (!Array.isArray(newRows) || newRows.length === 0) continue;
-
           const newFileUploadId = ext.file_upload_id;
+
+          // ─── BUG 1: Stock duplicate detection by product names ─────
+          if (cat === 'stock') {
+            const existingStockRows = (globalExtractedData?.stock || []);
+            // Skip if there's no prior stock to compare against
+            if (existingStockRows.length === 0) continue;
+
+            const stockMapping = globalMappings.stock;
+            const newNames = new Set(
+              newRows
+                .map((r: any) => findString(r, FIELD_NAME, stockMapping?.name))
+                .filter((n: string) => n && n.length > 0)
+                .map((n: string) => n.trim().toLowerCase())
+            );
+            if (newNames.size === 0) continue;
+
+            const existingNames = new Set(
+              existingStockRows
+                .map((r: any) => findString(r, FIELD_NAME, stockMapping?.name))
+                .filter((n: string) => n && n.length > 0)
+                .map((n: string) => n.trim().toLowerCase())
+            );
+
+            let matchCount = 0;
+            for (const n of newNames) if (existingNames.has(n)) matchCount++;
+            const matchPct = matchCount / newNames.size;
+
+            if (matchPct > 0.8) {
+              setStockDuplicateInfo({
+                fileUploadId: newFileUploadId,
+                fileName: item.file.name,
+                matchPct,
+                newProductCount: newNames.size,
+              });
+              break; // one dialog at a time
+            }
+            continue;
+          }
+
+          if (cat !== 'ventas' && cat !== 'gastos' && cat !== 'marketing') continue;
 
           // Use tagged rows from context, filtering out rows from the same file to avoid self-overlap
           const existingRows = cat === 'ventas'
@@ -1236,6 +1282,27 @@ export default function CargaDatos() {
     } catch (err: any) {
       toast.error('Error reemplazando datos: ' + err.message);
       setOverlapInfo(null);
+    }
+  };
+
+  // ─── BUG 1: Handle Stock Duplicate Replace ────────────────
+  const handleStockDuplicateReplace = async () => {
+    if (!stockDuplicateInfo || !profile?.company_id) return;
+    try {
+      // Delete all prior stock data records (keep only the new file's data)
+      await supabase
+        .from('file_extracted_data')
+        .delete()
+        .eq('company_id', profile.company_id)
+        .eq('data_category', 'stock')
+        .neq('file_upload_id', stockDuplicateInfo.fileUploadId);
+
+      toast.success(`Inventario anterior reemplazado con los ${stockDuplicateInfo.newProductCount} productos del nuevo archivo.`);
+      setStockDuplicateInfo(null);
+      refetchExtractedData();
+    } catch (err: any) {
+      toast.error('Error reemplazando inventario: ' + err.message);
+      setStockDuplicateInfo(null);
     }
   };
 
@@ -1662,6 +1729,37 @@ export default function CargaDatos() {
               Mantener ambos
             </AlertDialogCancel>
             <AlertDialogAction onClick={handleOverlapReplace} className="bg-warning text-warning-foreground hover:bg-warning/90">
+              Reemplazar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* BUG 1: Stock duplicate dialog */}
+      <AlertDialog open={!!stockDuplicateInfo} onOpenChange={(open) => { if (!open) setStockDuplicateInfo(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <Package className="h-5 w-5 text-warning" />
+              Productos ya cargados
+            </AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-2">
+                <p>
+                  El archivo <strong>"{stockDuplicateInfo?.fileName}"</strong> parece contener productos ya cargados
+                  ({stockDuplicateInfo ? Math.round(stockDuplicateInfo.matchPct * 100) : 0}% de coincidencia con el inventario actual).
+                </p>
+                <p className="text-muted-foreground">
+                  ¿Querés reemplazar el inventario actual con estos productos, o agregarlos manteniendo ambos?
+                </p>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setStockDuplicateInfo(null)}>
+              Agregar
+            </AlertDialogCancel>
+            <AlertDialogAction onClick={handleStockDuplicateReplace} className="bg-warning text-warning-foreground hover:bg-warning/90">
               Reemplazar
             </AlertDialogAction>
           </AlertDialogFooter>
