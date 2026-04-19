@@ -216,8 +216,10 @@ export default function Ventas() {
           </div>
         </div>
 
-        <div className="grid gap-4 md:grid-cols-4">
+        <div className={`grid gap-4 ${hasCostData ? 'md:grid-cols-3 lg:grid-cols-6' : 'md:grid-cols-4'}`}>
           <KPICard label="Total cargado" value={formatCurrency(salesTotal)} accent />
+          {hasCostData && <KPICard label="Costo total" value={formatCurrency(totalCost)} />}
+          {(hasCostData || hasProfitData) && <KPICard label="Ganancia bruta" value={formatCurrency(totalProfit)} />}
           <KPICard label="Promedio mensual" value={formatCurrency(promedioMensual)} />
           <KPICard label="Registros" value={realVentas.length} />
           <KPICard label="Ticket promedio" value={realVentas.length > 0 ? formatCurrency(salesTotal / realVentas.length) : '—'} />
@@ -288,16 +290,27 @@ export default function Ventas() {
                 {hasClients && <TableHead>Cliente</TableHead>}
                 {hasProducts && <TableHead>Detalle</TableHead>}
                 <TableHead className="text-right">Monto</TableHead>
+                {hasCostData && <TableHead className="text-right">Costo</TableHead>}
+                {(hasCostData || hasProfitData) && <TableHead className="text-right">Ganancia</TableHead>}
               </TableRow></TableHeader>
               <TableBody>
-                {salesHistory.map((s, i) => (
-                  <TableRow key={i}>
-                    <TableCell className="tabular-nums">{fmtDate(s.date)}</TableCell>
-                    {hasClients && <TableCell className="font-medium">{s.client || '—'}</TableCell>}
-                    {hasProducts && <TableCell className="text-muted-foreground">{s.product || '—'}</TableCell>}
-                    <TableCell className="text-right font-medium tabular-nums">{formatCurrency(s.amount)}</TableCell>
-                  </TableRow>
-                ))}
+                {salesHistory.map((s, i) => {
+                  const rowProfit = hasProfitData ? s.profit : (hasCostData ? s.amount - s.cost : 0);
+                  return (
+                    <TableRow key={i}>
+                      <TableCell className="tabular-nums">{fmtDate(s.date)}</TableCell>
+                      {hasClients && <TableCell className="font-medium">{s.client || '—'}</TableCell>}
+                      {hasProducts && <TableCell className="text-muted-foreground">{s.product || '—'}</TableCell>}
+                      <TableCell className="text-right font-medium tabular-nums">{formatCurrency(s.amount)}</TableCell>
+                      {hasCostData && <TableCell className="text-right tabular-nums text-muted-foreground">{formatCurrency(s.cost)}</TableCell>}
+                      {(hasCostData || hasProfitData) && (
+                        <TableCell className={`text-right tabular-nums font-medium ${rowProfit >= 0 ? 'text-success' : 'text-destructive'}`}>
+                          {formatCurrency(rowProfit)}
+                        </TableCell>
+                      )}
+                    </TableRow>
+                  );
+                })}
               </TableBody>
             </Table>
             {realVentas.length > 50 && (
