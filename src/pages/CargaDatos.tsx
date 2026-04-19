@@ -14,7 +14,7 @@ import { toast } from 'sonner';
 import * as XLSX from 'xlsx';
 import { cleanParsedRows, detectPeriodOverlap, parseDate } from '@/lib/data-cleaning';
 import { useExtractedData } from '@/hooks/useExtractedData';
-import { findString, FIELD_DATE } from '@/lib/field-utils';
+import { findString, FIELD_DATE, FIELD_NAME } from '@/lib/field-utils';
 import {
   AlertDialog,
   AlertDialogAction,
