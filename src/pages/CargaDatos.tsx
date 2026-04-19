@@ -1285,8 +1285,28 @@ export default function CargaDatos() {
     }
   };
 
+  // ─── BUG 1: Handle Stock Duplicate Replace ────────────────
+  const handleStockDuplicateReplace = async () => {
+    if (!stockDuplicateInfo || !profile?.company_id) return;
+    try {
+      // Delete all prior stock data records (keep only the new file's data)
+      await supabase
+        .from('file_extracted_data')
+        .delete()
+        .eq('company_id', profile.company_id)
+        .eq('data_category', 'stock')
+        .neq('file_upload_id', stockDuplicateInfo.fileUploadId);
 
-  const handleImportUrls = async () => {
+      toast.success(`Inventario anterior reemplazado con los ${stockDuplicateInfo.newProductCount} productos del nuevo archivo.`);
+      setStockDuplicateInfo(null);
+      refetchExtractedData();
+    } catch (err: any) {
+      toast.error('Error reemplazando inventario: ' + err.message);
+      setStockDuplicateInfo(null);
+    }
+  };
+
+
     if (!user || !profile?.company_id || !urlImportText.trim()) return;
     setIsImportingUrls(true);
     try {
