@@ -275,6 +275,8 @@ export const FIELD_IMPRESSIONS = ['impresiones', 'impressions', 'views', 'vistas
 
 // Stock-specific
 export const FIELD_STOCK_QTY = ['stock', 'cantidad', 'unidades', 'qty', 'existencia', 'disponible'];
+// Sales-specific quantity (units sold per transaction/row)
+export const FIELD_SALE_QTY = ['cantidad', 'unidades', 'qty', 'cant', 'cantidad_vendida', 'unidades_vendidas', 'units', 'cant_vendida', 'volumen'];
 export const FIELD_STOCK_MIN = ['stock_minimo', 'min_stock', 'minimo', 'punto_reorden'];
 export const FIELD_STOCK_MAX = ['stock_maximo', 'max_stock', 'maximo'];
 export const FIELD_PRICE = ['precio', 'price', 'precio_venta', 'pv', 'precio_unitario'];
