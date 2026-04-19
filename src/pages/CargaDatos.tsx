@@ -996,12 +996,50 @@ export default function CargaDatos() {
         // Group by file_upload_id to find new rows
         for (const ext of newExtracted) {
           const cat = ext.data_category as string;
-          if (cat !== 'ventas' && cat !== 'gastos' && cat !== 'marketing') continue;
           const json = ext.extracted_json as any;
           const newRows = json?.data || [];
           if (!Array.isArray(newRows) || newRows.length === 0) continue;
-
           const newFileUploadId = ext.file_upload_id;
+
+          // ─── BUG 1: Stock duplicate detection by product names ─────
+          if (cat === 'stock') {
+            const existingStockRows = (globalExtractedData?.stock || []);
+            // Skip if there's no prior stock to compare against
+            if (existingStockRows.length === 0) continue;
+
+            const stockMapping = globalMappings.stock;
+            const newNames = new Set(
+              newRows
+                .map((r: any) => findString(r, FIELD_NAME, stockMapping?.name))
+                .filter((n: string) => n && n.length > 0)
+                .map((n: string) => n.trim().toLowerCase())
+            );
+            if (newNames.size === 0) continue;
+
+            const existingNames = new Set(
+              existingStockRows
+                .map((r: any) => findString(r, FIELD_NAME, stockMapping?.name))
+                .filter((n: string) => n && n.length > 0)
+                .map((n: string) => n.trim().toLowerCase())
+            );
+
+            let matchCount = 0;
+            for (const n of newNames) if (existingNames.has(n)) matchCount++;
+            const matchPct = matchCount / newNames.size;
+
+            if (matchPct > 0.8) {
+              setStockDuplicateInfo({
+                fileUploadId: newFileUploadId,
+                fileName: item.file.name,
+                matchPct,
+                newProductCount: newNames.size,
+              });
+              break; // one dialog at a time
+            }
+            continue;
+          }
+
+          if (cat !== 'ventas' && cat !== 'gastos' && cat !== 'marketing') continue;
 
           // Use tagged rows from context, filtering out rows from the same file to avoid self-overlap
           const existingRows = cat === 'ventas'
