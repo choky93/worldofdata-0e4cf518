@@ -352,6 +352,8 @@ Para encontrar la columna correcta, analizá TANTO el nombre de la columna COMO 
 
 - NOMBRES/DESCRIPCIONES: texto descriptivo único por fila. Headers como "Producto", "Descripción", "Concepto", "Artículo", "Campaña", "Nombre", "Razón Social".
 
+IMPORTANTE: Si hay una columna sin nombre o con nombre genérico (Unnamed, Column1, A, B, etc.) cuyos VALORES son fechas (2026-04-01, 01/04/2026, etc.), mapeala como 'date' aunque su nombre no sea descriptivo. Siempre analizá los VALORES de cada columna, no solo el nombre.
+
 REGLAS ANTI-ALUCINACIÓN — CRÍTICO:
 
 1. NUNCA inventes una columna que no existe en los headers reales del archivo.
