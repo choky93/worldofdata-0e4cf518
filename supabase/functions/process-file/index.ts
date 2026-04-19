@@ -937,7 +937,7 @@ async function processTabularData(
     const batchRows = allRows.slice(i * BATCH_SIZE, (i + 1) * BATCH_SIZE);
     await storeRowBatch(sb, batchRows, headers, category,
       i === 0 ? `${finalSummary} (${allRows.length} filas en ${totalBatches} lotes)` : finalSummary,
-      fileUploadId, companyId, i);
+      fileUploadId, companyId, i, column_mapping);
   }
 
   await sb.from("file_uploads").update({ total_chunks: totalBatches }).eq("id", fileUploadId);
@@ -1112,7 +1112,7 @@ serve(async (req) => {
 
         // Store first batch
         await storeRowBatch(sb, cleanedBatch, headers, category,
-          `${summary} (${totalRows || cleanedBatch.length} filas)`, fileUploadId, companyId, 0);
+          `${summary} (${totalRows || cleanedBatch.length} filas)`, fileUploadId, companyId, 0, column_mapping);
 
         await sb.from("file_uploads").update({
           total_chunks: totalBatches,
@@ -1148,6 +1148,7 @@ serve(async (req) => {
         // Subsequent batch: clean with mapped date column from classification
         let category = explicitCategory || "";
         let mappedDate: string | null = null;
+        let fullMapping: Record<string, string | null> | null = null;
 
         if (!category) {
           const { data: classData } = await sb.from("file_extracted_data")
@@ -1156,24 +1157,27 @@ serve(async (req) => {
             .eq("data_category", "_classification")
             .single();
           category = (classData?.extracted_json as any)?.category || "otro";
-          mappedDate = (classData?.extracted_json as any)?.column_mapping?.date || null;
+          fullMapping = (classData?.extracted_json as any)?.column_mapping || null;
+          mappedDate = fullMapping?.date || null;
         }
 
-        // Also try _column_mapping for date column
-        if (!mappedDate) {
+        // Also try _column_mapping for date column / full mapping
+        if (!mappedDate || !fullMapping) {
           const { data: mapData } = await sb.from("file_extracted_data")
             .select("extracted_json")
             .eq("file_upload_id", fileUploadId)
             .eq("data_category", "_column_mapping")
             .single();
-          mappedDate = (mapData?.extracted_json as any)?.column_mapping?.date || null;
+          const mappingFromStore = (mapData?.extracted_json as any)?.column_mapping || null;
+          if (!fullMapping) fullMapping = mappingFromStore;
+          if (!mappedDate) mappedDate = mappingFromStore?.date || null;
         }
 
         const cleanedBatch = cleanRows(rowBatch, headers, mappedDate);
         console.log(`[process-file] Row batch ${batchIndex + 1}/${totalBatches} for "${file_name}" (${rowBatch.length} → ${cleanedBatch.length} rows after cleaning)`);
 
         await storeRowBatch(sb, cleanedBatch, headers, category,
-          `Lote ${batchIndex + 1}/${totalBatches}`, fileUploadId, companyId, batchIndex);
+          `Lote ${batchIndex + 1}/${totalBatches}`, fileUploadId, companyId, batchIndex, fullMapping);
 
         await sb.from("file_uploads").update({
           next_chunk_index: batchIndex + 1,
