@@ -320,7 +320,7 @@ CATEGORÍAS DISPONIBLES:
 
 CAMPOS SEMÁNTICOS POR CATEGORÍA:
 
-- ventas: {"amount":"monto total de venta","date":"fecha de la venta","name":"descripción o producto","client":"nombre del cliente","category":"rubro o línea de producto","quantity":"cantidad vendida","unit_price":"precio unitario","tax":"impuesto o IVA","payment_method":"forma de pago","invoice_number":"número de comprobante"}
+- ventas: {"amount":"monto total de venta","date":"fecha de la venta","name":"descripción o producto","client":"nombre del cliente","category":"rubro o línea de producto","quantity":"cantidad vendida","unit_price":"precio unitario","cost":"costo o precio de costo del producto vendido","profit":"ganancia o margen de la venta","tax":"impuesto o IVA","payment_method":"forma de pago","invoice_number":"número de comprobante"}
 
 - gastos: {"amount":"monto del gasto","date":"fecha","name":"descripción del gasto","category":"tipo de gasto","status":"estado (pagado/pendiente)","supplier":"proveedor","payment_method":"forma de pago"}
 
