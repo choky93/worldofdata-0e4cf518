@@ -1307,6 +1307,7 @@ export default function CargaDatos() {
   };
 
 
+  const handleImportUrls = async () => {
     if (!user || !profile?.company_id || !urlImportText.trim()) return;
     setIsImportingUrls(true);
     try {
