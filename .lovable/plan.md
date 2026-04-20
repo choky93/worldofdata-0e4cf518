@@ -1,52 +1,38 @@
 
-Objetivo: resolver el bug de fechas del libro de ventas sin romper históricos, atacando el problema en dos capas: normalización al guardar datos nuevos + compatibilidad hacia atrás al leer datos ya cargados.
 
-Plan de implementación
+## Plan: Fix módulo Stock (unidades reales, cobertura, valoración)
 
-1. Auditar y centralizar la detección de fecha
-- Crear una única utilidad compartida para obtener la fecha real de una fila con este orden:
-  1) campo semántico normalizado (`fecha`, `mes`, `date`)
-  2) aliases históricos (`__EMPTY`, `unnamed`, `Unnamed: 0`, etc.)
-  3) fallback por cualquier valor ISO o `Date`
-- Usarla en vez de `findString(... FIELD_DATE, mappedDate)` en los lugares donde hoy todavía falla según el row real.
+### Cambios
 
-2. Normalizar filas nuevas en el procesamiento
-- En `supabase/functions/process-file/index.ts`, agregar el mapa semántico y la normalización de cada fila antes de guardarla.
-- Aplicar esa normalización en el punto común de storage de lotes, para cubrir tanto el flujo tabular principal como los batches client-side ya existentes.
-- Mantener `columns` originales para trazabilidad, pero guardar `data` ya normalizada para que nuevas cargas usen claves semánticas estables (`fecha`, `monto`, etc.).
+**1. `src/lib/field-utils.ts`** — helpers reutilizables:
+- `getStockUnits(row)`, `getCost(row)`, `getPrice(row)`, `getProductName(row)`, `getQuantity(row)` apoyándose en los `FIELD_*` ya existentes.
 
-3. Mantener compatibilidad con datos históricos
-- Ajustar `src/lib/field-utils.ts` para que `FIELD_*` prioricen nombres normalizados y conserven fallbacks históricos.
-- No depender solo de eso: además usar la nueva utilidad de fecha en filtros, agregaciones y extracción de meses, porque hoy el problema aparece cuando el `mapping.date` apunta a otra columna distinta a la del row filtrado.
+**2. `src/pages/Stock.tsx`**
+- **Dedupe por nombre de producto** con esta prioridad:
+  1. Fila del archivo más reciente: comparar `row.file_upload_id`, `row.uploaded_at` o `row.created_at` (lo que esté disponible en el row).
+  2. Fallback: fila con mayor valor de stock.
+- Reemplazar conteo de filas por suma de `getStockUnits` sobre el set dedupeado.
+- Cruce con `extractedData.ventas` → ventas mensuales promedio por producto = `total_cantidad / mesesDisponibles` (usando `extractAvailableMonths` + `findDateRaw`).
+- Cobertura = `(stockUnits / avgMonthlyUnits) * 30`, con guard `=0 → no-data`.
+- Estado por producto: `getStockStatus(coverage, leadTime=20)` → `ok | low | critical | overstock | no-data`.
+- 3 tarjetas nuevas en el header: **Valor al costo**, **Valor de venta**, **Ganancia proyectada**.
+- Tarjetas existentes recalculadas sobre la base dedupeada.
+- Badges de color en la tabla según `StockStatus`.
 
-4. Corregir los consumidores frontend que hoy usan lectura frágil
-- `src/lib/data-cleaning.ts`: aplicar la utilidad compartida en `filterByPeriod`, `extractAvailableMonths`, `aggregateBy...` equivalentes si siguen leyendo directo por mapping.
-- `src/hooks/useExtractedData.tsx`: usar la misma detección robusta para `availableMonths` y `duplicatedPeriods`.
-- `src/pages/Ventas.tsx`: reemplazar los puntos que todavía usan `findString` directo para fecha en filtro, tabla e histogramas.
-- Revisar y aplicar el mismo patrón en módulos que hoy consumen fechas de ventas/gastos: `Dashboard`, `Finanzas`, `Metricas`, `Operaciones`, `Stock` y `Forecast`/`forecast-engine`.
-- Nota: no existe `src/pages/Gastos.tsx` en el código actual, así que el alcance real es sobre los módulos listados arriba.
+**3. `src/pages/Dashboard.tsx`**
+- Recalcular los buckets que pasa a `<StockCard ok bajo critico />` usando la misma lógica dedupe + suma de unidades (no conteo de filas).
 
-5. Validación funcional
-- Verificar que el libro de ventas nuevo y los datos históricos convivan:
-  - `Ventas` muestre total distinto de 0 con las 274 filas.
-  - aparezca `Abr 26` en períodos.
-  - al elegir `2026` o `Abr 26`, el gráfico tome las transacciones del libro.
-  - el historial 2023–2025 siga visible y filtrable.
-- Si hiciera falta, reprocesar solo archivos nuevos/subidos nuevamente para aprovechar la normalización backend; los históricos deberían seguir funcionando por compatibilidad frontend.
+**4. `src/components/dashboard/StockCard.tsx`**
+- Mantener la API. Cambiar el label central / subtítulo para reflejar **unidades en stock** en lugar de cantidad de productos.
 
-Detalles técnicos
-- Hallazgos actuales:
-  - `Ventas.tsx` ya tiene un `findDateRaw` local, pero `filterByPeriod` sigue recibiendo un callback que usa `findString` sin fallback.
-  - `useExtractedData`, `Dashboard`, `Finanzas`, `Metricas`, `Stock` y `forecast-engine` todavía dependen en varios puntos de `findString(... FIELD_DATE, mappedDate)`.
-  - `process-file` hoy guarda `extracted_json: { columns, data: rows }` sin normalización semántica de cada fila.
-- Diseño recomendado:
-  - mover la detección robusta de fecha a una utilidad compartida en `src/lib/field-utils.ts` o `src/lib/data-cleaning.ts` para no duplicarla.
-  - aplicar la normalización en `storeRowBatch(...)`, porque es el punto común donde terminan persistiéndose los lotes.
-- Alcance:
-  - no requiere cambios de base de datos, RLS ni auth.
-  - no hace falta migrar datos viejos si el frontend queda backward-compatible.
+### Detalles técnicos
+- Dedupe key: `getProductName(row).toLowerCase().trim()`.
+- Selector de "más reciente": `Math.max` sobre `Number(row.file_upload_id)` o `Date.parse(row.uploaded_at ?? row.created_at)` cuando existan; si ningún row tiene timestamp/id válido, fallback a mayor `getStockUnits`.
+- Sin cambios de DB, RLS, hooks ni backend.
 
-Resultado esperado
-- Nuevas cargas: filas persistidas con claves semánticas consistentes.
-- Datos viejos: siguen funcionando aunque tengan `__EMPTY`/`Unnamed`.
-- Filtros, pills de período, cards y gráficos dejan de depender de un único `mapping.date` que puede no coincidir con la estructura real del row.
+### Validación
+- Donut Dashboard: total = 5.617 unidades.
+- /stock: 3 tarjetas de valoración con números coherentes.
+- Cobertura promedio realista (no 999); productos sin ventas → estado `no-data` (gris) y excluidos del promedio.
+- Si se sube una versión nueva del archivo, el dedupe se queda con esa y descarta la vieja.
+
