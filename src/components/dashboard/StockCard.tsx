@@ -14,6 +14,11 @@ export function StockCard({ ok, bajo, critico }: StockCardProps) {
     { name: 'Crítico', value: critico, color: 'hsl(var(--destructive))' },
   ].filter(d => d.value > 0);
 
+  const formatUnits = (n: number): string => {
+    if (n >= 1000) return n.toLocaleString('es-AR');
+    return String(n);
+  };
+
   return (
     <div className="rounded-3xl bg-card border border-border p-6 shadow-soft hover:shadow-card-hover transition-shadow h-full min-h-[260px]">
       <p className="text-xs uppercase tracking-widest text-muted-foreground mb-3">
@@ -41,8 +46,9 @@ export function StockCard({ ok, bajo, critico }: StockCardProps) {
                 </Pie>
               </PieChart>
             </ResponsiveContainer>
-            <div className="absolute inset-0 flex items-center justify-center text-base font-bold">
-              {total}
+            <div className="absolute inset-0 flex flex-col items-center justify-center leading-none">
+              <span className="text-sm font-bold tabular-nums">{formatUnits(total)}</span>
+              <span className="text-[9px] text-muted-foreground mt-0.5">unidades</span>
             </div>
           </div>
 
@@ -66,7 +72,7 @@ function Row({ color, label, value }: { color: string; label: string; value: num
     <div className="flex items-center gap-2">
       <span className="w-2.5 h-2.5 rounded-full" style={{ background: color }} />
       <span className="flex-1 text-muted-foreground">{label}</span>
-      <span className="font-semibold text-foreground">{value}</span>
+      <span className="font-semibold text-foreground tabular-nums">{value.toLocaleString('es-AR')}</span>
     </div>
   );
 }

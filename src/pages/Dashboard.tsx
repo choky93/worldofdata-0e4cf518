@@ -4,7 +4,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/contexts/AuthContext';
 import { formatCurrency } from '@/lib/formatters';
-import { findNumber, findString, findDateRaw, FIELD_AMOUNT, FIELD_SPEND, FIELD_DATE, FIELD_STOCK_QTY, FIELD_STOCK_MIN } from '@/lib/field-utils';
+import { findNumber, findString, findDateRaw, FIELD_AMOUNT, FIELD_SPEND, FIELD_DATE, FIELD_STOCK_MIN, getStockUnits, dedupeStockRows } from '@/lib/field-utils';
 import { parseDate } from '@/lib/data-cleaning';
 import { useExtractedData } from '@/hooks/useExtractedData';
 import { filterByPeriod } from '@/lib/data-cleaning';
@@ -141,17 +141,22 @@ export default function Dashboard() {
     return result;
   })();
 
-  // Stock breakdown
+  // Stock breakdown — sumar UNIDADES reales (no contar filas) y dedupear por producto
   const stockBreakdown = (() => {
     if (realStock.length === 0) return { ok: 0, bajo: 0, critico: 0 };
+    const mS = mappings.stock;
+    const dedup = dedupeStockRows(realStock, mS?.name, mS?.stock_qty);
     let ok = 0, bajo = 0, critico = 0;
-    for (const r of realStock) {
-      const qty = findNumber(r, FIELD_STOCK_QTY);
-      const min = findNumber(r, FIELD_STOCK_MIN);
-      if (qty <= 0) critico++;
-      else if (min > 0 && qty <= min) bajo++;
-      else if (min > 0 && qty <= min * 1.5) bajo++;
-      else ok++;
+    for (const r of dedup) {
+      const qty = getStockUnits(r, mS?.stock_qty);
+      const min = findNumber(r, FIELD_STOCK_MIN, mS?.stock_min);
+      if (qty <= 0) {
+        // Fila sin stock no aporta unidades a ningún bucket
+        continue;
+      }
+      if (min > 0 && qty <= min) critico += qty;
+      else if (min > 0 && qty <= min * 1.5) bajo += qty;
+      else ok += qty;
     }
     return { ok, bajo, critico };
   })();
