@@ -21,7 +21,7 @@ import {
   type ColumnMapping,
 } from '@/lib/field-utils';
 import { useExtractedData } from '@/hooks/useExtractedData';
-import { extractAvailableMonths } from '@/lib/data-cleaning';
+import { parseDate } from '@/lib/data-cleaning';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip';
 import { AlertTriangle, Package, ShoppingCart, Database, DollarSign, TrendingUp, Wallet } from 'lucide-react';
@@ -74,18 +74,20 @@ interface ProductRow {
 
 /**
  * Build product → average monthly units sold from ventas rows.
- * Uses the actual number of months in the historical window so a product
- * sold 100 units across 10 months gives avg = 10/month (not 100/month).
+ * Denominator = months where THIS product actually had sales (not total months
+ * in the dataset), so a product sold once in 26 months gets avg = units/1,
+ * not units/26, avoiding absurdly inflated coverage values.
  */
 function buildAvgMonthlyByProduct(
   ventasRows: any[],
   mV: ColumnMapping | undefined,
-  monthsCount: number,
 ): Map<string, number> {
   const result = new Map<string, number>();
-  if (!ventasRows || ventasRows.length === 0 || monthsCount <= 0) return result;
+  if (!ventasRows || ventasRows.length === 0) return result;
 
   const totals = new Map<string, number>();
+  const activeMonths = new Map<string, Set<string>>();
+
   for (const r of ventasRows) {
     const name = getProductName(r, mV?.name);
     if (!name) continue;
@@ -93,9 +95,19 @@ function buildAvgMonthlyByProduct(
     if (!qty || qty <= 0) continue;
     const key = name.trim().toLowerCase();
     totals.set(key, (totals.get(key) || 0) + qty);
+
+    const raw = findDateRaw(r, mV?.date);
+    const d = parseDate(raw);
+    if (d) {
+      const month = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      if (!activeMonths.has(key)) activeMonths.set(key, new Set());
+      activeMonths.get(key)!.add(month);
+    }
   }
+
   for (const [k, total] of totals) {
-    result.set(k, total / monthsCount);
+    const months = activeMonths.get(k)?.size || 1;
+    result.set(k, total / months);
   }
   return result;
 }
@@ -150,16 +162,9 @@ export default function Stock() {
     [useReal, realStock, mS],
   );
 
-  // Months span in sales history to derive monthly avg
-  const monthsCount = useMemo(() => {
-    if (!useReal) return 0;
-    const months = extractAvailableMonths(realVentas, FIELD_DATE, (row, kw) => findDateRaw(row, mV?.date) || findString(row, kw, mV?.date));
-    return Math.max(months.length, 1);
-  }, [useReal, realVentas, mV]);
-
   const avgMonthlyByProduct = useMemo(
-    () => (useReal ? buildAvgMonthlyByProduct(realVentas, mV, monthsCount) : new Map()),
-    [useReal, realVentas, mV, monthsCount],
+    () => (useReal ? buildAvgMonthlyByProduct(realVentas, mV) : new Map()),
+    [useReal, realVentas, mV],
   );
 
   const products: ProductRow[] = useMemo(
