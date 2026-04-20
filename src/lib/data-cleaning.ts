@@ -46,8 +46,8 @@ export function convertSerialDates(rows: Record<string, unknown>[], headers: str
   }
 }
 
-const NAME_KEYWORDS = ['nombre', 'name', 'producto', 'product', 'campana', 'campaña',
-  'campaign', 'detalle', 'concepto', 'descripcion', 'articulo', 'item', 'cliente', 'client'];
+const NAME_KEYWORDS = ['nombre', 'name', 'producto', 'product', 'campana', 'campaign',
+  'detalle', 'concepto', 'descripcion', 'articulo', 'item', 'cliente', 'client'];
 
 function isNameColumn(header: string): boolean {
   const nh = normalize(header);
@@ -56,11 +56,10 @@ function isNameColumn(header: string): boolean {
 
 /**
  * Filter out summary/total rows.
- * A summary row has ALL name/descriptor columns empty but at least one numeric value > 0.
  */
 export function filterSummaryRows(rows: Record<string, unknown>[], headers: string[]): Record<string, unknown>[] {
   const nameHeaders = headers.filter(isNameColumn);
-  if (nameHeaders.length === 0) return rows; // Can't detect without name columns
+  if (nameHeaders.length === 0) return rows;
 
   return rows.filter(row => {
     const allNamesEmpty = nameHeaders.every(h => {
@@ -68,9 +67,8 @@ export function filterSummaryRows(rows: Record<string, unknown>[], headers: stri
       return v === undefined || v === null || String(v).trim() === '';
     });
 
-    if (!allNamesEmpty) return true; // Has a name → keep
+    if (!allNamesEmpty) return true;
 
-    // Check if it has numeric values (likely a total row)
     const hasNumeric = Object.values(row).some(v => {
       if (typeof v === 'number' && v > 0) return true;
       if (typeof v === 'string') {
@@ -80,11 +78,7 @@ export function filterSummaryRows(rows: Record<string, unknown>[], headers: stri
       return false;
     });
 
-    if (hasNumeric) {
-      console.log('[data-cleaning] Filtered summary row:', JSON.stringify(row).substring(0, 200));
-      return false;
-    }
-    return true;
+    return !hasNumeric;
   });
 }
 
@@ -97,7 +91,8 @@ export function cleanParsedRows(rows: Record<string, unknown>[], headers: string
 }
 
 /**
- * Try to parse a date string (ISO, dd/mm/yyyy, Spanish months, quarters, etc.) into a Date.
+ * Try to parse a date string into a Date.
+ * FIXED: ISO dates parsed as local time to avoid UTC-3 timezone bug in Argentina.
  */
 const SPANISH_MONTHS: Record<string, number> = {
   'enero': 0, 'ene': 0, 'febrero': 1, 'feb': 1, 'marzo': 2, 'mar': 2,
@@ -110,32 +105,35 @@ export function parseDate(raw: string): Date | null {
   if (!raw || raw === '—' || raw === '-') return null;
   const trimmed = raw.trim();
 
-  // Parsear fecha ISO como hora local para evitar bug de timezone (Argentina UTC-3)
-  const isoMatch = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})/);
-  if (isoMatch) {
-    const d = new Date(
-      parseInt(isoMatch[1]),
-      parseInt(isoMatch[2]) - 1,
-      parseInt(isoMatch[3])
-    );
+  // ISO format: 2023-11-01 or 2023-11
+  // CRITICAL: Parse as LOCAL time, not UTC, to avoid Argentina UTC-3 timezone bug
+  const isoFull = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (isoFull) {
+    const d = new Date(parseInt(isoFull[1]), parseInt(isoFull[2]) - 1, parseInt(isoFull[3]));
     if (!isNaN(d.getTime())) return d;
   }
-  
+
+  const isoMonth = trimmed.match(/^(\d{4})-(\d{2})$/);
+  if (isoMonth) {
+    const d = new Date(parseInt(isoMonth[1]), parseInt(isoMonth[2]) - 1, 1);
+    if (!isNaN(d.getTime())) return d;
+  }
+
   // dd/mm/yyyy or dd-mm-yyyy or dd.mm.yyyy
   const ddmmyyyy = trimmed.match(/^(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{4})$/);
   if (ddmmyyyy) {
     const dt = new Date(parseInt(ddmmyyyy[3]), parseInt(ddmmyyyy[2]) - 1, parseInt(ddmmyyyy[1]));
     if (!isNaN(dt.getTime())) return dt;
   }
-  
-  // yyyy-mm-dd already handled above, but try again
+
+  // yyyy/mm/dd
   const yyyymmdd = trimmed.match(/^(\d{4})[/\-.](\d{1,2})[/\-.](\d{1,2})$/);
   if (yyyymmdd) {
     const dt = new Date(parseInt(yyyymmdd[1]), parseInt(yyyymmdd[2]) - 1, parseInt(yyyymmdd[3]));
     if (!isNaN(dt.getTime())) return dt;
   }
 
-  // Spanish month names: "Enero 2024", "Ene 2024", "Ene-24", "Enero-2024", "ene. 2024"
+  // Spanish month names: "Enero 2024", "Ene 2024", "Ene-24"
   const lower = trimmed.toLowerCase().replace(/\./g, '').trim();
   const monthYear = lower.match(/^([a-záéíóú]+)\s*[-/]?\s*(\d{2,4})$/);
   if (monthYear) {
@@ -147,44 +145,46 @@ export function parseDate(raw: string): Date | null {
     }
   }
 
-  // Quarters: "Q1 2024", "1T 2024", "1er Trim 2024", "T1 2024"
-  const quarter = lower.match(/(?:q|t|(\d)(?:er|do|to)?\s*trim(?:estre)?)\s*(\d)?\s*(\d{4})/);
+  // Quarters: "Q1 2024", "T1 2024"
+  const quarter = lower.match(/(?:q|t)(\d)\s*(\d{4})/);
   if (quarter) {
-    const qNum = parseInt(quarter[1] || quarter[2] || '1');
-    const year = parseInt(quarter[3]);
-    if (qNum >= 1 && qNum <= 4) return new Date(year, (qNum - 1) * 3, 1);
-  }
-  // Also "1T2024" or "Q12024"
-  const quarterCompact = lower.match(/^(?:q|t)(\d)\s*(\d{4})$/);
-  if (quarterCompact) {
-    const qNum = parseInt(quarterCompact[1]);
-    const year = parseInt(quarterCompact[2]);
+    const qNum = parseInt(quarter[1]);
+    const year = parseInt(quarter[2]);
     if (qNum >= 1 && qNum <= 4) return new Date(year, (qNum - 1) * 3, 1);
   }
 
-  // "Semana 12 2024" or "Sem 12 2024"
-  const week = lower.match(/sem(?:ana)?\s*(\d{1,2})\s*(\d{4})/);
-  if (week) {
-    const weekNum = parseInt(week[1]);
-    const year = parseInt(week[2]);
-    const jan1 = new Date(year, 0, 1);
-    const dayOffset = (weekNum - 1) * 7;
-    return new Date(jan1.getTime() + dayOffset * 86400000);
-  }
-  
   // Serial number as string
   const num = parseFloat(trimmed);
   if (!isNaN(num) && num > 1 && num < 200000) {
     return new Date((num - 25569) * 86400000);
   }
-  
+
   return null;
 }
 
 /**
- * Filter rows by date period.
+ * Helper: find date from row with fallback scanning all keys for ISO dates.
+ * Handles files where the date column has no header (like __EMPTY).
  */
-export type PeriodKey = 'all' | 'this_month' | 'last_month' | 'last_3_months' | string; // string = "YYYY-MM", "YYYY-QN", "YYYY"
+export function findDateRaw(row: any, findStringFn: (row: any, kw: string[]) => string, dateKeywords: string[]): string {
+  const raw = findStringFn(row, dateKeywords);
+  if (raw) return raw;
+
+  // Fallback: scan all keys for ISO date values
+  for (const key of Object.keys(row)) {
+    const val = row[key];
+    if (typeof val === 'string' && /^\d{4}-\d{2}-\d{2}/.test(val)) return val;
+    if (val instanceof Date) return val.toISOString().split('T')[0];
+  }
+  return '';
+}
+
+/**
+ * Filter rows by date period.
+ * Supports: 'all', relative ('this_month', 'last_month', 'last_3_months'),
+ * and absolute ('2024', '2024-03', '2024-Q1')
+ */
+export type PeriodKey = 'all' | 'this_month' | 'last_month' | 'last_3_months' | string;
 
 export function filterByPeriod(
   rows: any[],
@@ -196,7 +196,7 @@ export function filterByPeriod(
 
   let from: Date, to: Date;
 
-  // Absolute month: "2023-11"
+  // Absolute month: "2024-03"
   const monthMatch = period.match(/^(\d{4})-(\d{2})$/);
   if (monthMatch) {
     const y = parseInt(monthMatch[1]);
@@ -204,20 +204,20 @@ export function filterByPeriod(
     from = new Date(y, m, 1);
     to = new Date(y, m + 1, 1);
   }
-  // Absolute quarter: "2023-Q1"
+  // Absolute quarter: "2024-Q1"
   else if (/^\d{4}-Q[1-4]$/.test(period)) {
     const y = parseInt(period.slice(0, 4));
     const q = parseInt(period.slice(6)) - 1;
     from = new Date(y, q * 3, 1);
     to = new Date(y, q * 3 + 3, 1);
   }
-  // Absolute year: "2023"
+  // Absolute year: "2024"
   else if (/^\d{4}$/.test(period)) {
     const y = parseInt(period);
     from = new Date(y, 0, 1);
     to = new Date(y + 1, 0, 1);
   }
-  // Relative periods (legacy)
+  // Relative periods
   else {
     const now = new Date();
     const thisMonth = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -231,13 +231,14 @@ export function filterByPeriod(
   }
 
   return rows.filter(row => {
+    // Use findDateRaw for fallback support with __EMPTY columns
     let raw = findStringFn(row, dateKeywords);
     if (!raw) {
-      // Fallback robusto: buscar cualquier clave con valor ISO o Date
+      // Fallback: scan all keys for ISO date values
       for (const key of Object.keys(row)) {
         const val = (row as any)[key];
-        if (val instanceof Date) { raw = val.toISOString(); break; }
-        if (typeof val === 'string' && /^\d{4}-\d{2}-\d{2}/.test(val.trim())) { raw = val.trim(); break; }
+        if (typeof val === 'string' && /^\d{4}-\d{2}-\d{2}/.test(val)) { raw = val; break; }
+        if (val instanceof Date) { raw = val.toISOString().split('T')[0]; break; }
       }
     }
     const d = parseDate(raw);
@@ -247,22 +248,20 @@ export function filterByPeriod(
 }
 
 /**
- * Extract unique months (YYYY-MM) from rows by scanning date columns.
+ * Extract unique months (YYYY-MM) from rows.
  */
 export function extractAvailableMonths(
   rows: any[],
   dateKeywords: string[],
-  findStringFn: (row: any, keywords: string[]) => string
+  findStringFn: (row: any, kw: string[]) => string
 ): string[] {
   const monthSet = new Set<string>();
   for (const row of rows) {
     let raw = findStringFn(row, dateKeywords);
     if (!raw) {
-      // Fallback robusto: ISO string o Date en cualquier columna
       for (const key of Object.keys(row)) {
         const val = (row as any)[key];
-        if (val instanceof Date) { raw = val.toISOString(); break; }
-        if (typeof val === 'string' && /^\d{4}-\d{2}-\d{2}/.test(val.trim())) { raw = val.trim(); break; }
+        if (typeof val === 'string' && /^\d{4}-\d{2}-\d{2}/.test(val)) { raw = val; break; }
       }
     }
     if (!raw) continue;
@@ -276,8 +275,37 @@ export function extractAvailableMonths(
 }
 
 /**
- * Detect period overlap between rows grouped by file source.
- * Returns months (YYYY-MM) that appear in more than one file_upload_id.
+ * Detect months that appear in data from more than one source file.
+ */
+export function detectMultiSourcePeriods(
+  taggedRows: { row: any; fileUploadId: string }[],
+  dateKeywords: string[],
+  findStringFn: (row: any, kw: string[]) => string
+): string[] {
+  const monthToFiles = new Map<string, Set<string>>();
+  for (const { row, fileUploadId } of taggedRows) {
+    let raw = findStringFn(row, dateKeywords);
+    if (!raw) {
+      for (const key of Object.keys(row)) {
+        const val = (row as any)[key];
+        if (typeof val === 'string' && /^\d{4}-\d{2}-\d{2}/.test(val)) { raw = val; break; }
+      }
+    }
+    if (!raw) continue;
+    const d = parseDate(raw);
+    if (!d) continue;
+    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    if (!monthToFiles.has(key)) monthToFiles.set(key, new Set());
+    monthToFiles.get(key)!.add(fileUploadId);
+  }
+  return Array.from(monthToFiles.entries())
+    .filter(([, files]) => files.size > 1)
+    .map(([month]) => month)
+    .sort();
+}
+
+/**
+ * Detect period overlap between two sets of rows.
  */
 export function detectPeriodOverlap(
   existingRows: any[],
@@ -285,112 +313,47 @@ export function detectPeriodOverlap(
   dateKeywords: string[],
   findStringFn: (row: any, kw: string[]) => string
 ): string[] {
-  const extractMonths = (rows: any[]): Set<string> => {
+  const getMonths = (rows: any[]) => {
     const months = new Set<string>();
     for (const row of rows) {
-      const raw = findStringFn(row, dateKeywords);
+      let raw = findStringFn(row, dateKeywords);
+      if (!raw) {
+        for (const key of Object.keys(row)) {
+          const val = (row as any)[key];
+          if (typeof val === 'string' && /^\d{4}-\d{2}-\d{2}/.test(val)) { raw = val; break; }
+        }
+      }
       if (!raw) continue;
       const d = parseDate(raw);
       if (!d) continue;
-      const y = d.getFullYear();
-      const m = String(d.getMonth() + 1).padStart(2, '0');
-      months.add(`${y}-${m}`);
+      months.add(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
     }
     return months;
   };
 
-  const existingMonths = extractMonths(existingRows);
-  const newMonths = extractMonths(newRows);
-
-  const overlap: string[] = [];
-  for (const m of newMonths) {
-    if (existingMonths.has(m)) overlap.push(m);
-  }
-  return overlap.sort();
+  const existingMonths = getMonths(existingRows);
+  const newMonths = getMonths(newRows);
+  return Array.from(newMonths).filter(m => existingMonths.has(m)).sort();
 }
 
 /**
- * Detect months that have data from more than one file_upload_id.
- * Takes rows tagged with __file_upload_id.
+ * Detect if rows contain mixed currencies.
  */
-/**
- * Detect if rows contain mixed currencies (ARS, USD, EUR).
- * Scans amount columns for currency symbols/prefixes.
- */
-const CURRENCY_PATTERNS: { pattern: RegExp; currency: string }[] = [
-  { pattern: /\bARS\b/i, currency: 'ARS' },
-  { pattern: /\bUSD\b/i, currency: 'USD' },
-  { pattern: /\bU\$S\b/i, currency: 'USD' },
-  { pattern: /\bu\$s\b/i, currency: 'USD' },
-  { pattern: /\bUS\$/i, currency: 'USD' },
-  { pattern: /€/, currency: 'EUR' },
-  { pattern: /\bEUR\b/i, currency: 'EUR' },
-];
-
-export function detectCurrencyMix(
-  rows: any[],
-  amountKeywords: string[],
-  findStringFn?: (row: any, kw: string[]) => string
-): boolean {
-  const currencies = new Set<string>();
-
-  for (const row of rows) {
-    // Check all keys that match amount keywords
-    const keys = Object.keys(row);
-    const normalizedKw = amountKeywords.map(k => k.toLowerCase());
-
-    for (const key of keys) {
-      const nk = key.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]/g, '');
-      const isAmountCol = normalizedKw.some(kw => nk.includes(kw));
-      if (!isAmountCol) continue;
-
-      const val = String(row[key] ?? '');
-      for (const { pattern, currency } of CURRENCY_PATTERNS) {
+export function detectCurrencyMix(rows: any[], amountKeywords: string[]): boolean {
+  const currencyPatterns = [
+    /^\$/, /^ARS/i, /^USD/i, /^U\$S/i, /^US\$/i, /€/, /^EUR/i
+  ];
+  const foundCurrencies = new Set<string>();
+  for (const row of rows.slice(0, 100)) {
+    for (const key of Object.keys(row)) {
+      const val = String(row[key] || '');
+      for (const pattern of currencyPatterns) {
         if (pattern.test(val)) {
-          currencies.add(currency);
+          foundCurrencies.add(pattern.source);
+          break;
         }
       }
     }
-
-    // Also check via findStringFn if provided
-    if (findStringFn) {
-      const val = findStringFn(row, amountKeywords);
-      if (val) {
-        for (const { pattern, currency } of CURRENCY_PATTERNS) {
-          if (pattern.test(val)) {
-            currencies.add(currency);
-          }
-        }
-      }
-    }
-
-    if (currencies.size > 1) return true;
   }
-
-  return currencies.size > 1;
+  return foundCurrencies.size > 1;
 }
-
-export function detectMultiSourcePeriods(
-  taggedRows: { row: any; fileUploadId: string }[],
-  dateKeywords: string[],
-  findStringFn: (row: any, kw: string[]) => string
-): string[] {
-  // month → set of file IDs
-  const monthSources = new Map<string, Set<string>>();
-  for (const { row, fileUploadId } of taggedRows) {
-    const raw = findStringFn(row, dateKeywords);
-    if (!raw) continue;
-    const d = parseDate(raw);
-    if (!d) continue;
-    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-    if (!monthSources.has(key)) monthSources.set(key, new Set());
-    monthSources.get(key)!.add(fileUploadId);
-  }
-  const duplicated: string[] = [];
-  for (const [month, sources] of monthSources) {
-    if (sources.size > 1) duplicated.push(month);
-  }
-  return duplicated.sort();
-}
-
-

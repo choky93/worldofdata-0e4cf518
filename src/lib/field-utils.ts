@@ -257,36 +257,8 @@ export interface ColumnMapping {
 // ─── Pre-built keyword sets for common business data ─────────
 
 export const FIELD_NAME = ['nombre', 'name', 'descripcion', 'producto', 'detalle', 'concepto', 'item', 'articulo'];
-export const FIELD_AMOUNT = ['monto', 'total', 'amount', 'valor', 'importe', 'ganancia', 'monto_total', 'monto_venta', 'total_mensual', 'precio', 'subtotal', 'neto', 'precio_de_venta', 'precio de venta', 'precio_venta', 'venta', 'valor_venta', 'total_venta'];
-// Claves semánticas normalizadas primero, luego aliases históricos para datos ya cargados.
-export const FIELD_DATE = ['fecha', 'date', 'periodo', 'mes', 'month', 'dia', 'day', 'fecha_operacion', 'fecha_venta', 'fecha_compra', '__EMPTY', '__empty', 'unnamed:_0', 'unnamed_0', 'unnamed', 'col_0', 'column_0'];
-
-/**
- * Detección robusta de la fecha real de una fila.
- * Orden:
- *   1) campo mapeado explícito (mappedDate)
- *   2) claves semánticas normalizadas y aliases históricos (FIELD_DATE)
- *   3) fallback: cualquier valor con formato ISO (YYYY-MM-DD) o instancia Date
- */
-export function findDateRaw(row: Record<string, unknown>, mappedDate?: string | null): string {
-  if (!row || typeof row !== 'object') return '';
-
-  if (mappedDate && row[mappedDate] !== undefined && row[mappedDate] !== null && row[mappedDate] !== '') {
-    const v = row[mappedDate];
-    if (v instanceof Date) return v.toISOString();
-    return String(v).trim();
-  }
-
-  const raw = findString(row, FIELD_DATE, mappedDate ?? undefined);
-  if (raw) return raw;
-
-  for (const key of Object.keys(row)) {
-    const val = (row as any)[key];
-    if (val instanceof Date) return val.toISOString();
-    if (typeof val === 'string' && /^\d{4}-\d{2}-\d{2}/.test(val.trim())) return val.trim();
-  }
-  return '';
-}
+export const FIELD_AMOUNT = ['monto', 'total', 'amount', 'valor', 'importe', 'ganancia', 'monto_total', 'monto_venta', 'total_mensual', 'precio', 'subtotal', 'neto'];
+export const FIELD_DATE = \['__EMPTY', '__empty', 'unnamed:_0', 'fecha', 'date', 'periodo', 'mes', 'month', 'dia', 'day', 'fecha_venta', 'fecha_compra'\];
 export const FIELD_CLIENT = ['cliente', 'client', 'razon_social', 'empresa', 'comprador', 'nombre_cliente'];
 export const FIELD_CATEGORY = ['categoria', 'category', 'tipo', 'rubro', 'segmento', 'clase'];
 
@@ -297,99 +269,19 @@ export const FIELD_REVENUE = ['ingresos', 'revenue', 'ventas', 'retorno', 'ingre
 export const FIELD_ROAS = ['roas', 'roas_de_resultados', 'retorno_inversion', 'roi'];
 export const FIELD_CLICKS = ['clicks', 'clics', 'click', 'clic'];
 export const FIELD_CTR = ['ctr', 'click_through_rate', 'tasa_clics'];
-export const FIELD_CONVERSIONS = ['conversiones', 'conversions', 'resultados', 'resultado', 'leads', 'acciones', 'purchases', 'compras'];
+export const FIELD_CONVERSIONS = ['conversiones', 'conversions', 'resultados', 'resultado', 'ventas', 'leads', 'acciones'];
 export const FIELD_REACH = ['alcance', 'reach', 'personas_alcanzadas'];
 export const FIELD_IMPRESSIONS = ['impresiones', 'impressions', 'views', 'vistas', 'visualizaciones'];
 
 // Stock-specific
 export const FIELD_STOCK_QTY = ['stock', 'cantidad', 'unidades', 'qty', 'existencia', 'disponible'];
-// Sales-specific quantity (units sold per transaction/row)
-export const FIELD_SALE_QTY = ['cantidad', 'unidades', 'qty', 'cant', 'cantidad_vendida', 'unidades_vendidas', 'units', 'cant_vendida', 'volumen'];
 export const FIELD_STOCK_MIN = ['stock_minimo', 'min_stock', 'minimo', 'punto_reorden'];
 export const FIELD_STOCK_MAX = ['stock_maximo', 'max_stock', 'maximo'];
 export const FIELD_PRICE = ['precio', 'price', 'precio_venta', 'pv', 'precio_unitario'];
-export const FIELD_COST = ['costo', 'cost', 'precio_costo', 'precio_de_costo', 'pc', 'costo_unitario', 'costo_total'];
-export const FIELD_PROFIT = ['ganancia', 'profit', 'margen', 'utilidad', 'resultado'];
+export const FIELD_COST = ['costo', 'cost', 'precio_costo', 'pc', 'costo_unitario'];
+
 // Client-specific
 export const FIELD_TOTAL_PURCHASES = ['total_compras', 'total', 'monto_total', 'ventas_totales', 'compras_totales', 'facturacion'];
 export const FIELD_DEBT = ['deuda', 'saldo', 'pendiente', 'deuda_pendiente', 'cobro_pendiente', 'saldo_pendiente'];
 export const FIELD_LAST_PURCHASE = ['ultima_compra', 'fecha_ultima', 'last_purchase', 'fecha', 'ultimo_pedido'];
 export const FIELD_PURCHASE_COUNT = ['cantidad_compras', 'frecuencia', 'pedidos', 'cantidad_pedidos', 'compras', 'num_pedidos'];
-
-// Date range fields (marketing campaigns, reporting periods)
-export const FIELD_START_DATE = ['inicio', 'start', 'desde', 'fecha_inicio', 'inicio_informe', 'fecha_de_inicio', 'start_date', 'period_start', 'inicio_del_informe'];
-export const FIELD_END_DATE = ['fin', 'end', 'hasta', 'fecha_fin', 'fin_informe', 'fecha_de_fin', 'end_date', 'period_end', 'fin_del_informe'];
-
-// ─── Helpers semánticos reutilizables ─────────────────────────
-export function getStockUnits(row: Record<string, unknown>, mappedCol?: string | null): number {
-  return findNumber(row, FIELD_STOCK_QTY, mappedCol);
-}
-export function getCost(row: Record<string, unknown>, mappedCol?: string | null): number {
-  return findNumber(row, FIELD_COST, mappedCol);
-}
-export function getPrice(row: Record<string, unknown>, mappedCol?: string | null): number {
-  return findNumber(row, FIELD_PRICE, mappedCol);
-}
-export function getProductName(row: Record<string, unknown>, mappedCol?: string | null): string {
-  return findString(row, FIELD_NAME, mappedCol);
-}
-export function getQuantity(row: Record<string, unknown>, mappedCol?: string | null): number {
-  return findNumber(row, FIELD_SALE_QTY, mappedCol);
-}
-
-/**
- * Stock status helper.
- * coverageDays = stockUnits / monthlyUnitsSold * 30
- */
-export type StockStatus = 'ok' | 'low' | 'critical' | 'overstock' | 'no-data';
-export function getStockStatus(coverageDays: number, leadTimeDays: number = 20): StockStatus {
-  if (!coverageDays || coverageDays <= 0) return 'no-data';
-  if (coverageDays > leadTimeDays * 6) return 'overstock';
-  if (coverageDays < leadTimeDays * 0.5) return 'critical';
-  if (coverageDays < leadTimeDays) return 'low';
-  return 'ok';
-}
-
-/**
- * Dedupe stock rows by product name.
- * Strategy: keep the row from the most recent file (uploaded_at / created_at / file_upload_id),
- * fallback to the row with the highest stock value when no timestamp/id is available.
- */
-export function dedupeStockRows<T extends Record<string, any>>(rows: T[], mappedNameCol?: string | null, mappedStockCol?: string | null): T[] {
-  if (!Array.isArray(rows) || rows.length === 0) return [];
-  const rowTimestamp = (r: any): number => {
-    const ts = r?.uploaded_at ?? r?.created_at ?? r?.uploadedAt ?? r?.createdAt;
-    if (ts) {
-      const t = Date.parse(String(ts));
-      if (!isNaN(t)) return t;
-    }
-    const fid = r?.file_upload_id ?? r?.fileUploadId;
-    if (fid !== undefined && fid !== null) {
-      const n = Number(fid);
-      if (!isNaN(n)) return n;
-    }
-    return NaN;
-  };
-
-  const map = new Map<string, T>();
-  for (const r of rows) {
-    const name = getProductName(r, mappedNameCol).trim().toLowerCase();
-    const key = name || `__row_${Math.random()}`; // rows without name → keep all
-    const existing = map.get(key);
-    if (!existing) { map.set(key, r); continue; }
-
-    const tsNew = rowTimestamp(r);
-    const tsOld = rowTimestamp(existing);
-    if (!isNaN(tsNew) && !isNaN(tsOld)) {
-      if (tsNew > tsOld) map.set(key, r);
-    } else if (!isNaN(tsNew) && isNaN(tsOld)) {
-      map.set(key, r);
-    } else if (isNaN(tsNew) && isNaN(tsOld)) {
-      // Fallback: keep row with greater stock
-      if (getStockUnits(r, mappedStockCol) > getStockUnits(existing, mappedStockCol)) {
-        map.set(key, r);
-      }
-    }
-  }
-  return Array.from(map.values());
-}
