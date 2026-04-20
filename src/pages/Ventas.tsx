@@ -204,7 +204,7 @@ export default function Ventas() {
   };
 
   
-  const monthlyChart = aggregateByMonth(realVentas, m);
+  const monthlyChart = aggregateByMonth(allVentas, m);
   const monthCount = monthlyChart.length || 1;
   const promedioMensual = Math.round(salesTotal / monthCount);
 
