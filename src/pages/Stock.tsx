@@ -37,7 +37,7 @@ function StatusBadge({ status }: { status: StockStatus }) {
     case 'critical':
       return <Badge className="bg-destructive/15 text-destructive border-0">Crítico</Badge>;
     case 'overstock':
-      return <Badge className="bg-orange-500/15 text-orange-600 border-0">Sobrestock</Badge>;
+      return <Badge className="bg-warning/25 text-warning border border-warning/40">Sobrestock</Badge>;
     case 'no-data':
     default:
       return <Badge className="bg-muted text-muted-foreground border-0">Sin venta</Badge>;
