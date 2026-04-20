@@ -23,7 +23,7 @@ function aggregateByDate(ventas: any[], m?: any): { day: string; value: number }
     if (!raw) continue;
     const d = parseDate(raw);
     const key = d
-      ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+      ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
       : raw;
     const amt = findNumber(r, FIELD_AMOUNT, m?.amount);
     const existing = map.get(key);
@@ -232,7 +232,7 @@ export default function Ventas() {
         </div>
 
         <div className="grid gap-4 lg:grid-cols-2">
-          {dailyChart.length >= 2 ? (
+          {dailyChart.length >= 1 ? (
             <div className="bg-card border border-border rounded-2xl shadow-card" style={{ padding: '20px 16px 12px' }}>
               <div className="text-[10px] tracking-widest uppercase text-muted-foreground font-medium mb-4 pl-1">
                 Ventas por fecha

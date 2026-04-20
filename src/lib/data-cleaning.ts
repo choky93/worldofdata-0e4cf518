@@ -10,6 +10,7 @@ function normalize(s: string): string {
 }
 
 function isDateColumn(header: string): boolean {
+  if (header === '__EMPTY') return true;
   const nh = normalize(header);
   return DATE_KEYWORDS.some(kw => nh.includes(kw));
 }
