@@ -319,3 +319,77 @@ export const FIELD_PURCHASE_COUNT = ['cantidad_compras', 'frecuencia', 'pedidos'
 // Date range fields (marketing campaigns, reporting periods)
 export const FIELD_START_DATE = ['inicio', 'start', 'desde', 'fecha_inicio', 'inicio_informe', 'fecha_de_inicio', 'start_date', 'period_start', 'inicio_del_informe'];
 export const FIELD_END_DATE = ['fin', 'end', 'hasta', 'fecha_fin', 'fin_informe', 'fecha_de_fin', 'end_date', 'period_end', 'fin_del_informe'];
+
+// ─── Helpers semánticos reutilizables ─────────────────────────
+export function getStockUnits(row: Record<string, unknown>, mappedCol?: string | null): number {
+  return findNumber(row, FIELD_STOCK_QTY, mappedCol);
+}
+export function getCost(row: Record<string, unknown>, mappedCol?: string | null): number {
+  return findNumber(row, FIELD_COST, mappedCol);
+}
+export function getPrice(row: Record<string, unknown>, mappedCol?: string | null): number {
+  return findNumber(row, FIELD_PRICE, mappedCol);
+}
+export function getProductName(row: Record<string, unknown>, mappedCol?: string | null): string {
+  return findString(row, FIELD_NAME, mappedCol);
+}
+export function getQuantity(row: Record<string, unknown>, mappedCol?: string | null): number {
+  return findNumber(row, FIELD_SALE_QTY, mappedCol);
+}
+
+/**
+ * Stock status helper.
+ * coverageDays = stockUnits / monthlyUnitsSold * 30
+ */
+export type StockStatus = 'ok' | 'low' | 'critical' | 'overstock' | 'no-data';
+export function getStockStatus(coverageDays: number, leadTimeDays: number = 20): StockStatus {
+  if (!coverageDays || coverageDays <= 0) return 'no-data';
+  if (coverageDays > leadTimeDays * 6) return 'overstock';
+  if (coverageDays < leadTimeDays * 0.5) return 'critical';
+  if (coverageDays < leadTimeDays) return 'low';
+  return 'ok';
+}
+
+/**
+ * Dedupe stock rows by product name.
+ * Strategy: keep the row from the most recent file (uploaded_at / created_at / file_upload_id),
+ * fallback to the row with the highest stock value when no timestamp/id is available.
+ */
+export function dedupeStockRows<T extends Record<string, any>>(rows: T[], mappedNameCol?: string | null, mappedStockCol?: string | null): T[] {
+  if (!Array.isArray(rows) || rows.length === 0) return [];
+  const rowTimestamp = (r: any): number => {
+    const ts = r?.uploaded_at ?? r?.created_at ?? r?.uploadedAt ?? r?.createdAt;
+    if (ts) {
+      const t = Date.parse(String(ts));
+      if (!isNaN(t)) return t;
+    }
+    const fid = r?.file_upload_id ?? r?.fileUploadId;
+    if (fid !== undefined && fid !== null) {
+      const n = Number(fid);
+      if (!isNaN(n)) return n;
+    }
+    return NaN;
+  };
+
+  const map = new Map<string, T>();
+  for (const r of rows) {
+    const name = getProductName(r, mappedNameCol).trim().toLowerCase();
+    const key = name || `__row_${Math.random()}`; // rows without name → keep all
+    const existing = map.get(key);
+    if (!existing) { map.set(key, r); continue; }
+
+    const tsNew = rowTimestamp(r);
+    const tsOld = rowTimestamp(existing);
+    if (!isNaN(tsNew) && !isNaN(tsOld)) {
+      if (tsNew > tsOld) map.set(key, r);
+    } else if (!isNaN(tsNew) && isNaN(tsOld)) {
+      map.set(key, r);
+    } else if (isNaN(tsNew) && isNaN(tsOld)) {
+      // Fallback: keep row with greater stock
+      if (getStockUnits(r, mappedStockCol) > getStockUnits(existing, mappedStockCol)) {
+        map.set(key, r);
+      }
+    }
+  }
+  return Array.from(map.values());
+}
