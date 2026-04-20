@@ -117,6 +117,9 @@ const CONFIDENCE_BAND = 0.15;
 
 /**
  * Build forecast: trend (WMA-6) + seasonality if 13+ months of data.
+ * If the most recent month is the current calendar month (partial data),
+ * its value is extrapolated to a full-month equivalent for all calculations
+ * so that an incomplete month never distorts the trend or WMA.
  */
 export function buildForecast(history: HistoryPoint[]): ForecastResult {
   if (history.length < 2) {
@@ -127,14 +130,33 @@ export function buildForecast(history: HistoryPoint[]): ForecastResult {
     };
   }
 
-  const usesSeasonality = history.length >= 13;
-  const seasonalFactors = usesSeasonality ? computeSeasonalFactors(history) : null;
-  const trendBase = weightedMovingAverage(history, Math.min(6, history.length));
-
-  // Overall trend % (last vs previous for display)
   const last = history[history.length - 1];
   const prev = history[history.length - 2];
-  const trendPct = prev.value > 0 ? (last.value - prev.value) / prev.value : 0;
+
+  // Detect partial current month and normalize to full-month equivalent
+  const now = new Date();
+  const daysElapsed = now.getDate();
+  const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+  const isLastPartial =
+    last.date.getFullYear() === now.getFullYear() &&
+    last.date.getMonth() === now.getMonth() &&
+    daysElapsed < daysInMonth;
+
+  const lastValueNormalized = isLastPartial && daysElapsed > 0
+    ? Math.round(last.value / daysElapsed * daysInMonth)
+    : last.value;
+
+  // Use normalized history for WMA and seasonality calculations
+  const historyForCalc: HistoryPoint[] = isLastPartial
+    ? [...history.slice(0, -1), { ...last, value: lastValueNormalized }]
+    : history;
+
+  const usesSeasonality = historyForCalc.length >= 13;
+  const seasonalFactors = usesSeasonality ? computeSeasonalFactors(historyForCalc) : null;
+  const trendBase = weightedMovingAverage(historyForCalc, Math.min(6, historyForCalc.length));
+
+  // Trend % uses normalized last value so partial months don't inflate it
+  const trendPct = prev.value > 0 ? (lastValueNormalized - prev.value) / prev.value : 0;
 
   const forecastPoints: { month: string; value: number; date: Date }[] = [];
 
@@ -174,8 +196,8 @@ export function buildForecast(history: HistoryPoint[]): ForecastResult {
   return {
     chartData,
     projections: {
-      currentEstimate: forecastPoints[0]?.value || 0,
-      nextMonth: forecastPoints[1]?.value || 0,
+      currentEstimate: isLastPartial ? lastValueNormalized : (forecastPoints[0]?.value || 0),
+      nextMonth: forecastPoints[0]?.value || 0,
       quarterly: forecastPoints.reduce((s, p) => s + p.value, 0),
       trend: trendPct,
       usesSeasonality,
