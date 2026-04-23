@@ -4,7 +4,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/contexts/AuthContext';
 import { formatCurrency } from '@/lib/formatters';
-import { findNumber, findString, findDateRaw, FIELD_AMOUNT, FIELD_SPEND, FIELD_DATE, FIELD_STOCK_MIN, getStockUnits, getProductName, getQuantity, dedupeStockRows } from '@/lib/field-utils';
+import { findNumber, findDateRaw, FIELD_AMOUNT, FIELD_SPEND, FIELD_DATE, FIELD_STOCK_MIN, getStockUnits, getProductName, getQuantity, dedupeStockRows } from '@/lib/field-utils';
 import { aggregateSalesByMonth, buildForecast } from '@/lib/forecast-engine';
 import { parseDate, filterByPeriod } from '@/lib/data-cleaning';
 import { useExtractedData } from '@/hooks/useExtractedData';
@@ -53,10 +53,10 @@ export default function Dashboard() {
   const allVentas = extractedData?.ventas || [];
   const allGastos = extractedData?.gastos || [];
   const allMarketing = extractedData?.marketing || [];
-  const realVentas = period === 'all' ? allVentas : filterByPeriod(allVentas, FIELD_DATE, period, (row, kw) => findString(row, kw, mV?.date));
+  const realVentas = period === 'all' ? allVentas : filterByPeriod(allVentas, FIELD_DATE, period, (row) => findDateRaw(row, mV?.date));
   const realStock = extractedData?.stock || [];
-  const realGastos = period === 'all' ? allGastos : filterByPeriod(allGastos, FIELD_DATE, period, (row, kw) => findString(row, kw, mG?.date));
-  const realMarketing = period === 'all' ? allMarketing : filterByPeriod(allMarketing, FIELD_DATE, period, (row, kw) => findString(row, kw, mM?.date));
+  const realGastos = period === 'all' ? allGastos : filterByPeriod(allGastos, FIELD_DATE, period, (row) => findDateRaw(row, mG?.date));
+  const realMarketing = period === 'all' ? allMarketing : filterByPeriod(allMarketing, FIELD_DATE, period, (row) => findDateRaw(row, mM?.date));
   const realOtro = extractedData?.otro || [];
 
   const salesTotal = hasData && realVentas.length > 0

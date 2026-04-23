@@ -4,11 +4,12 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { formatCurrency, formatPercent, formatNumber, safeDiv } from '@/lib/formatters';
 import { formatAmount, TOOLTIP_STYLE, AXIS_STYLE } from '@/lib/chart-config';
 import { useExtractedData } from '@/hooks/useExtractedData';
-import { findNumber, findString, findField, findDateRaw, FIELD_CAMPAIGN_NAME, FIELD_SPEND, FIELD_REVENUE, FIELD_ROAS, FIELD_CLICKS, FIELD_CTR, FIELD_CONVERSIONS, FIELD_REACH, FIELD_IMPRESSIONS, FIELD_DATE, FIELD_START_DATE, FIELD_END_DATE } from '@/lib/field-utils';
+import { findNumber, findString, findField, findDateRaw, FIELD_CAMPAIGN_NAME, FIELD_SPEND, FIELD_REVENUE, FIELD_ROAS, FIELD_CLICKS, FIELD_CTR, FIELD_CONVERSIONS, FIELD_REACH, FIELD_IMPRESSIONS, FIELD_DATE, FIELD_START_DATE, FIELD_END_DATE, FIELD_OBJECTIVE } from '@/lib/field-utils';
 import { filterByPeriod, parseDate, type PeriodKey } from '@/lib/data-cleaning';
 import { PeriodPills } from '@/components/ui/PeriodPills';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { TrendingUp, Upload, Database, Loader2, Megaphone } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
 import { BarChart, Bar, XAxis, YAxis, Tooltip as RTooltip, ResponsiveContainer, CartesianGrid, Legend } from 'recharts';
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip';
 import { Button } from '@/components/ui/button';
@@ -16,6 +17,7 @@ import { Link } from 'react-router-dom';
 
 interface CampaignRow {
   name: string;
+  objective: string;
   spend: number;
   revenue: number;
   roas: number;
@@ -44,6 +46,20 @@ function formatDateShort(raw: string): string {
   return d.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' });
 }
 
+/** Translate/normalize campaign objective strings from any platform */
+function normalizeObjective(raw: string): string {
+  if (!raw) return '';
+  const n = raw.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]/g, '');
+  if (n.includes('conversion') || n.includes('purchase') || n.includes('compra') || n.includes('venta')) return 'Conversiones';
+  if (n.includes('awareness') || n.includes('conciencia') || n.includes('alcance') || n.includes('reach') || n.includes('brand')) return 'Alcance/Branding';
+  if (n.includes('traffic') || n.includes('trafico') || n.includes('click') || n.includes('link')) return 'Tráfico';
+  if (n.includes('lead') || n.includes('prospecto') || n.includes('form') || n.includes('registro')) return 'Leads';
+  if (n.includes('engagement') || n.includes('interaccion') || n.includes('video')) return 'Engagement';
+  if (n.includes('catalog') || n.includes('catalogo') || n.includes('shopping') || n.includes('producto')) return 'Catálogo';
+  // Return raw if no match, capitalize first letter
+  return raw.charAt(0).toUpperCase() + raw.slice(1);
+}
+
 function normalizeMarketing(rows: any[], m?: any): CampaignRow[] {
   return rows.map((r: any) => {
     const spend = findNumber(r, FIELD_SPEND, m?.spend);
@@ -51,8 +67,10 @@ function normalizeMarketing(rows: any[], m?: any): CampaignRow[] {
     const roas = spend > 0 ? (revenue > 0 ? safeDiv(revenue, spend) : findNumber(r, FIELD_ROAS, m?.roas)) : findNumber(r, FIELD_ROAS, m?.roas);
     const rawDate = findDateRaw(r, m?.date);
     const d = parseDate(rawDate);
+    const rawObjective = findString(r, FIELD_OBJECTIVE, m?.objective);
     return {
       name: findString(r, FIELD_CAMPAIGN_NAME, m?.campaign_name) || (d ? d.toLocaleDateString('es-AR', { day: '2-digit', month: 'short', year: 'numeric' }) : 'Sin nombre'),
+      objective: normalizeObjective(rawObjective),
       spend,
       revenue,
       roas: parseFloat(roas.toFixed(2)),
@@ -74,7 +92,7 @@ export default function Marketing() {
   const { period, setPeriod } = usePeriod();
   const [showInactive, setShowInactive] = useState(false);
   const allMarketing = extractedData?.marketing || [];
-  const filteredMarketing = period === 'all' ? allMarketing : filterByPeriod(allMarketing, FIELD_DATE, period, (row, kw) => findString(row, kw, m?.date));
+  const filteredMarketing = period === 'all' ? allMarketing : filterByPeriod(allMarketing, FIELD_DATE, period, (row) => findDateRaw(row, m?.date));
   const useReal = hasData && allMarketing.length > 0;
 
   if (loading) {
@@ -148,6 +166,7 @@ export default function Marketing() {
   const hasStartDateField = fieldExists(filteredMarketing, FIELD_START_DATE, m?.start_date);
   const hasEndDateField = fieldExists(filteredMarketing, FIELD_END_DATE, m?.end_date);
   const hasDateRange = hasStartDateField || hasEndDateField;
+  const hasObjectiveField = realCampaigns.some(c => c.objective && c.objective.length > 0);
 
   // Check if we have campaign names or just date-based rows
   const hasCampaignNames = realCampaigns.some(c => {
@@ -235,6 +254,7 @@ export default function Marketing() {
             <Table>
               <TableHeader><TableRow>
                 <TableHead>{hasCampaignNames ? 'Campaña' : 'Período'}</TableHead>
+                {hasObjectiveField && <TableHead>Objetivo</TableHead>}
                 {hasDateRange && <TableHead>Desde</TableHead>}
                 {hasDateRange && <TableHead>Hasta</TableHead>}
                 <TableHead className="text-right">Gasto</TableHead>
@@ -249,6 +269,15 @@ export default function Marketing() {
                 {displayedCampaigns.map((c, i) => (
                   <TableRow key={i}>
                     <TableCell className="font-medium">{c.name}</TableCell>
+                    {hasObjectiveField && (
+                      <TableCell>
+                        {c.objective ? (
+                          <Badge variant="outline" className="text-[10px] whitespace-nowrap">
+                            {c.objective}
+                          </Badge>
+                        ) : '—'}
+                      </TableCell>
+                    )}
                     {hasDateRange && <TableCell className="tabular-nums text-muted-foreground">{formatDateShort(c.startDate)}</TableCell>}
                     {hasDateRange && <TableCell className="tabular-nums text-muted-foreground">{formatDateShort(c.endDate)}</TableCell>}
                     <TableCell className="text-right tabular-nums">{formatCurrency(c.spend)}</TableCell>
