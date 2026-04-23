@@ -48,7 +48,7 @@ export function StockCard({ ok, bajo, critico }: StockCardProps) {
             </ResponsiveContainer>
             <div className="absolute inset-0 flex flex-col items-center justify-center leading-none">
               <span className="text-sm font-bold tabular-nums">{formatUnits(total)}</span>
-              <span className="text-[9px] text-muted-foreground mt-0.5">unidades</span>
+              <span className="text-[9px] text-muted-foreground mt-0.5">productos</span>
             </div>
           </div>
 

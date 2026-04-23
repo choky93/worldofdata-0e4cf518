@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useState, useEffect } from 'react';
 import { extractAvailableMonths } from '@/lib/data-cleaning';
 import { usePeriod } from '@/contexts/PeriodContext';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -12,7 +12,7 @@ import { PeriodPills } from '@/components/ui/PeriodPills';
 import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Tooltip as UITooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip';
-import { TrendingUp, Database, Upload, Loader2, ShoppingCart } from 'lucide-react';
+import { TrendingUp, Database, Upload, Loader2, ShoppingCart, ChevronUp, ChevronDown, ChevronsUpDown, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 
@@ -112,10 +112,28 @@ function GradientBar(props: any) {
   );
 }
 
+const PAGE_SIZE = 50;
+
+type SortKey = 'date' | 'amount' | 'profit';
+type SortDir = 'asc' | 'desc';
+
+function SortIcon({ col, sortConfig }: { col: SortKey; sortConfig: { key: SortKey; dir: SortDir } | null }) {
+  if (!sortConfig || sortConfig.key !== col) return <ChevronsUpDown className="inline h-3 w-3 ml-1 opacity-40" />;
+  return sortConfig.dir === 'asc'
+    ? <ChevronUp className="inline h-3 w-3 ml-1" />
+    : <ChevronDown className="inline h-3 w-3 ml-1" />;
+}
+
 export default function Ventas() {
   const { data: extractedData, mappings, hasData, loading } = useExtractedData();
   const m = mappings.ventas;
   const { period, setPeriod } = usePeriod();
+  const [page, setPage] = useState(0);
+  const [sortConfig, setSortConfig] = useState<{ key: SortKey; dir: SortDir } | null>(null);
+
+  // Reset page when period changes
+  useEffect(() => { setPage(0); }, [period]);
+
   const allVentas = extractedData?.ventas || [];
   const availableMonths = useMemo(
     () => extractAvailableMonths(allVentas, FIELD_DATE, (row) => findDateRaw(row, m?.date)),
@@ -174,14 +192,50 @@ export default function Ventas() {
   const hasCostData = !!m?.cost || realVentas.some((r: any) => findNumber(r, FIELD_COST, m?.cost) > 0);
   const hasProfitData = !!m?.profit || realVentas.some((r: any) => findNumber(r, FIELD_PROFIT, m?.profit) > 0);
 
-  const salesHistory = realVentas.slice(0, 50).map((r: any) => ({
-    date: findDateRaw(r, m?.date) || '—',
-    client: findString(r, FIELD_CLIENT, m?.client) || '',
-    product: findString(r, FIELD_NAME, m?.name) || '',
-    amount: findNumber(r, FIELD_AMOUNT, m?.amount),
-    cost: hasCostData ? findNumber(r, FIELD_COST, m?.cost) : 0,
-    profit: hasProfitData ? findNumber(r, FIELD_PROFIT, m?.profit) : 0,
-  }));
+  // Build full sorted history (all rows, not capped at 50)
+  const allSalesHistory = useMemo(() => realVentas.map((r: any) => {
+    const rawDate = findDateRaw(r, m?.date) || '—';
+    const parsedDate = parseDate(rawDate);
+    return {
+      date: rawDate,
+      parsedDate,
+      client: findString(r, FIELD_CLIENT, m?.client) || '',
+      product: findString(r, FIELD_NAME, m?.name) || '',
+      amount: findNumber(r, FIELD_AMOUNT, m?.amount),
+      cost: hasCostData ? findNumber(r, FIELD_COST, m?.cost) : 0,
+      profit: hasProfitData ? findNumber(r, FIELD_PROFIT, m?.profit) : 0,
+    };
+  }), [realVentas, m, hasCostData, hasProfitData]);
+
+  const sortedHistory = useMemo(() => {
+    if (!sortConfig) return allSalesHistory;
+    return [...allSalesHistory].sort((a, b) => {
+      let cmp = 0;
+      if (sortConfig.key === 'date') {
+        const ta = a.parsedDate?.getTime() ?? 0;
+        const tb = b.parsedDate?.getTime() ?? 0;
+        cmp = ta - tb;
+      } else if (sortConfig.key === 'amount') {
+        cmp = a.amount - b.amount;
+      } else if (sortConfig.key === 'profit') {
+        const pa = hasProfitData ? a.profit : (hasCostData ? a.amount - a.cost : 0);
+        const pb = hasProfitData ? b.profit : (hasCostData ? b.amount - b.cost : 0);
+        cmp = pa - pb;
+      }
+      return sortConfig.dir === 'asc' ? cmp : -cmp;
+    });
+  }, [allSalesHistory, sortConfig, hasCostData, hasProfitData]);
+
+  const totalPages = Math.ceil(sortedHistory.length / PAGE_SIZE);
+  const salesHistory = sortedHistory.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
+
+  const toggleSort = (key: SortKey) => {
+    setSortConfig(prev => {
+      if (prev?.key === key) return { key, dir: prev.dir === 'asc' ? 'desc' : 'asc' };
+      return { key, dir: 'desc' };
+    });
+    setPage(0);
+  };
 
   // Totales de costo y ganancia (sobre todo el período filtrado, no solo los 50 mostrados)
   const totalCost = hasCostData
@@ -191,9 +245,9 @@ export default function Ventas() {
     ? realVentas.reduce((s: number, r: any) => s + findNumber(r, FIELD_PROFIT, m?.profit), 0)
     : (hasCostData ? salesTotal - totalCost : 0);
 
-  // Detect if client/product columns have real data
-  const hasClients = salesHistory.some(s => s.client && s.client !== '—');
-  const hasProducts = salesHistory.some(s => s.product && s.product !== '—');
+  // Detect if client/product columns have real data (check ALL rows, not just current page)
+  const hasClients = allSalesHistory.some(s => s.client && s.client !== '—');
+  const hasProducts = allSalesHistory.some(s => s.product && s.product !== '—');
 
   // Format date robustly
   const fmtDate = (raw: string) => {
@@ -291,22 +345,68 @@ export default function Ventas() {
         </div>
 
         <Card>
-          <CardHeader><CardTitle className="text-sm text-muted-foreground">Historial de ventas ({salesHistory.length} mostrados)</CardTitle></CardHeader>
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-sm text-muted-foreground">
+                Historial de ventas
+                <span className="ml-2 font-normal text-muted-foreground/60">
+                  ({realVentas.length} registros{totalPages > 1 ? ` · página ${page + 1} de ${totalPages}` : ''})
+                </span>
+              </CardTitle>
+              {totalPages > 1 && (
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    disabled={page === 0}
+                    onClick={() => setPage(p => p - 1)}
+                    className="p-1.5 rounded-lg hover:bg-muted disabled:opacity-30 transition-colors"
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                  </button>
+                  <button
+                    type="button"
+                    disabled={page >= totalPages - 1}
+                    onClick={() => setPage(p => p + 1)}
+                    className="p-1.5 rounded-lg hover:bg-muted disabled:opacity-30 transition-colors"
+                  >
+                    <ChevronRight className="h-4 w-4" />
+                  </button>
+                </div>
+              )}
+            </div>
+          </CardHeader>
           <CardContent>
             <Table>
               <TableHeader><TableRow>
-                <TableHead>Fecha</TableHead>
+                <TableHead
+                  className="cursor-pointer select-none hover:text-foreground transition-colors"
+                  onClick={() => toggleSort('date')}
+                >
+                  Fecha <SortIcon col="date" sortConfig={sortConfig} />
+                </TableHead>
                 {hasClients && <TableHead>Cliente</TableHead>}
                 {hasProducts && <TableHead>Detalle</TableHead>}
-                <TableHead className="text-right">Monto</TableHead>
+                <TableHead
+                  className="text-right cursor-pointer select-none hover:text-foreground transition-colors"
+                  onClick={() => toggleSort('amount')}
+                >
+                  Monto <SortIcon col="amount" sortConfig={sortConfig} />
+                </TableHead>
                 {hasCostData && <TableHead className="text-right">Costo</TableHead>}
-                {(hasCostData || hasProfitData) && <TableHead className="text-right">Ganancia</TableHead>}
+                {(hasCostData || hasProfitData) && (
+                  <TableHead
+                    className="text-right cursor-pointer select-none hover:text-foreground transition-colors"
+                    onClick={() => toggleSort('profit')}
+                  >
+                    Ganancia <SortIcon col="profit" sortConfig={sortConfig} />
+                  </TableHead>
+                )}
               </TableRow></TableHeader>
               <TableBody>
                 {salesHistory.map((s, i) => {
                   const rowProfit = hasProfitData ? s.profit : (hasCostData ? s.amount - s.cost : 0);
                   return (
-                    <TableRow key={i}>
+                    <TableRow key={`${page}-${i}`}>
                       <TableCell className="tabular-nums">{fmtDate(s.date)}</TableCell>
                       {hasClients && <TableCell className="font-medium">{s.client || '—'}</TableCell>}
                       {hasProducts && <TableCell className="text-muted-foreground">{s.product || '—'}</TableCell>}
@@ -322,10 +422,28 @@ export default function Ventas() {
                 })}
               </TableBody>
             </Table>
-            {realVentas.length > 50 && (
-              <p className="text-xs text-muted-foreground text-center mt-3">
-                Mostrando 50 de {realVentas.length} registros.
-              </p>
+            {totalPages > 1 && (
+              <div className="flex items-center justify-center gap-3 mt-4">
+                <button
+                  type="button"
+                  disabled={page === 0}
+                  onClick={() => setPage(p => p - 1)}
+                  className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-border hover:bg-muted disabled:opacity-30 transition-colors"
+                >
+                  <ChevronLeft className="h-3 w-3" /> Anterior
+                </button>
+                <span className="text-xs text-muted-foreground">
+                  {page + 1} / {totalPages}
+                </span>
+                <button
+                  type="button"
+                  disabled={page >= totalPages - 1}
+                  onClick={() => setPage(p => p + 1)}
+                  className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-border hover:bg-muted disabled:opacity-30 transition-colors"
+                >
+                  Siguiente <ChevronRight className="h-3 w-3" />
+                </button>
+              </div>
             )}
           </CardContent>
         </Card>

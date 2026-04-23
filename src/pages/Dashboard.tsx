@@ -4,11 +4,10 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/contexts/AuthContext';
 import { formatCurrency } from '@/lib/formatters';
-import { findNumber, findString, findDateRaw, FIELD_AMOUNT, FIELD_SPEND, FIELD_DATE, FIELD_STOCK_MIN, getStockUnits, dedupeStockRows } from '@/lib/field-utils';
+import { findNumber, findString, findDateRaw, FIELD_AMOUNT, FIELD_SPEND, FIELD_DATE, FIELD_STOCK_MIN, getStockUnits, getProductName, getQuantity, dedupeStockRows } from '@/lib/field-utils';
 import { aggregateSalesByMonth, buildForecast } from '@/lib/forecast-engine';
-import { parseDate } from '@/lib/data-cleaning';
+import { parseDate, filterByPeriod } from '@/lib/data-cleaning';
 import { useExtractedData } from '@/hooks/useExtractedData';
-import { filterByPeriod } from '@/lib/data-cleaning';
 import { Topbar } from '@/components/layout/Topbar';
 import { ResumenEjecutivoCard } from '@/components/dashboard/ResumenEjecutivoCard';
 import { VentasMesCard } from '@/components/dashboard/VentasMesCard';
@@ -131,22 +130,54 @@ export default function Dashboard() {
     }));
   })();
 
-  // Stock breakdown — sumar UNIDADES reales (no contar filas) y dedupear por producto
+  // Stock breakdown — clasificar PRODUCTOS por días de cobertura (igual que Stock.tsx)
   const stockBreakdown = (() => {
     if (realStock.length === 0) return { ok: 0, bajo: 0, critico: 0 };
     const mS = mappings.stock;
     const dedup = dedupeStockRows(realStock, mS?.name, mS?.stock_qty);
+
+    // Build avg monthly units by product from ALL ventas (unfiltered by period)
+    const totals = new Map<string, number>();
+    const activeMonths = new Map<string, Set<string>>();
+    for (const r of allVentas) {
+      const name = getProductName(r, mV?.name);
+      if (!name) continue;
+      const qty = getQuantity(r, mV?.quantity);
+      if (!qty || qty <= 0) continue;
+      const key = name.trim().toLowerCase();
+      totals.set(key, (totals.get(key) || 0) + qty);
+      const raw = findDateRaw(r, mV?.date);
+      const d = parseDate(raw);
+      if (d) {
+        const month = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+        if (!activeMonths.has(key)) activeMonths.set(key, new Set());
+        activeMonths.get(key)!.add(month);
+      }
+    }
+    const avgByProduct = new Map<string, number>();
+    for (const [k, total] of totals) {
+      avgByProduct.set(k, total / (activeMonths.get(k)?.size || 1));
+    }
+
+    const LEAD = 20;
     let ok = 0, bajo = 0, critico = 0;
     for (const r of dedup) {
-      const qty = getStockUnits(r, mS?.stock_qty);
-      const min = findNumber(r, FIELD_STOCK_MIN, mS?.stock_min);
-      if (qty <= 0) {
-        // Fila sin stock no aporta unidades a ningún bucket
-        continue;
+      const stock = getStockUnits(r, mS?.stock_qty);
+      if (stock <= 0) continue;
+      const name = getProductName(r, mS?.name);
+      const avg = avgByProduct.get(name.trim().toLowerCase()) || 0;
+
+      if (avg > 0) {
+        const coverage = (stock / avg) * 30;
+        if (coverage < LEAD * 0.5) critico++;
+        else if (coverage < LEAD * 2) bajo++;
+        else ok++;
+      } else {
+        // No sales data: fall back to min_stock
+        const min = findNumber(r, FIELD_STOCK_MIN, mS?.stock_min);
+        if (min > 0 && stock < min) critico++;
+        else ok++;
       }
-      if (min > 0 && qty <= min) critico += qty;
-      else if (min > 0 && qty <= min * 1.5) bajo += qty;
-      else ok += qty;
     }
     return { ok, bajo, critico };
   })();

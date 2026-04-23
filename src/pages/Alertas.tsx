@@ -6,7 +6,8 @@ import { useExtractedData } from '@/hooks/useExtractedData';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { formatDate } from '@/lib/formatters';
-import { findNumber, findString, FIELD_NAME, FIELD_STOCK_QTY, FIELD_STOCK_MIN, FIELD_DEBT } from '@/lib/field-utils';
+import { findNumber, findString, findDateRaw, FIELD_NAME, FIELD_STOCK_QTY, FIELD_STOCK_MIN, FIELD_DEBT, getStockUnits, getProductName, getQuantity, dedupeStockRows } from '@/lib/field-utils';
+import { parseDate } from '@/lib/data-cleaning';
 import type { CategoryMappings } from '@/hooks/useExtractedData';
 import { Package, Users, Wallet, TrendingUp, Check, Bell, ArrowRight, Upload, Loader2 } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip';
@@ -22,6 +23,37 @@ function slugify(s: string): string {
   return s.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '').slice(0, 60);
 }
 
+/**
+ * Build product → average monthly units sold.
+ * Same logic as Stock.tsx — denominator = months where THAT product had sales.
+ */
+function buildAvgMonthlyByProduct(ventasRows: any[], mV: any): Map<string, number> {
+  const result = new Map<string, number>();
+  if (!ventasRows || ventasRows.length === 0) return result;
+  const totals = new Map<string, number>();
+  const activeMonths = new Map<string, Set<string>>();
+  for (const r of ventasRows) {
+    const name = getProductName(r, mV?.name);
+    if (!name) continue;
+    const qty = getQuantity(r, mV?.quantity);
+    if (!qty || qty <= 0) continue;
+    const key = name.trim().toLowerCase();
+    totals.set(key, (totals.get(key) || 0) + qty);
+    const raw = findDateRaw(r, mV?.date);
+    const d = parseDate(raw);
+    if (d) {
+      const month = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      if (!activeMonths.has(key)) activeMonths.set(key, new Set());
+      activeMonths.get(key)!.add(month);
+    }
+  }
+  for (const [k, total] of totals) {
+    const months = activeMonths.get(k)?.size || 1;
+    result.set(k, total / months);
+  }
+  return result;
+}
+
 function buildAlertsFromData(data: ReturnType<typeof useExtractedData>['data'], mappings: CategoryMappings): AlertType[] {
   const alerts: AlertType[] = [];
   if (!data) return alerts;
@@ -30,26 +62,92 @@ function buildAlertsFromData(data: ReturnType<typeof useExtractedData>['data'], 
 
   // Stock alerts
   const mS = mappings.stock;
+  const mV = mappings.ventas;
   const mC = mappings.clientes;
   const mG = mappings.gastos;
   const stockRows = data.stock || [];
-  const lowStock = stockRows.filter((r: any) => {
-    const stock = Math.round(findNumber(r, FIELD_STOCK_QTY, mS?.stock_qty));
-    const min = Math.round(findNumber(r, FIELD_STOCK_MIN, mS?.stock_min));
-    return min > 0 && stock < min;
-  });
-  if (lowStock.length > 0) {
-    const names = lowStock.slice(0, 3).map((r: any) => findString(r, FIELD_NAME, mS?.name) || 'producto');
-    const alertKey = `stock_bajo_minimo_${lowStock.length}_${names.map(slugify).join('_')}`;
-    alerts.push({
-      id: alertKey,
-      type: 'stock',
-      priority: 'high',
-      message: `${lowStock.length} producto${lowStock.length > 1 ? 's' : ''} con stock por debajo del mínimo: ${names.join(', ')}`,
-      suggestion: 'Revisá el módulo de Stock para ver el detalle y reponer a tiempo.',
-      read: false,
-      date: today,
-    });
+  const ventasRows = data.ventas || [];
+
+  if (stockRows.length > 0) {
+    const LEAD_DAYS = 20; // días de anticipación para reponer
+    const dedupedStock = dedupeStockRows(stockRows, mS?.name, mS?.stock_qty);
+    const avgMonthlyByProduct = buildAvgMonthlyByProduct(ventasRows, mV);
+    const hasVentasData = avgMonthlyByProduct.size > 0;
+
+    const critical: string[] = [];
+    const low: string[] = [];
+    const overstock: string[] = [];
+    const belowMin: string[] = []; // fallback: below explicit min_stock with no sales data
+
+    for (const r of dedupedStock) {
+      const stock = Math.round(getStockUnits(r, mS?.stock_qty));
+      if (stock <= 0) continue;
+      const name = getProductName(r, mS?.name) || 'producto';
+      const avg = avgMonthlyByProduct.get(name.trim().toLowerCase()) || 0;
+
+      if (avg > 0) {
+        const coverageDays = (stock / avg) * 30;
+        if (coverageDays < LEAD_DAYS * 0.5) critical.push(name); // < 10 days
+        else if (coverageDays < LEAD_DAYS * 2) low.push(name);   // < 40 days
+        else if (coverageDays > LEAD_DAYS * 6) overstock.push(name); // > 120 days
+      } else {
+        // No sales data: fall back to min_stock
+        const min = Math.round(findNumber(r, FIELD_STOCK_MIN, mS?.stock_min));
+        if (min > 0 && stock < min) belowMin.push(name);
+      }
+    }
+
+    if (critical.length > 0) {
+      const names = critical.slice(0, 3);
+      alerts.push({
+        id: `stock_critico_${critical.length}_${names.map(slugify).join('_')}`,
+        type: 'stock',
+        priority: 'high',
+        message: `${critical.length} producto${critical.length > 1 ? 's' : ''} en riesgo crítico (menos de ${LEAD_DAYS / 2} días de cobertura): ${names.join(', ')}`,
+        suggestion: 'Realizá el pedido de reposición lo antes posible para evitar quiebres de stock.',
+        read: false,
+        date: today,
+      });
+    }
+
+    if (low.length > 0) {
+      const names = low.slice(0, 3);
+      alerts.push({
+        id: `stock_bajo_${low.length}_${names.map(slugify).join('_')}`,
+        type: 'stock',
+        priority: 'medium',
+        message: `${low.length} producto${low.length > 1 ? 's' : ''} con stock bajo (menos de ${LEAD_DAYS * 2} días de cobertura): ${names.join(', ')}`,
+        suggestion: 'Revisá el módulo de Stock para planificar la reposición a tiempo.',
+        read: false,
+        date: today,
+      });
+    }
+
+    if (overstock.length > 0 && hasVentasData) {
+      const names = overstock.slice(0, 3);
+      alerts.push({
+        id: `stock_sobrestock_${overstock.length}_${names.map(slugify).join('_')}`,
+        type: 'stock',
+        priority: 'low',
+        message: `${overstock.length} producto${overstock.length > 1 ? 's' : ''} con sobrestock (más de 120 días de cobertura): ${names.join(', ')}`,
+        suggestion: 'Considerá liquidar o redirigir el exceso de inventario para liberar capital.',
+        read: false,
+        date: today,
+      });
+    }
+
+    if (belowMin.length > 0) {
+      const names = belowMin.slice(0, 3);
+      alerts.push({
+        id: `stock_bajo_minimo_${belowMin.length}_${names.map(slugify).join('_')}`,
+        type: 'stock',
+        priority: 'high',
+        message: `${belowMin.length} producto${belowMin.length > 1 ? 's' : ''} con stock por debajo del mínimo: ${names.join(', ')}`,
+        suggestion: 'Revisá el módulo de Stock para ver el detalle y reponer a tiempo.',
+        read: false,
+        date: today,
+      });
+    }
   }
 
   // Clientes: cobros pendientes
