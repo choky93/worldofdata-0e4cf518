@@ -5,7 +5,7 @@ import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Progress } from '@/components/ui/progress';
-import { Upload, FileText, Image, FileSpreadsheet, Trash2, Lightbulb, Loader2, RefreshCw, CheckCircle2, Search, ChevronLeft, ChevronRight, Filter, XCircle, BarChart3, Clock, AlertTriangle, Layers, Link2, ArrowUp, Globe, Package } from 'lucide-react';
+import { Upload, FileText, Image, FileSpreadsheet, Trash2, Lightbulb, Loader2, RefreshCw, CheckCircle2, Search, ChevronLeft, ChevronRight, Filter, XCircle, BarChart3, Clock, AlertTriangle, Layers, Link2, ArrowUp, Globe, Package, Pencil, X as XIcon } from 'lucide-react';
 import { Textarea } from '@/components/ui/textarea';
 import { formatDate } from '@/lib/formatters';
 import { useAuth } from '@/contexts/AuthContext';
@@ -420,6 +420,7 @@ export default function CargaDatos() {
   const [loadingFiles, setLoadingFiles] = useState(true);
   const [storageUsedBytes, setStorageUsedBytes] = useState<number>(0);
   const [reprocessingId, setReprocessingId] = useState<string | null>(null);
+  const [reclassifyingId, setReclassifyingId] = useState<string | null>(null); // file_upload_id being reclassified
   const [uploadQueue, setUploadQueue] = useState<UploadQueueItem[]>([]);
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const prevErrorIdsRef = useRef<Set<string>>(new Set());
@@ -1075,6 +1076,32 @@ export default function CargaDatos() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id, profile?.company_id]);
 
+  const handleReclassify = async (fileUploadId: string, newCategory: string) => {
+    if (!profile?.company_id) return;
+    try {
+      const { error } = await supabase
+        .from('file_extracted_data')
+        .update({ data_category: newCategory })
+        .eq('file_upload_id', fileUploadId)
+        .eq('company_id', profile.company_id);
+      if (error) throw error;
+      // Update local state
+      setExtractedDataMap(prev => {
+        const updated = { ...prev };
+        if (updated[fileUploadId]) {
+          updated[fileUploadId] = updated[fileUploadId].map(e => ({ ...e, data_category: newCategory }));
+        }
+        return updated;
+      });
+      refetchExtractedData();
+      toast.success(`Categoría cambiada a "${categoryLabels[newCategory] || newCategory}"`);
+    } catch (err: any) {
+      toast.error('Error al reclasificar: ' + err.message);
+    } finally {
+      setReclassifyingId(null);
+    }
+  };
+
   const handleDelete = async (file: FileRecord) => {
     try {
       if (file.storage_path) {
@@ -1628,10 +1655,45 @@ export default function CargaDatos() {
                               <CheckCircle2 className="h-3.5 w-3.5 text-success shrink-0 mt-0.5" />
                             )}
                             <div className="flex-1">
-                              <div className="flex items-center gap-2">
-                                <span className="font-medium text-foreground">
-                                  {categoryLabels[firstExtracted.data_category] || firstExtracted.data_category}
-                                </span>
+                              <div className="flex items-center gap-2 flex-wrap">
+                                {reclassifyingId === f.id ? (
+                                  <div className="flex items-center gap-1.5">
+                                    <Select
+                                      defaultValue={firstExtracted.data_category}
+                                      onValueChange={(val) => handleReclassify(f.id, val)}
+                                    >
+                                      <SelectTrigger className="h-6 text-xs w-36 border-primary/50">
+                                        <SelectValue />
+                                      </SelectTrigger>
+                                      <SelectContent>
+                                        {Object.entries(categoryLabels).map(([val, label]) => (
+                                          <SelectItem key={val} value={val} className="text-xs">{label}</SelectItem>
+                                        ))}
+                                      </SelectContent>
+                                    </Select>
+                                    <button
+                                      type="button"
+                                      onClick={() => setReclassifyingId(null)}
+                                      className="text-muted-foreground hover:text-foreground"
+                                    >
+                                      <XIcon className="h-3.5 w-3.5" />
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <div className="flex items-center gap-1.5">
+                                    <span className="font-medium text-foreground">
+                                      {categoryLabels[firstExtracted.data_category] || firstExtracted.data_category}
+                                    </span>
+                                    <button
+                                      type="button"
+                                      title="Cambiar categoría"
+                                      onClick={() => setReclassifyingId(f.id)}
+                                      className="text-muted-foreground/50 hover:text-muted-foreground transition-colors"
+                                    >
+                                      <Pencil className="h-3 w-3" />
+                                    </button>
+                                  </div>
+                                )}
                                 {totalExtractedRows > 0 && <span>· {totalExtractedRows} filas</span>}
                                 {hasChunks && (
                                   <Badge variant="outline" className="h-5 text-[10px] gap-1">
