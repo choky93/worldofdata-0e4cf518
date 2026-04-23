@@ -136,6 +136,46 @@ export function parseDate(raw: string): Date | null {
     if (!isNaN(dt.getTime())) return dt;
   }
 
+  // ISO year-month: "2024-12", "2024-01" — very common in Argentine management systems
+  const isoYearMonth = trimmed.match(/^(\d{4})-(\d{2})$/);
+  if (isoYearMonth) {
+    const yr = parseInt(isoYearMonth[1]);
+    const mo = parseInt(isoYearMonth[2]) - 1;
+    if (mo >= 0 && mo <= 11) return new Date(yr, mo, 1);
+  }
+
+  // Month/year with 4-digit year: "01/2024", "1/2024", "01-2024"
+  const monthYear4d = trimmed.match(/^(\d{1,2})[/\-](\d{4})$/);
+  if (monthYear4d) {
+    const mo = parseInt(monthYear4d[1]) - 1;
+    const yr = parseInt(monthYear4d[2]);
+    if (mo >= 0 && mo <= 11) return new Date(yr, mo, 1);
+  }
+
+  // Month/year with 2-digit year: "1/24", "12/24", "01-24"
+  const monthYear2d = trimmed.match(/^(\d{1,2})[/\-](\d{2})$/);
+  if (monthYear2d) {
+    const mo = parseInt(monthYear2d[1]) - 1;
+    const yr = 2000 + parseInt(monthYear2d[2]);
+    if (mo >= 0 && mo <= 11 && yr >= 2000 && yr <= 2099) return new Date(yr, mo, 1);
+  }
+
+  // English abbreviated month-year: "Jan-24", "Dec-2024", "Mar 2024"
+  // Common in systems that export in English even for Argentine companies
+  const ENGLISH_MONTHS: Record<string, number> = {
+    jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5,
+    jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11,
+  };
+  const engMonthYear = trimmed.match(/^([a-zA-Z]{3})[-\s](\d{2,4})$/);
+  if (engMonthYear) {
+    const m = ENGLISH_MONTHS[engMonthYear[1].toLowerCase()];
+    if (m !== undefined) {
+      let yr = parseInt(engMonthYear[2]);
+      if (yr < 100) yr += 2000;
+      return new Date(yr, m, 1);
+    }
+  }
+
   // Spanish month names: "Enero 2024", "Ene 2024", "Ene-24", "Enero-2024", "ene. 2024"
   const lower = trimmed.toLowerCase().replace(/\./g, '').trim();
   const monthYear = lower.match(/^([a-záéíóú]+)\s*[-/]?\s*(\d{2,4})$/);

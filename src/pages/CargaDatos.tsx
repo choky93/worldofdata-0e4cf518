@@ -370,6 +370,7 @@ function UploadQueue({ items, onDismiss }: { items: UploadQueueItem[]; onDismiss
 function StatusDashboard({ files, totalCount }: { files: FileRecord[]; totalCount: number }) {
   // We use totalCount for "total" and compute status counts from visible + context
   const processed = files.filter(f => f.status === 'processed').length;
+  const review = files.filter(f => f.status === 'review' || f.status === 'processed_with_issues').length;
   const queued = files.filter(f => f.status === 'queued').length;
   const processing = files.filter(f => f.status === 'processing').length;
   const errors = files.filter(f => f.status === 'error').length;
@@ -377,7 +378,7 @@ function StatusDashboard({ files, totalCount }: { files: FileRecord[]; totalCoun
   if (totalCount === 0) return null;
 
   return (
-    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+    <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
       <div className="flex items-center gap-2 p-3 rounded-lg bg-success/10 border border-success/20">
         <CheckCircle2 className="h-4 w-4 text-success" />
         <div>
@@ -385,6 +386,15 @@ function StatusDashboard({ files, totalCount }: { files: FileRecord[]; totalCoun
           <p className="text-[10px] text-muted-foreground">Procesados</p>
         </div>
       </div>
+      {review > 0 && (
+        <div className="flex items-center gap-2 p-3 rounded-lg bg-warning/10 border border-warning/20">
+          <AlertTriangle className="h-4 w-4 text-warning" />
+          <div>
+            <p className="text-lg font-bold text-warning">{review}</p>
+            <p className="text-[10px] text-muted-foreground">A revisar</p>
+          </div>
+        </div>
+      )}
       <div className="flex items-center gap-2 p-3 rounded-lg bg-muted border border-border">
         <Clock className="h-4 w-4 text-muted-foreground" />
         <div>
@@ -1648,8 +1658,8 @@ export default function CargaDatos() {
                           </Button>
                         </div>
                         {firstExtracted && (f.status === 'processed' || f.status === 'review' || f.status === 'processed_with_issues') && (
-                          <div className={`mt-2 ml-8 flex items-start gap-2 text-xs text-muted-foreground rounded-md p-2 ${f.status === 'processed_with_issues' ? 'bg-warning/10 border border-warning/20' : 'bg-muted/30'}`}>
-                            {f.status === 'processed_with_issues' ? (
+                          <div className={`mt-2 ml-8 flex items-start gap-2 text-xs text-muted-foreground rounded-md p-2 ${f.status === 'processed_with_issues' || f.status === 'review' ? 'bg-warning/10 border border-warning/20' : 'bg-muted/30'}`}>
+                            {f.status === 'processed_with_issues' || f.status === 'review' ? (
                               <AlertTriangle className="h-3.5 w-3.5 text-warning shrink-0 mt-0.5" />
                             ) : (
                               <CheckCircle2 className="h-3.5 w-3.5 text-success shrink-0 mt-0.5" />
@@ -1702,6 +1712,11 @@ export default function CargaDatos() {
                                   </Badge>
                                 )}
                               </div>
+                              {f.status === 'review' && (
+                                <p className="mt-1 text-warning font-medium">
+                                  La IA clasificó este archivo con baja confianza. Verificá que la categoría sea correcta y reclasificá si es necesario.
+                                </p>
+                              )}
                               {firstExtracted.summary && (
                                 <p className="mt-0.5 leading-relaxed">{firstExtracted.summary}</p>
                               )}

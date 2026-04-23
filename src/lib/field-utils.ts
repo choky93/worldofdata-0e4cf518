@@ -39,6 +39,20 @@ export function findField(row: Record<string, unknown>, keywords: string[]): unk
     }
   }
 
+  // Pass 2.5: prefix match for known short abbreviations (3–4 chars).
+  // e.g. "vta" matches "vtamensual", "vtaneta"; "mto" matches "mtototal".
+  // Uses startsWith to avoid "mes" matching inside "mensual" (false positive).
+  for (const key of keys) {
+    const nk = normalize(key);
+    if (nk.length < 4) continue; // key must be longer than the abbreviation
+    for (const nkw of normalizedKeywords) {
+      if (nkw.length < 3 || nkw.length >= 5) continue; // only 3–4 char keywords
+      if (nk.startsWith(nkw) && row[key] !== undefined && row[key] !== '' && row[key] !== null) {
+        return row[key];
+      }
+    }
+  }
+
   // Pass 3: partial match (key contains keyword OR keyword contains key).
   // Minimum 5 chars on both sides to avoid false positives:
   // e.g. 'venta' (5) would match 'Costo de Ventas' — raising the floor reduces noise
@@ -271,6 +285,11 @@ export const FIELD_AMOUNT = [
   // Variantes compuestas específicas
   'monto_total', 'monto_venta', 'total_mensual', 'total_venta',
   'subtotal', 'neto',
+  // Abreviaciones comunes en exportaciones de sistemas argentinos (POS, gestión)
+  // Nota: 'vta', 'mto', 'gto', 'pvp' son 3–4 chars → usan Pass 2.5 (prefix match)
+  'vta', 'mto', 'gto', 'pvp',
+  // Variantes de ingreso y recaudación
+  'ingreso', 'recaudacion', 'recaudación',
   // Precio de venta como último recurso (cuando no hay columna de total)
   'precio_de_venta', 'precio de venta', 'precio_venta',
   // Ventas como columna de ingreso (e.g. archivo mensual con columna "Ventas")

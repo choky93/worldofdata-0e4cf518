@@ -110,11 +110,21 @@ export function ExtractedDataProvider({ children }: { children: ReactNode }) {
         marketing: {}, facturas: {}, rrhh: {}, otro: {},
       };
 
+      // Redirect legacy/orphaned categories to their correct buckets.
+      // "operaciones" → gastos (compras a proveedores, logística)
+      // "finanzas"    → facturas (extractos bancarios, movimientos)
+      const remapCategory = (cat: string): string => {
+        if (cat === 'operaciones') return 'gastos';
+        if (cat === 'finanzas') return 'facturas';
+        return cat;
+      };
+
       const dataRecords: ExtractedRecord[] = [];
       for (const r of allRecords) {
         if (r.data_category === '_column_mapping') {
           const json = r.extracted_json as any;
-          const cat = json?.category as keyof CategoryMappings;
+          const rawCat = json?.category as string;
+          const cat = remapCategory(rawCat) as keyof CategoryMappings;
           const mapping = json?.column_mapping;
           if (cat && mapping && mergedMappings[cat]) {
             const target = mergedMappings[cat];
@@ -129,7 +139,7 @@ export function ExtractedDataProvider({ children }: { children: ReactNode }) {
 
       if (dataRecords.length > 0) {
         for (const r of dataRecords) {
-          const cat = r.data_category as keyof AggregatedData;
+          const cat = remapCategory(r.data_category) as keyof AggregatedData;
           const json = r.extracted_json as any;
           const rows = json?.data || [];
           if (!Array.isArray(rows) || rows.length === 0) continue;
