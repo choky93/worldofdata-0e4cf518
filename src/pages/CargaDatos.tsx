@@ -383,10 +383,9 @@ function UploadQueue({ items, onDismiss }: { items: UploadQueueItem[]; onDismiss
 }
 
 // ─── Status Dashboard ─────────────────────────────────────────
-function StatusDashboard({ files, totalCount }: { files: FileRecord[]; totalCount: number }) {
-  // C4: Excluir archivados de los contadores del dashboard de estado
+function StatusDashboard({ files, totalCount, archivedCount = 0 }: { files: FileRecord[]; totalCount: number; archivedCount?: number }) {
   const activeFiles = files.filter(f => f.status !== 'archived');
-  const archived = files.filter(f => f.status === 'archived').length;
+  const archived = archivedCount;
   const processed = activeFiles.filter(f => f.status === 'processed').length;
   const review = activeFiles.filter(f => f.status === 'review' || f.status === 'processed_with_issues').length;
   const queued = activeFiles.filter(f => f.status === 'queued').length;
@@ -466,6 +465,8 @@ export default function CargaDatos() {
   const [showUrlImport, setShowUrlImport] = useState(false);
   // B3: column mapping preview — maps fileUploadId → { semanticKey: "Original Column Name" }
   const [columnMappingMap, setColumnMappingMap] = useState<Record<string, Record<string, string>>>({});
+  // C4: Archivados — estado independiente de los filtros activos
+  const [archivedFiles, setArchivedFiles] = useState<FileRecord[]>([]);
 
   // Overlap detection state
   const [overlapInfo, setOverlapInfo] = useState<{
@@ -528,6 +529,22 @@ export default function CargaDatos() {
       setColumnMappingMap(prev => ({ ...prev, ...newMappings }));
     }
   }, []);
+
+  // C4: Fetch archivados independientemente de los filtros activos
+  const fetchArchivedFiles = useCallback(async () => {
+    if (!profile?.company_id) return;
+    const { data } = await supabase
+      .from('file_uploads')
+      .select('*')
+      .eq('company_id', profile.company_id)
+      .eq('status', 'archived')
+      .order('created_at', { ascending: false });
+    const archived = (data as FileRecord[]) || [];
+    setArchivedFiles(archived);
+    // Traer sus extracted data para mostrar categoría en el historial
+    const ids = archived.map(f => f.id);
+    if (ids.length > 0) fetchExtractedData(ids);
+  }, [profile?.company_id, fetchExtractedData]);
 
   const fetchFiles = useCallback(async () => {
     if (!profile?.company_id) return;
@@ -597,7 +614,8 @@ export default function CargaDatos() {
   useEffect(() => {
     fetchFiles();
     fetchStorageUsage();
-  }, [fetchFiles, fetchStorageUsage]);
+    fetchArchivedFiles();
+  }, [fetchFiles, fetchStorageUsage, fetchArchivedFiles]);
 
   // Polling
   useEffect(() => {
@@ -1221,6 +1239,7 @@ export default function CargaDatos() {
         .eq('id', file.id);
       if (error) throw error;
       fetchFiles();
+      fetchArchivedFiles();
       await refetchExtractedData();
       toast.success('Archivo archivado. Sus datos ya no afectan el dashboard.');
     } catch (err: any) {
@@ -1237,6 +1256,7 @@ export default function CargaDatos() {
         .eq('id', file.id);
       if (error) throw error;
       fetchFiles();
+      fetchArchivedFiles();
       await refetchExtractedData();
       toast.success('Archivo restaurado. Sus datos vuelven al dashboard.');
     } catch (err: any) {
@@ -1521,7 +1541,6 @@ export default function CargaDatos() {
   const isUploading = uploadQueue.some(i => i.status === 'pending' || i.status === 'uploading' || i.status === 'processing');
   // C4: Split active vs archived files
   const activeFilesList = files.filter(f => f.status !== 'archived');
-  const archivedFilesList = files.filter(f => f.status === 'archived');
 
   const statusLabel = (status: string | null) => {
     switch (status) {
@@ -1571,7 +1590,7 @@ export default function CargaDatos() {
           )}
 
           {/* Status Dashboard */}
-          <StatusDashboard files={files} totalCount={totalCount} />
+          <StatusDashboard files={files} totalCount={totalCount} archivedCount={archivedFiles.length} />
 
           {/* Drop zone */}
           <div
@@ -1908,16 +1927,16 @@ export default function CargaDatos() {
                     </p>
                   )}
 
-                  {/* C4: Sección de archivos archivados */}
-                  {archivedFilesList.length > 0 && (
+                  {/* C4: Sección de archivos archivados — siempre visible independientemente de filtros */}
+                  {archivedFiles.length > 0 && (
                     <div className="mt-4 pt-4 border-t border-dashed">
                       <div className="flex items-center gap-2 mb-2 text-xs text-muted-foreground">
                         <History className="h-3.5 w-3.5" />
-                        <span className="font-medium">Historial — {archivedFilesList.length} archivo{archivedFilesList.length !== 1 ? 's' : ''} archivado{archivedFilesList.length !== 1 ? 's' : ''}</span>
+                        <span className="font-medium">Historial — {archivedFiles.length} archivo{archivedFiles.length !== 1 ? 's' : ''} archivado{archivedFiles.length !== 1 ? 's' : ''}</span>
                         <span className="text-muted-foreground/60">(excluidos del dashboard)</span>
                       </div>
                       <div className="space-y-1.5">
-                        {archivedFilesList.map(f => {
+                        {archivedFiles.map(f => {
                           const Icon = fileIcons[f.file_type || ''] || FileText;
                           const firstExtracted = extractedDataMap[f.id]?.[0];
                           return (
