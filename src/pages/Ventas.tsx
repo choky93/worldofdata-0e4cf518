@@ -205,7 +205,10 @@ export default function Ventas() {
 
   
   const monthlyChart = aggregateByMonth(allVentas, m);
-  const monthCount = monthlyChart.length || 1;
+  // promedioMensual usa los meses del período filtrado (no el historial completo)
+  // para que el KPI sea coherente con el salesTotal mostrado arriba.
+  const filteredMonthlyChart = aggregateByMonth(realVentas, m);
+  const monthCount = filteredMonthlyChart.length || 1;
   const promedioMensual = Math.round(salesTotal / monthCount);
 
   return (

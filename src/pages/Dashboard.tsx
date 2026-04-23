@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { useAuth } from '@/contexts/AuthContext';
 import { formatCurrency } from '@/lib/formatters';
 import { findNumber, findString, findDateRaw, FIELD_AMOUNT, FIELD_SPEND, FIELD_DATE, FIELD_STOCK_MIN, getStockUnits, dedupeStockRows } from '@/lib/field-utils';
+import { aggregateSalesByMonth, buildForecast } from '@/lib/forecast-engine';
 import { parseDate } from '@/lib/data-cleaning';
 import { useExtractedData } from '@/hooks/useExtractedData';
 import { filterByPeriod } from '@/lib/data-cleaning';
@@ -114,31 +115,20 @@ export default function Dashboard() {
       .map(([day, { value }]) => ({ day, value }));
   })();
 
-  // Forecast: last 6 real points + 3 projected (simple trend extrapolation)
+  // Forecast: usa el mismo motor que la página Forecast (WMA + estacionalidad)
+  // para que los números del dashboard coincidan con los de la página dedicada.
   const forecastData = (() => {
-    if (salesChartData.length < 3) return [] as { day: string; real: number | null; proyectado: number | null }[];
-    const last = salesChartData.slice(-6);
-    const result: { day: string; real: number | null; proyectado: number | null }[] = last.map(d => ({
-      day: d.day, real: d.value, proyectado: null,
+    const salesHistory = aggregateSalesByMonth(allVentas, mV?.date, mV?.amount);
+    if (salesHistory.length < 2) return [] as { day: string; real: number | null; proyectado: number | null }[];
+    const { chartData } = buildForecast(salesHistory);
+    // Últimos 6 reales + hasta 3 proyectados. buildForecast ya maneja el bridge:
+    // el último punto real tiene tanto `real` como `forecast` seteados.
+    const last9 = chartData.slice(-9);
+    return last9.map(p => ({
+      day: p.month,
+      real: p.real ?? null,
+      proyectado: p.forecast ?? null,
     }));
-    // Bridge last real to projection
-    const lastVal = last[last.length - 1].value;
-    result[result.length - 1].proyectado = lastVal;
-    // Simple linear trend from last 3
-    const tail = last.slice(-3);
-    const slope = tail.length >= 2 ? (tail[tail.length - 1].value - tail[0].value) / Math.max(tail.length - 1, 1) : 0;
-    const monthNames = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
-    const lastDate = (() => {
-      const lastEntry = salesChartData[salesChartData.length - 1];
-      // Reparse from month name: fallback to today
-      return new Date();
-    })();
-    for (let i = 1; i <= 3; i++) {
-      const d = new Date(lastDate.getFullYear(), lastDate.getMonth() + i, 1);
-      const day = `${monthNames[d.getMonth()]} ${String(d.getFullYear()).slice(2)}`;
-      result.push({ day, real: null, proyectado: Math.max(lastVal + slope * i * 0.7, 0) });
-    }
-    return result;
   })();
 
   // Stock breakdown — sumar UNIDADES reales (no contar filas) y dedupear por producto
