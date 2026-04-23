@@ -227,15 +227,21 @@ export default function Dashboard() {
                 <Database className="h-3.5 w-3.5 shrink-0" />
                 <span className="flex-1">Mostrando datos reales extraídos de tus archivos cargados</span>
                 {(() => {
-                  // Indicador de frescura: muestra cuándo fue la última carga de ventas (la más crítica)
+                  // Indicador de frescura: muestra cuándo fue la última carga activa
                   const lastKey = ['ventas', 'gastos', 'stock'].find(k => lastUploadDates[k]);
                   if (!lastKey) return null;
                   const days = Math.floor((Date.now() - new Date(lastUploadDates[lastKey]).getTime()) / 86400000);
-                  if (days < 2) return null; // No mostrar si es muy reciente
-                  const color = days < 35 ? 'text-emerald-700' : days < 65 ? 'text-amber-700' : 'text-red-700';
+                  if (days < 2) return (
+                    <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-700 border border-emerald-500/25">
+                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 shrink-0" />
+                      Al día
+                    </span>
+                  );
+                  const isWarn = days < 65;
                   return (
-                    <span className={`text-[10px] font-medium opacity-80 ${color}`}>
-                      · Última carga hace {days} día{days !== 1 ? 's' : ''}
+                    <span className={`inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full border ${isWarn ? 'bg-amber-500/12 text-amber-700 border-amber-500/25' : 'bg-red-500/12 text-red-700 border-red-500/25'}`}>
+                      <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${isWarn ? 'bg-amber-500' : 'bg-red-500 animate-pulse'}`} />
+                      Hace {days}d sin actualizar
                     </span>
                   );
                 })()}

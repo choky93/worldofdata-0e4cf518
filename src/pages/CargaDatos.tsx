@@ -101,24 +101,55 @@ function FreshnessPanel({ lastUploadDates }: { lastUploadDates: Record<string, s
     marketing: 'Marketing', clientes: 'Clientes', facturas: 'Finanzas',
     rrhh: 'RRHH', otro: 'Otro',
   };
+  const categoryEmoji: Record<string, string> = {
+    ventas: '📊', gastos: '💰', stock: '📦',
+    marketing: '📈', clientes: '👥', facturas: '🧾',
+    rrhh: '👔', otro: '📄',
+  };
 
   const now = Date.now();
+  const MAX_DAYS = 90;
+
   return (
-    <div className="rounded-xl border border-border/60 bg-muted/20 p-3">
-      <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide mb-2">Frescura de datos</p>
-      <div className="flex flex-wrap gap-2">
+    <div className="rounded-2xl border border-border/50 bg-gradient-to-br from-muted/30 via-muted/10 to-transparent p-4">
+      <div className="flex items-center gap-2 mb-3">
+        <div className="h-1.5 w-1.5 rounded-full bg-primary/50" />
+        <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Frescura de datos</p>
+      </div>
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
         {entries.map(([cat, dateStr]) => {
           const days = Math.floor((now - new Date(dateStr).getTime()) / 86400000);
-          const color = days < 35
-            ? 'text-success border-success/30 bg-success/5'
-            : days < 65
-            ? 'text-warning border-warning/30 bg-warning/5'
-            : 'text-destructive border-destructive/30 bg-destructive/5';
-          const label = days === 0 ? 'hoy' : days === 1 ? 'ayer' : `hace ${days}d`;
+          const isGood = days < 35;
+          const isWarn = !isGood && days < 65;
+          const isStale = !isGood && !isWarn;
+          const pct = Math.min(100, Math.round((days / MAX_DAYS) * 100));
+          const label = days === 0 ? 'Hoy' : days === 1 ? 'Ayer' : `Hace ${days}d`;
+
+          const borderClass = isGood
+            ? 'border-success/25 bg-success/5'
+            : isWarn
+            ? 'border-warning/25 bg-warning/5'
+            : 'border-destructive/25 bg-destructive/5';
+          const dotClass = isGood ? 'bg-success' : isWarn ? 'bg-warning' : 'bg-destructive';
+          const barClass = isGood ? 'bg-success' : isWarn ? 'bg-warning' : 'bg-destructive';
+          const textClass = isGood ? 'text-success' : isWarn ? 'text-warning' : 'text-destructive';
+
           return (
-            <div key={cat} className={`flex items-center gap-1.5 text-[10px] border rounded-full px-2 py-0.5 ${color}`}>
-              <span className="font-medium">{categoryName[cat] || cat}</span>
-              <span className="opacity-70">{label}</span>
+            <div key={cat} className={`relative rounded-xl p-3 border ${borderClass}`}>
+              <div className="flex items-start justify-between mb-1.5">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-sm leading-none">{categoryEmoji[cat] || '📄'}</span>
+                  <span className="text-[11px] font-semibold leading-none">{categoryName[cat] || cat}</span>
+                </div>
+                <span className={`mt-0.5 h-1.5 w-1.5 rounded-full shrink-0 ${dotClass} ${isStale ? 'animate-pulse' : ''}`} />
+              </div>
+              <p className={`text-[11px] font-bold ${textClass}`}>{label}</p>
+              <div className="mt-2 h-0.5 rounded-full bg-border/30 overflow-hidden">
+                <div
+                  className={`h-full rounded-full ${barClass} transition-all duration-700`}
+                  style={{ width: `${pct}%` }}
+                />
+              </div>
             </div>
           );
         })}
@@ -433,7 +464,6 @@ function UploadQueue({ items, onDismiss }: { items: UploadQueueItem[]; onDismiss
 // ─── Status Dashboard ─────────────────────────────────────────
 function StatusDashboard({ files, totalCount, archivedCount = 0 }: { files: FileRecord[]; totalCount: number; archivedCount?: number }) {
   const activeFiles = files.filter(f => f.status !== 'archived');
-  const archived = archivedCount;
   const processed = activeFiles.filter(f => f.status === 'processed').length;
   const review = activeFiles.filter(f => f.status === 'review' || f.status === 'processed_with_issues').length;
   const queued = activeFiles.filter(f => f.status === 'queued').length;
@@ -442,54 +472,44 @@ function StatusDashboard({ files, totalCount, archivedCount = 0 }: { files: File
 
   if (totalCount === 0) return null;
 
+  type TileColor = 'success' | 'warning' | 'destructive' | 'neutral';
+
+  const tiles: {
+    count: number; label: string; icon: typeof CheckCircle2;
+    color: TileColor; always?: boolean; spin?: boolean;
+  }[] = [
+    { count: processed, label: 'Procesados', icon: CheckCircle2, color: 'success', always: true },
+    { count: review, label: 'A revisar', icon: AlertTriangle, color: 'warning' },
+    { count: queued, label: 'En cola', icon: Clock, color: 'neutral' },
+    { count: processing, label: 'Procesando', icon: Loader2, color: 'warning', spin: true },
+    { count: errors, label: 'Errores', icon: AlertTriangle, color: 'destructive' },
+    { count: archivedCount, label: 'Archivados', icon: Archive, color: 'neutral' },
+  ].filter(t => t.always || t.count > 0);
+
+  const colorMap: Record<TileColor, { wrapper: string; text: string }> = {
+    success:     { wrapper: 'bg-success/8 border-success/25',     text: 'text-success' },
+    warning:     { wrapper: 'bg-warning/8 border-warning/25',     text: 'text-warning' },
+    destructive: { wrapper: 'bg-destructive/8 border-destructive/25', text: 'text-destructive' },
+    neutral:     { wrapper: 'bg-muted/60 border-border/60',        text: 'text-muted-foreground' },
+  };
+
   return (
-    <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
-      <div className="flex items-center gap-2 p-3 rounded-lg bg-success/10 border border-success/20">
-        <CheckCircle2 className="h-4 w-4 text-success" />
-        <div>
-          <p className="text-lg font-bold text-success">{processed}</p>
-          <p className="text-[10px] text-muted-foreground">Procesados</p>
-        </div>
-      </div>
-      {review > 0 && (
-        <div className="flex items-center gap-2 p-3 rounded-lg bg-warning/10 border border-warning/20">
-          <AlertTriangle className="h-4 w-4 text-warning" />
-          <div>
-            <p className="text-lg font-bold text-warning">{review}</p>
-            <p className="text-[10px] text-muted-foreground">A revisar</p>
+    <div className="flex flex-wrap gap-2">
+      {tiles.map(({ count, label, icon: Icon, color, spin }) => {
+        const { wrapper, text } = colorMap[color];
+        return (
+          <div
+            key={label}
+            className={`flex items-center gap-3 px-4 py-2.5 rounded-xl border ${wrapper}`}
+          >
+            <Icon className={`h-4 w-4 shrink-0 ${text} ${spin && count > 0 ? 'animate-spin' : ''}`} />
+            <div>
+              <p className={`text-2xl font-bold leading-none ${text}`}>{count}</p>
+              <p className="text-[10px] font-medium text-muted-foreground mt-0.5">{label}</p>
+            </div>
           </div>
-        </div>
-      )}
-      <div className="flex items-center gap-2 p-3 rounded-lg bg-muted border border-border">
-        <Clock className="h-4 w-4 text-muted-foreground" />
-        <div>
-          <p className="text-lg font-bold">{queued}</p>
-          <p className="text-[10px] text-muted-foreground">En cola</p>
-        </div>
-      </div>
-      <div className="flex items-center gap-2 p-3 rounded-lg bg-warning/10 border border-warning/20">
-        <Loader2 className={`h-4 w-4 text-warning ${processing > 0 ? 'animate-spin' : ''}`} />
-        <div>
-          <p className="text-lg font-bold text-warning">{processing}</p>
-          <p className="text-[10px] text-muted-foreground">Procesando</p>
-        </div>
-      </div>
-      <div className="flex items-center gap-2 p-3 rounded-lg bg-destructive/10 border border-destructive/20">
-        <AlertTriangle className="h-4 w-4 text-destructive" />
-        <div>
-          <p className="text-lg font-bold text-destructive">{errors}</p>
-          <p className="text-[10px] text-muted-foreground">Errores</p>
-        </div>
-      </div>
-      {archived > 0 && (
-        <div className="flex items-center gap-2 p-3 rounded-lg bg-muted/50 border border-border/50">
-          <Archive className="h-4 w-4 text-muted-foreground" />
-          <div>
-            <p className="text-lg font-bold text-muted-foreground">{archived}</p>
-            <p className="text-[10px] text-muted-foreground">Archivados</p>
-          </div>
-        </div>
-      )}
+        );
+      })}
     </div>
   );
 }
@@ -1976,69 +1996,112 @@ export default function CargaDatos() {
                     </p>
                   )}
 
-                  {/* C4: Sección de archivos archivados — siempre visible independientemente de filtros */}
+                  {/* C4: Historial de versiones — siempre visible independientemente de filtros */}
                   {archivedFiles.length > 0 && (
-                    <div className="mt-4 pt-4 border-t border-dashed">
-                      <div className="flex items-center gap-2 mb-2 text-xs text-muted-foreground">
-                        <History className="h-3.5 w-3.5" />
-                        <span className="font-medium">Historial — {archivedFiles.length} archivo{archivedFiles.length !== 1 ? 's' : ''} archivado{archivedFiles.length !== 1 ? 's' : ''}</span>
-                        <span className="text-muted-foreground/60">(excluidos del dashboard)</span>
-                      </div>
-                      <div className="space-y-1.5">
-                        {archivedFiles.map(f => {
-                          const Icon = fileIcons[f.file_type || ''] || FileText;
-                          const chunks = extractedDataMap[f.id] || [];
-                          const firstExtracted = chunks[0];
-                          const totalRows = chunks.reduce((s, c) => s + (c.row_count || 0), 0);
-                          const catKey = firstExtracted?.data_category || '';
-                          const modules = CATEGORY_MODULES[catKey] || [];
-                          // Usa el summary del primer chunk para info de período
-                          const summaryText = firstExtracted?.summary;
-                          return (
-                            <div key={f.id} className="p-2.5 rounded-lg bg-muted/30 border border-border/40 opacity-60 hover:opacity-80 transition-opacity">
-                              <div className="flex items-start gap-3">
-                                <Icon className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />
+                    <div className="mt-5">
+                      <div className="rounded-2xl border border-border/50 bg-gradient-to-b from-muted/20 to-muted/5 overflow-hidden">
+                        {/* Header */}
+                        <div className="px-4 py-3 border-b border-border/40 flex items-center gap-3">
+                          <div className="p-1.5 rounded-lg bg-muted border border-border/60">
+                            <History className="h-3.5 w-3.5 text-muted-foreground" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs font-semibold">Historial de versiones</p>
+                            <p className="text-[10px] text-muted-foreground">
+                              {archivedFiles.length} archivo{archivedFiles.length !== 1 ? 's' : ''} archivado{archivedFiles.length !== 1 ? 's' : ''} · excluidos del dashboard
+                            </p>
+                          </div>
+                          <div className="shrink-0 px-2.5 py-1 rounded-lg bg-muted/80 border border-border/50">
+                            <p className="text-[10px] font-bold text-muted-foreground">{archivedFiles.length}</p>
+                          </div>
+                        </div>
+
+                        {/* File rows */}
+                        <div className="divide-y divide-border/25">
+                          {archivedFiles.map(f => {
+                            const Icon = fileIcons[f.file_type || ''] || FileText;
+                            const chunks = extractedDataMap[f.id] || [];
+                            const firstExtracted = chunks.find(c => c.data_category !== '_column_mapping' && c.data_category !== '_raw_cache') || chunks[0];
+                            const totalRows = chunks.reduce((s, c) => s + (c.row_count || 0), 0);
+                            const catKey = firstExtracted?.data_category || '';
+                            const modules = CATEGORY_MODULES[catKey] || [];
+                            const summaryText = firstExtracted?.summary;
+                            const dateLabel = f.created_at
+                              ? new Date(f.created_at).toLocaleDateString('es-AR', { day: '2-digit', month: 'short', year: '2-digit' })
+                              : '';
+
+                            return (
+                              <div
+                                key={f.id}
+                                className="group px-4 py-3 flex items-center gap-3 hover:bg-muted/25 transition-colors"
+                              >
+                                {/* File type icon */}
+                                <div className="shrink-0 h-8 w-8 rounded-xl bg-muted/60 border border-border/50 flex items-center justify-center">
+                                  <Icon className="h-3.5 w-3.5 text-muted-foreground" />
+                                </div>
+
+                                {/* Info block */}
                                 <div className="flex-1 min-w-0">
-                                  <p className="text-xs font-medium truncate text-muted-foreground">{f.file_name}</p>
-                                  <p className="text-[10px] text-muted-foreground/60 mt-0.5">
-                                    {catKey ? (categoryLabels[catKey] || catKey) : '—'}
-                                    {totalRows > 0 && <> · {totalRows.toLocaleString('es-AR')} filas</>}
-                                    {' · '}
-                                    {f.created_at ? new Date(f.created_at).toLocaleDateString('es-AR', { day: '2-digit', month: 'short', year: '2-digit' }) : ''}
-                                  </p>
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    <p className="text-xs font-medium truncate max-w-[200px] sm:max-w-xs">{f.file_name}</p>
+                                    {catKey && (
+                                      <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-md bg-muted border border-border/60 text-muted-foreground whitespace-nowrap">
+                                        {categoryLabels[catKey] || catKey}
+                                      </span>
+                                    )}
+                                    {totalRows > 0 && (
+                                      <span className="text-[10px] text-muted-foreground/70 whitespace-nowrap">
+                                        {totalRows.toLocaleString('es-AR')} filas
+                                      </span>
+                                    )}
+                                    {dateLabel && (
+                                      <span className="text-[10px] text-muted-foreground/50 whitespace-nowrap">{dateLabel}</span>
+                                    )}
+                                  </div>
                                   {summaryText && (
-                                    <p className="text-[10px] text-muted-foreground/50 mt-0.5 line-clamp-1">{summaryText}</p>
+                                    <p className="text-[10px] text-muted-foreground/55 mt-0.5 line-clamp-1 italic">{summaryText}</p>
                                   )}
                                   {modules.length > 0 && (
-                                    <div className="flex flex-wrap gap-1 mt-1">
-                                      <span className="text-[9px] text-muted-foreground/40">Alimenta:</span>
+                                    <div className="flex items-center gap-1 mt-1.5 flex-wrap">
+                                      <Link2 className="h-2.5 w-2.5 text-muted-foreground/40 shrink-0" />
                                       {modules.map(m => (
-                                        <span key={m} className="text-[9px] bg-muted border border-border/40 rounded px-1 text-muted-foreground/60">{m}</span>
+                                        <span
+                                          key={m}
+                                          className="text-[9px] px-1.5 py-0.5 rounded-md bg-primary/5 border border-primary/15 text-primary/60 font-medium"
+                                        >
+                                          {m}
+                                        </span>
                                       ))}
                                     </div>
                                   )}
                                 </div>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="shrink-0 h-7 w-7 text-muted-foreground hover:text-success"
-                                onClick={() => handleRestore(f)}
-                                title="Restaurar — vuelve al dashboard"
-                              >
-                                <RotateCcw className="h-3.5 w-3.5" />
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="shrink-0 h-7 w-7 text-muted-foreground hover:text-destructive"
-                                onClick={() => handleDelete(f)}
-                                title="Eliminar definitivamente"
-                              >
-                                <Trash2 className="h-3.5 w-3.5" />
-                              </Button>
-                            </div>
-                          );
-                        })}
+
+                                {/* Action buttons — revealed on hover */}
+                                <div className="flex items-center gap-1.5 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="h-7 text-[10px] gap-1.5 border-success/35 text-success hover:bg-success/10 hover:border-success/50"
+                                    onClick={() => handleRestore(f)}
+                                    title="Restaurar — vuelve al dashboard"
+                                  >
+                                    <RotateCcw className="h-3 w-3" />
+                                    Restaurar
+                                  </Button>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-7 w-7 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                                    onClick={() => handleDelete(f)}
+                                    title="Eliminar definitivamente"
+                                  >
+                                    <Trash2 className="h-3.5 w-3.5" />
+                                  </Button>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
                       </div>
                     </div>
                   )}
