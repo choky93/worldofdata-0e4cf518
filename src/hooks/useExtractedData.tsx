@@ -55,6 +55,8 @@ interface ExtractedDataContextValue {
   taggedVentasRows: TaggedRow[];
   taggedGastosRows: TaggedRow[];
   taggedMarketingRows: TaggedRow[];
+  /** Timestamp ISO de la última carga activa por categoría (para indicador de frescura) */
+  lastUploadDates: Record<string, string>;
   refetch: () => Promise<void>;
 }
 
@@ -74,6 +76,7 @@ export function ExtractedDataProvider({ children }: { children: ReactNode }) {
   const [taggedVentasRows, setTaggedVentasRows] = useState<{ row: any; fileUploadId: string }[]>([]);
   const [taggedGastosRows, setTaggedGastosRows] = useState<{ row: any; fileUploadId: string }[]>([]);
   const [taggedMarketingRows, setTaggedMarketingRows] = useState<{ row: any; fileUploadId: string }[]>([]);
+  const [lastUploadDates, setLastUploadDates] = useState<Record<string, string>>({});
 
   const fetchData = useCallback(async () => {
     if (!profile?.company_id) return;
@@ -152,9 +155,16 @@ export function ExtractedDataProvider({ children }: { children: ReactNode }) {
         }
       }
 
+      // Freshness: fecha de última carga activa por categoría
+      const lastUploadDates: Record<string, string> = {};
+
       if (dataRecords.length > 0) {
         for (const r of dataRecords) {
           const cat = remapCategory(r.data_category) as keyof AggregatedData;
+          // Track most recent upload per category (records come DESC by created_at)
+          if (r.created_at && (!lastUploadDates[cat] || r.created_at > lastUploadDates[cat])) {
+            lastUploadDates[cat] = r.created_at;
+          }
           const json = r.extracted_json as any;
           const rows = json?.data || [];
           if (!Array.isArray(rows) || rows.length === 0) continue;
@@ -188,6 +198,7 @@ export function ExtractedDataProvider({ children }: { children: ReactNode }) {
       setTaggedVentasRows(taggedVentas);
       setTaggedGastosRows(taggedGastos);
       setTaggedMarketingRows(taggedMarketing);
+      setLastUploadDates(lastUploadDates);
     } catch (err) {
       console.error('useExtractedData error:', err);
       setHasData(false);
@@ -255,7 +266,7 @@ export function ExtractedDataProvider({ children }: { children: ReactNode }) {
   }, [data]);
 
   return (
-    <ExtractedDataContext.Provider value={{ data, mappings, loading, hasData, availableMonths, duplicatedPeriods, hasCurrencyMix, detectedCurrencies, taggedVentasRows, taggedGastosRows, taggedMarketingRows, refetch: fetchData }}>
+    <ExtractedDataContext.Provider value={{ data, mappings, loading, hasData, availableMonths, duplicatedPeriods, hasCurrencyMix, detectedCurrencies, taggedVentasRows, taggedGastosRows, taggedMarketingRows, lastUploadDates, refetch: fetchData }}>
       {children}
     </ExtractedDataContext.Provider>
   );

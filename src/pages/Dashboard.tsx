@@ -34,7 +34,7 @@ function Stagger({ children, index }: { children: React.ReactNode; index: number
 
 export default function Dashboard() {
   const { profile, companySettings, companyName } = useAuth();
-  const { data: extractedData, mappings, loading: dataLoading, hasData, availableMonths, duplicatedPeriods, hasCurrencyMix, detectedCurrencies } = useExtractedData();
+  const { data: extractedData, mappings, loading: dataLoading, hasData, availableMonths, duplicatedPeriods, hasCurrencyMix, detectedCurrencies, lastUploadDates } = useExtractedData();
   const mV = mappings.ventas;
   const mG = mappings.gastos;
   const mM = mappings.marketing;
@@ -217,7 +217,7 @@ export default function Dashboard() {
           {!dataLoading && (
             hasData ? (
               <div
-                className="rounded-2xl px-5 py-3 text-xs flex items-center gap-2"
+                className="rounded-2xl px-5 py-3 text-xs flex items-center gap-2 flex-wrap"
                 style={{
                   background: 'hsl(var(--pastel-mint) / 0.3)',
                   color: 'hsl(155 45% 25%)',
@@ -225,7 +225,20 @@ export default function Dashboard() {
                 }}
               >
                 <Database className="h-3.5 w-3.5 shrink-0" />
-                <span>Mostrando datos reales extraídos de tus archivos cargados</span>
+                <span className="flex-1">Mostrando datos reales extraídos de tus archivos cargados</span>
+                {(() => {
+                  // Indicador de frescura: muestra cuándo fue la última carga de ventas (la más crítica)
+                  const lastKey = ['ventas', 'gastos', 'stock'].find(k => lastUploadDates[k]);
+                  if (!lastKey) return null;
+                  const days = Math.floor((Date.now() - new Date(lastUploadDates[lastKey]).getTime()) / 86400000);
+                  if (days < 2) return null; // No mostrar si es muy reciente
+                  const color = days < 35 ? 'text-emerald-700' : days < 65 ? 'text-amber-700' : 'text-red-700';
+                  return (
+                    <span className={`text-[10px] font-medium opacity-80 ${color}`}>
+                      · Última carga hace {days} día{days !== 1 ? 's' : ''}
+                    </span>
+                  );
+                })()}
               </div>
             ) : (
               <div className="rounded-2xl px-4 py-2.5 text-xs flex items-center gap-2 bg-card text-muted-foreground border border-border">

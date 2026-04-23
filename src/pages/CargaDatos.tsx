@@ -79,6 +79,54 @@ const MAX_CONCURRENT_UPLOADS = 4;
 const PRESIGN_THRESHOLD = 20 * 1024 * 1024; // 20MB
 
 // B3: Human-readable labels for semantic column keys
+// C4+: Qué módulos del dashboard alimenta cada categoría (linaje simple)
+const CATEGORY_MODULES: Record<string, string[]> = {
+  ventas: ['Dashboard', 'Ventas', 'Forecast', 'Alertas'],
+  gastos: ['Dashboard', 'Flujo de caja', 'Alertas'],
+  stock: ['Dashboard', 'Stock', 'Alertas'],
+  marketing: ['Marketing', 'Dashboard'],
+  clientes: ['Clientes'],
+  facturas: ['Finanzas'],
+  rrhh: ['RRHH'],
+  otro: ['Otro'],
+};
+
+// C4+: Panel de frescura de datos por categoría
+function FreshnessPanel({ lastUploadDates }: { lastUploadDates: Record<string, string> }) {
+  const entries = Object.entries(lastUploadDates).filter(([, d]) => !!d);
+  if (entries.length === 0) return null;
+
+  const categoryName: Record<string, string> = {
+    ventas: 'Ventas', gastos: 'Gastos', stock: 'Stock',
+    marketing: 'Marketing', clientes: 'Clientes', facturas: 'Finanzas',
+    rrhh: 'RRHH', otro: 'Otro',
+  };
+
+  const now = Date.now();
+  return (
+    <div className="rounded-xl border border-border/60 bg-muted/20 p-3">
+      <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide mb-2">Frescura de datos</p>
+      <div className="flex flex-wrap gap-2">
+        {entries.map(([cat, dateStr]) => {
+          const days = Math.floor((now - new Date(dateStr).getTime()) / 86400000);
+          const color = days < 35
+            ? 'text-success border-success/30 bg-success/5'
+            : days < 65
+            ? 'text-warning border-warning/30 bg-warning/5'
+            : 'text-destructive border-destructive/30 bg-destructive/5';
+          const label = days === 0 ? 'hoy' : days === 1 ? 'ayer' : `hace ${days}d`;
+          return (
+            <div key={cat} className={`flex items-center gap-1.5 text-[10px] border rounded-full px-2 py-0.5 ${color}`}>
+              <span className="font-medium">{categoryName[cat] || cat}</span>
+              <span className="opacity-70">{label}</span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 const SEMANTIC_LABELS: Record<string, string> = {
   amount: 'Monto', date: 'Fecha', name: 'Nombre/Desc.', client: 'Cliente',
   category: 'Categoría', quantity: 'Cantidad', unit_price: 'P. Unitario',
@@ -448,7 +496,7 @@ function StatusDashboard({ files, totalCount, archivedCount = 0 }: { files: File
 
 export default function CargaDatos() {
   const { user, profile, role, companySettings } = useAuth();
-  const { refetch: refetchExtractedData, data: globalExtractedData, mappings: globalMappings, taggedVentasRows, taggedGastosRows, taggedMarketingRows } = useExtractedData();
+  const { refetch: refetchExtractedData, data: globalExtractedData, mappings: globalMappings, taggedVentasRows, taggedGastosRows, taggedMarketingRows, lastUploadDates } = useExtractedData();
   const [files, setFiles] = useState<FileRecord[]>([]);
   const [totalCount, setTotalCount] = useState(0);
   const [extractedDataMap, setExtractedDataMap] = useState<Record<string, ExtractedData[]>>({});
@@ -1591,6 +1639,7 @@ export default function CargaDatos() {
 
           {/* Status Dashboard */}
           <StatusDashboard files={files} totalCount={totalCount} archivedCount={archivedFiles.length} />
+          <FreshnessPanel lastUploadDates={lastUploadDates} />
 
           {/* Drop zone */}
           <div
@@ -1938,18 +1987,37 @@ export default function CargaDatos() {
                       <div className="space-y-1.5">
                         {archivedFiles.map(f => {
                           const Icon = fileIcons[f.file_type || ''] || FileText;
-                          const firstExtracted = extractedDataMap[f.id]?.[0];
+                          const chunks = extractedDataMap[f.id] || [];
+                          const firstExtracted = chunks[0];
+                          const totalRows = chunks.reduce((s, c) => s + (c.row_count || 0), 0);
+                          const catKey = firstExtracted?.data_category || '';
+                          const modules = CATEGORY_MODULES[catKey] || [];
+                          // Usa el summary del primer chunk para info de período
+                          const summaryText = firstExtracted?.summary;
                           return (
-                            <div key={f.id} className="flex items-center gap-3 p-2.5 rounded-lg bg-muted/30 border border-border/40 opacity-60 hover:opacity-80 transition-opacity">
-                              <Icon className="h-4 w-4 text-muted-foreground shrink-0" />
-                              <div className="flex-1 min-w-0">
-                                <p className="text-xs font-medium truncate text-muted-foreground">{f.file_name}</p>
-                                <p className="text-[10px] text-muted-foreground/60">
-                                  {firstExtracted ? (categoryLabels[firstExtracted.data_category] || firstExtracted.data_category) : '—'}
-                                  {' · '}
-                                  {f.created_at ? new Date(f.created_at).toLocaleDateString('es-AR', { day: '2-digit', month: 'short', year: '2-digit' }) : ''}
-                                </p>
-                              </div>
+                            <div key={f.id} className="p-2.5 rounded-lg bg-muted/30 border border-border/40 opacity-60 hover:opacity-80 transition-opacity">
+                              <div className="flex items-start gap-3">
+                                <Icon className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />
+                                <div className="flex-1 min-w-0">
+                                  <p className="text-xs font-medium truncate text-muted-foreground">{f.file_name}</p>
+                                  <p className="text-[10px] text-muted-foreground/60 mt-0.5">
+                                    {catKey ? (categoryLabels[catKey] || catKey) : '—'}
+                                    {totalRows > 0 && <> · {totalRows.toLocaleString('es-AR')} filas</>}
+                                    {' · '}
+                                    {f.created_at ? new Date(f.created_at).toLocaleDateString('es-AR', { day: '2-digit', month: 'short', year: '2-digit' }) : ''}
+                                  </p>
+                                  {summaryText && (
+                                    <p className="text-[10px] text-muted-foreground/50 mt-0.5 line-clamp-1">{summaryText}</p>
+                                  )}
+                                  {modules.length > 0 && (
+                                    <div className="flex flex-wrap gap-1 mt-1">
+                                      <span className="text-[9px] text-muted-foreground/40">Alimenta:</span>
+                                      {modules.map(m => (
+                                        <span key={m} className="text-[9px] bg-muted border border-border/40 rounded px-1 text-muted-foreground/60">{m}</span>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
                               <Button
                                 variant="ghost"
                                 size="icon"
