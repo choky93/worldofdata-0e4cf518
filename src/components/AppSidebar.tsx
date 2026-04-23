@@ -48,7 +48,10 @@ export function AppSidebar() {
     return true;
   });
 
-  const widthClass = expanded ? 'w-[240px]' : 'w-[72px]';
+  // On mobile: sidebar is always 240px wide but slides off-screen when not expanded.
+  // On desktop: collapsed = 72px, expanded = 240px, always visible.
+  const widthClass = expanded ? 'w-[240px]' : 'w-[240px] sm:w-[72px]';
+  const translateClass = expanded ? 'translate-x-0' : '-translate-x-full sm:translate-x-0';
 
   return (
     <TooltipProvider delayDuration={200}>
@@ -56,6 +59,7 @@ export function AppSidebar() {
         className={cn(
           'fixed left-0 top-0 h-screen bg-card border-r border-border flex flex-col py-5 z-40 transition-all duration-300',
           widthClass,
+          translateClass,
           expanded ? 'items-stretch px-3' : 'items-center'
         )}
       >
