@@ -5,7 +5,7 @@ import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Progress } from '@/components/ui/progress';
-import { Upload, FileText, Image, FileSpreadsheet, Trash2, Lightbulb, Loader2, RefreshCw, CheckCircle2, Search, ChevronLeft, ChevronRight, Filter, XCircle, BarChart3, Clock, AlertTriangle, Layers, Link2, ArrowUp, Globe, Package, Pencil, X as XIcon, Download } from 'lucide-react';
+import { Upload, FileText, Image, FileSpreadsheet, Trash2, Lightbulb, Loader2, RefreshCw, CheckCircle2, Search, ChevronLeft, ChevronRight, Filter, XCircle, BarChart3, Clock, AlertTriangle, Layers, Link2, ArrowUp, Globe, Package, Pencil, X as XIcon, Download, Archive, RotateCcw, History } from 'lucide-react';
 import { Textarea } from '@/components/ui/textarea';
 import { formatDate } from '@/lib/formatters';
 import { useAuth } from '@/contexts/AuthContext';
@@ -384,12 +384,14 @@ function UploadQueue({ items, onDismiss }: { items: UploadQueueItem[]; onDismiss
 
 // ─── Status Dashboard ─────────────────────────────────────────
 function StatusDashboard({ files, totalCount }: { files: FileRecord[]; totalCount: number }) {
-  // We use totalCount for "total" and compute status counts from visible + context
-  const processed = files.filter(f => f.status === 'processed').length;
-  const review = files.filter(f => f.status === 'review' || f.status === 'processed_with_issues').length;
-  const queued = files.filter(f => f.status === 'queued').length;
-  const processing = files.filter(f => f.status === 'processing').length;
-  const errors = files.filter(f => f.status === 'error').length;
+  // C4: Excluir archivados de los contadores del dashboard de estado
+  const activeFiles = files.filter(f => f.status !== 'archived');
+  const archived = files.filter(f => f.status === 'archived').length;
+  const processed = activeFiles.filter(f => f.status === 'processed').length;
+  const review = activeFiles.filter(f => f.status === 'review' || f.status === 'processed_with_issues').length;
+  const queued = activeFiles.filter(f => f.status === 'queued').length;
+  const processing = activeFiles.filter(f => f.status === 'processing').length;
+  const errors = activeFiles.filter(f => f.status === 'error').length;
 
   if (totalCount === 0) return null;
 
@@ -432,6 +434,15 @@ function StatusDashboard({ files, totalCount }: { files: FileRecord[]; totalCoun
           <p className="text-[10px] text-muted-foreground">Errores</p>
         </div>
       </div>
+      {archived > 0 && (
+        <div className="flex items-center gap-2 p-3 rounded-lg bg-muted/50 border border-border/50">
+          <Archive className="h-4 w-4 text-muted-foreground" />
+          <div>
+            <p className="text-lg font-bold text-muted-foreground">{archived}</p>
+            <p className="text-[10px] text-muted-foreground">Archivados</p>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -1201,6 +1212,38 @@ export default function CargaDatos() {
     }
   };
 
+  // C4: Archivar — el archivo sigue en DB pero sus datos se excluyen del dashboard
+  const handleArchive = async (file: FileRecord) => {
+    try {
+      const { error } = await supabase
+        .from('file_uploads')
+        .update({ status: 'archived' })
+        .eq('id', file.id);
+      if (error) throw error;
+      fetchFiles();
+      await refetchExtractedData();
+      toast.success('Archivo archivado. Sus datos ya no afectan el dashboard.');
+    } catch (err: any) {
+      toast.error('Error al archivar: ' + err.message);
+    }
+  };
+
+  // C4: Restaurar — vuelve al estado procesado y reaparece en el dashboard
+  const handleRestore = async (file: FileRecord) => {
+    try {
+      const { error } = await supabase
+        .from('file_uploads')
+        .update({ status: 'processed' })
+        .eq('id', file.id);
+      if (error) throw error;
+      fetchFiles();
+      await refetchExtractedData();
+      toast.success('Archivo restaurado. Sus datos vuelven al dashboard.');
+    } catch (err: any) {
+      toast.error('Error al restaurar: ' + err.message);
+    }
+  };
+
   const handleDelete = async (file: FileRecord) => {
     try {
       if (file.storage_path) {
@@ -1476,6 +1519,9 @@ export default function CargaDatos() {
 
   const totalPages = Math.ceil(totalCount / PAGE_SIZE);
   const isUploading = uploadQueue.some(i => i.status === 'pending' || i.status === 'uploading' || i.status === 'processing');
+  // C4: Split active vs archived files
+  const activeFilesList = files.filter(f => f.status !== 'archived');
+  const archivedFilesList = files.filter(f => f.status === 'archived');
 
   const statusLabel = (status: string | null) => {
     switch (status) {
@@ -1664,7 +1710,7 @@ export default function CargaDatos() {
                 </div>
               ) : (
                 <div className="space-y-2">
-                  {files.map(f => {
+                  {activeFilesList.map(f => {
                     const Icon = fileIcons[f.file_type || ''] || FileText;
                     const isReprocessing = reprocessingId === f.id;
                     const extractedChunks = extractedDataMap[f.id];
@@ -1731,15 +1777,26 @@ export default function CargaDatos() {
                             </Button>
                           )}
                           {(f.status === 'processed' || f.status === 'review' || f.status === 'processed_with_issues') && (
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="shrink-0 h-8 w-8 text-muted-foreground hover:text-primary"
-                              onClick={() => handleExport(f)}
-                              title="Exportar datos como CSV"
-                            >
-                              <Download className="h-4 w-4" />
-                            </Button>
+                            <>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="shrink-0 h-8 w-8 text-muted-foreground hover:text-primary"
+                                onClick={() => handleExport(f)}
+                                title="Exportar datos como CSV"
+                              >
+                                <Download className="h-4 w-4" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="shrink-0 h-8 w-8 text-muted-foreground hover:text-warning"
+                                onClick={() => handleArchive(f)}
+                                title="Archivar (excluir del dashboard sin borrar)"
+                              >
+                                <Archive className="h-4 w-4" />
+                              </Button>
+                            </>
                           )}
                           {f.status === 'processing' && f.processing_started_at && (Date.now() - new Date(f.processing_started_at).getTime() > 5 * 60 * 1000) && (
                             <Button
@@ -1843,12 +1900,60 @@ export default function CargaDatos() {
                       </div>
                     );
                   })}
-                  {files.length === 0 && (
+                  {activeFilesList.length === 0 && (
                     <p className="text-sm text-muted-foreground text-center py-4">
                       {searchTerm || statusFilter !== 'all' || typeFilter !== 'all'
                         ? 'No hay archivos que coincidan con los filtros'
                         : 'No hay archivos cargados todavía'}
                     </p>
+                  )}
+
+                  {/* C4: Sección de archivos archivados */}
+                  {archivedFilesList.length > 0 && (
+                    <div className="mt-4 pt-4 border-t border-dashed">
+                      <div className="flex items-center gap-2 mb-2 text-xs text-muted-foreground">
+                        <History className="h-3.5 w-3.5" />
+                        <span className="font-medium">Historial — {archivedFilesList.length} archivo{archivedFilesList.length !== 1 ? 's' : ''} archivado{archivedFilesList.length !== 1 ? 's' : ''}</span>
+                        <span className="text-muted-foreground/60">(excluidos del dashboard)</span>
+                      </div>
+                      <div className="space-y-1.5">
+                        {archivedFilesList.map(f => {
+                          const Icon = fileIcons[f.file_type || ''] || FileText;
+                          const firstExtracted = extractedDataMap[f.id]?.[0];
+                          return (
+                            <div key={f.id} className="flex items-center gap-3 p-2.5 rounded-lg bg-muted/30 border border-border/40 opacity-60 hover:opacity-80 transition-opacity">
+                              <Icon className="h-4 w-4 text-muted-foreground shrink-0" />
+                              <div className="flex-1 min-w-0">
+                                <p className="text-xs font-medium truncate text-muted-foreground">{f.file_name}</p>
+                                <p className="text-[10px] text-muted-foreground/60">
+                                  {firstExtracted ? (categoryLabels[firstExtracted.data_category] || firstExtracted.data_category) : '—'}
+                                  {' · '}
+                                  {f.created_at ? new Date(f.created_at).toLocaleDateString('es-AR', { day: '2-digit', month: 'short', year: '2-digit' }) : ''}
+                                </p>
+                              </div>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="shrink-0 h-7 w-7 text-muted-foreground hover:text-success"
+                                onClick={() => handleRestore(f)}
+                                title="Restaurar — vuelve al dashboard"
+                              >
+                                <RotateCcw className="h-3.5 w-3.5" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="shrink-0 h-7 w-7 text-muted-foreground hover:text-destructive"
+                                onClick={() => handleDelete(f)}
+                                title="Eliminar definitivamente"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </Button>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
                   )}
                 </div>
               )}

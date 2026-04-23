@@ -78,6 +78,14 @@ export function ExtractedDataProvider({ children }: { children: ReactNode }) {
   const fetchData = useCallback(async () => {
     if (!profile?.company_id) return;
     try {
+      // C4: Get archived file IDs to exclude from dashboard calculations
+      const { data: archivedFiles } = await supabase
+        .from('file_uploads')
+        .select('id')
+        .eq('company_id', profile.company_id)
+        .eq('status', 'archived');
+      const archivedIds = new Set((archivedFiles || []).map(f => f.id));
+
       const PAGE = 1000;
       let allRecords: ExtractedRecord[] = [];
       let from = 0;
@@ -95,6 +103,11 @@ export function ExtractedDataProvider({ children }: { children: ReactNode }) {
         allRecords.push(...(page as ExtractedRecord[]));
         if (page.length < PAGE) break;
         from += PAGE;
+      }
+
+      // C4: Exclude records from archived files
+      if (archivedIds.size > 0) {
+        allRecords = allRecords.filter(r => !archivedIds.has(r.file_upload_id));
       }
 
       const agg: AggregatedData = {
