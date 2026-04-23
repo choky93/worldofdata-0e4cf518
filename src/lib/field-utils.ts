@@ -373,18 +373,28 @@ export function getStockStatus(coverageDays: number, leadTimeDays: number = 20):
  * Strategy: keep the row from the most recent file (uploaded_at / created_at / file_upload_id),
  * fallback to the row with the highest stock value when no timestamp/id is available.
  */
+/**
+ * Dedupe stock rows by product name.
+ *
+ * Relies on the fact that useExtractedData queries file_extracted_data
+ * ORDER BY created_at DESC — so rows from the most recently uploaded file
+ * arrive first. Strategy:
+ *   1. If the incoming row has a parseable timestamp field (uploaded_at /
+ *      created_at embedded in the business data), use that explicitly.
+ *   2. Otherwise keep the first-seen row (= newest file by DB order).
+ *
+ * NOTE: "keep higher stock" was removed as a fallback — a product with more
+ * units is NOT necessarily from a newer file (it could be stale inventory).
+ */
 export function dedupeStockRows<T extends Record<string, any>>(rows: T[], mappedNameCol?: string | null, mappedStockCol?: string | null): T[] {
   if (!Array.isArray(rows) || rows.length === 0) return [];
+
   const rowTimestamp = (r: any): number => {
+    // Only trust explicit date fields embedded in the business data row itself
     const ts = r?.uploaded_at ?? r?.created_at ?? r?.uploadedAt ?? r?.createdAt;
     if (ts) {
       const t = Date.parse(String(ts));
       if (!isNaN(t)) return t;
-    }
-    const fid = r?.file_upload_id ?? r?.fileUploadId;
-    if (fid !== undefined && fid !== null) {
-      const n = Number(fid);
-      if (!isNaN(n)) return n;
     }
     return NaN;
   };
@@ -394,20 +404,17 @@ export function dedupeStockRows<T extends Record<string, any>>(rows: T[], mapped
     const name = getProductName(r, mappedNameCol).trim().toLowerCase();
     const key = name || `__row_${Math.random()}`; // rows without name → keep all
     const existing = map.get(key);
+
+    // First occurrence wins (rows arrive newest-first from DB query)
     if (!existing) { map.set(key, r); continue; }
 
+    // Only replace if the incoming row has an explicit timestamp proving it's newer
     const tsNew = rowTimestamp(r);
     const tsOld = rowTimestamp(existing);
-    if (!isNaN(tsNew) && !isNaN(tsOld)) {
-      if (tsNew > tsOld) map.set(key, r);
-    } else if (!isNaN(tsNew) && isNaN(tsOld)) {
+    if (!isNaN(tsNew) && (isNaN(tsOld) || tsNew > tsOld)) {
       map.set(key, r);
-    } else if (isNaN(tsNew) && isNaN(tsOld)) {
-      // Fallback: keep row with greater stock
-      if (getStockUnits(r, mappedStockCol) > getStockUnits(existing, mappedStockCol)) {
-        map.set(key, r);
-      }
     }
+    // In all other cases: keep existing (= already the most recent by DB order)
   }
   return Array.from(map.values());
 }
