@@ -373,10 +373,21 @@ export function detectCurrencyMix(
   amountKeywords: string[],
   findStringFn?: (row: any, kw: string[]) => string
 ): boolean {
+  return detectCurrencies(rows, amountKeywords, findStringFn).size > 1;
+}
+
+/**
+ * Returns the set of currency codes found in amount columns.
+ * Used by detectCurrencyMix and for richer UI warnings.
+ */
+export function detectCurrencies(
+  rows: any[],
+  amountKeywords: string[],
+  findStringFn?: (row: any, kw: string[]) => string
+): Set<string> {
   const currencies = new Set<string>();
 
   for (const row of rows) {
-    // Check all keys that match amount keywords
     const keys = Object.keys(row);
     const normalizedKw = amountKeywords.map(k => k.toLowerCase());
 
@@ -387,28 +398,23 @@ export function detectCurrencyMix(
 
       const val = String(row[key] ?? '');
       for (const { pattern, currency } of CURRENCY_PATTERNS) {
-        if (pattern.test(val)) {
-          currencies.add(currency);
-        }
+        if (pattern.test(val)) currencies.add(currency);
       }
     }
 
-    // Also check via findStringFn if provided
     if (findStringFn) {
       const val = findStringFn(row, amountKeywords);
       if (val) {
         for (const { pattern, currency } of CURRENCY_PATTERNS) {
-          if (pattern.test(val)) {
-            currencies.add(currency);
-          }
+          if (pattern.test(val)) currencies.add(currency);
         }
       }
     }
 
-    if (currencies.size > 1) return true;
+    if (currencies.size > 1) return currencies; // early exit
   }
 
-  return currencies.size > 1;
+  return currencies;
 }
 
 export function detectMultiSourcePeriods(

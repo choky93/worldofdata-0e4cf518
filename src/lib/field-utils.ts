@@ -410,8 +410,9 @@ export function dedupeStockRows<T extends Record<string, any>>(rows: T[], mapped
   if (!Array.isArray(rows) || rows.length === 0) return [];
 
   const rowTimestamp = (r: any): number => {
-    // Only trust explicit date fields embedded in the business data row itself
-    const ts = r?.uploaded_at ?? r?.created_at ?? r?.uploadedAt ?? r?.createdAt;
+    // Priority 1: __file_created_at injected by useExtractedData from the DB record timestamp
+    // Priority 2: explicit date fields embedded in the business data row itself
+    const ts = r?.__file_created_at ?? r?.uploaded_at ?? r?.created_at ?? r?.uploadedAt ?? r?.createdAt;
     if (ts) {
       const t = Date.parse(String(ts));
       if (!isNaN(t)) return t;

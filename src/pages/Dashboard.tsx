@@ -34,7 +34,7 @@ function Stagger({ children, index }: { children: React.ReactNode; index: number
 
 export default function Dashboard() {
   const { profile, companySettings, companyName } = useAuth();
-  const { data: extractedData, mappings, loading: dataLoading, hasData, availableMonths, duplicatedPeriods, hasCurrencyMix } = useExtractedData();
+  const { data: extractedData, mappings, loading: dataLoading, hasData, availableMonths, duplicatedPeriods, hasCurrencyMix, detectedCurrencies } = useExtractedData();
   const mV = mappings.ventas;
   const mG = mappings.gastos;
   const mM = mappings.marketing;
@@ -258,7 +258,13 @@ export default function Dashboard() {
           {(hasCurrencyMix.ventas || hasCurrencyMix.gastos) && (
             <div className="rounded-2xl px-4 py-2.5 text-xs flex items-start gap-2 alert-warning">
               <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
-              <span>Múltiples monedas detectadas en {[hasCurrencyMix.ventas && 'ventas', hasCurrencyMix.gastos && 'gastos'].filter(Boolean).join(' y ')}. Los totales pueden no ser precisos.</span>
+              <span>
+                Múltiples monedas detectadas en {[hasCurrencyMix.ventas && 'ventas', hasCurrencyMix.gastos && 'gastos'].filter(Boolean).join(' y ')}
+                {(detectedCurrencies.ventas.length > 1 || detectedCurrencies.gastos.length > 1) && (
+                  <> ({Array.from(new Set([...detectedCurrencies.ventas, ...detectedCurrencies.gastos])).join(' + ')})</>
+                )}
+                . Convertí todo a la misma moneda antes de cargar para ver totales precisos.
+              </span>
             </div>
           )}
           {realOtro.length > 0 && (

@@ -5,7 +5,7 @@ import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Progress } from '@/components/ui/progress';
-import { Upload, FileText, Image, FileSpreadsheet, Trash2, Lightbulb, Loader2, RefreshCw, CheckCircle2, Search, ChevronLeft, ChevronRight, Filter, XCircle, BarChart3, Clock, AlertTriangle, Layers, Link2, ArrowUp, Globe, Package, Pencil, X as XIcon } from 'lucide-react';
+import { Upload, FileText, Image, FileSpreadsheet, Trash2, Lightbulb, Loader2, RefreshCw, CheckCircle2, Search, ChevronLeft, ChevronRight, Filter, XCircle, BarChart3, Clock, AlertTriangle, Layers, Link2, ArrowUp, Globe, Package, Pencil, X as XIcon, Download } from 'lucide-react';
 import { Textarea } from '@/components/ui/textarea';
 import { formatDate } from '@/lib/formatters';
 import { useAuth } from '@/contexts/AuthContext';
@@ -77,6 +77,22 @@ const fileIcons: Record<string, typeof FileText> = { PDF: FileText, CSV: FileSpr
 const PAGE_SIZE = 25;
 const MAX_CONCURRENT_UPLOADS = 4;
 const PRESIGN_THRESHOLD = 20 * 1024 * 1024; // 20MB
+
+// B3: Human-readable labels for semantic column keys
+const SEMANTIC_LABELS: Record<string, string> = {
+  amount: 'Monto', date: 'Fecha', name: 'Nombre/Desc.', client: 'Cliente',
+  category: 'Categoría', quantity: 'Cantidad', unit_price: 'P. Unitario',
+  cost: 'Costo', profit: 'Ganancia', tax: 'Impuesto',
+  payment_method: 'Forma pago', invoice_number: 'N° Comp.',
+  spend: 'Inversión', campaign_name: 'Campaña', platform: 'Plataforma',
+  clicks: 'Clics', impressions: 'Impresiones', conversions: 'Conversiones',
+  roas: 'ROAS', reach: 'Alcance', supplier: 'Proveedor', status: 'Estado',
+  start_date: 'Inicio', end_date: 'Fin', revenue: 'Ingresos atribuidos',
+  salary: 'Sueldo', position: 'Cargo', department: 'Área',
+  min_stock: 'Stock mín.', sku: 'SKU', price: 'Precio',
+  total_purchases: 'Total compras', debt: 'Deuda', last_purchase: 'Últ. compra',
+};
+const semanticLabel = (k: string) => SEMANTIC_LABELS[k] || k;
 const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
 const MAX_STORAGE_BYTES = 5 * 1024 * 1024 * 1024; // 5GB
 const ROW_BATCH_SIZE = 500;
@@ -437,6 +453,8 @@ export default function CargaDatos() {
   const [urlImportText, setUrlImportText] = useState('');
   const [isImportingUrls, setIsImportingUrls] = useState(false);
   const [showUrlImport, setShowUrlImport] = useState(false);
+  // B3: column mapping preview — maps fileUploadId → { semanticKey: "Original Column Name" }
+  const [columnMappingMap, setColumnMappingMap] = useState<Record<string, Record<string, string>>>({});
 
   // Overlap detection state
   const [overlapInfo, setOverlapInfo] = useState<{
@@ -462,6 +480,7 @@ export default function CargaDatos() {
 
   const fetchExtractedData = useCallback(async (fileIds: string[]) => {
     if (fileIds.length === 0) return;
+    // Main query: summary info per chunk (no extracted_json — too heavy)
     const { data } = await supabase
       .from('file_extracted_data')
       .select('file_upload_id, data_category, summary, row_count, chunk_index')
@@ -475,6 +494,27 @@ export default function CargaDatos() {
         map[key].push(d as ExtractedData);
       });
       setExtractedDataMap(prev => ({ ...prev, ...map }));
+    }
+    // B3: secondary targeted query for column_mapping records only (extracted_json is light here)
+    const { data: mappingData } = await supabase
+      .from('file_extracted_data')
+      .select('file_upload_id, extracted_json')
+      .in('file_upload_id', fileIds)
+      .eq('data_category', '_column_mapping');
+    if (mappingData) {
+      const newMappings: Record<string, Record<string, string>> = {};
+      mappingData.forEach(m => {
+        const json = m.extracted_json as any;
+        const colMap = json?.column_mapping;
+        if (colMap && typeof colMap === 'object') {
+          const filtered: Record<string, string> = {};
+          for (const [k, v] of Object.entries(colMap)) {
+            if (v && typeof v === 'string') filtered[k] = v;
+          }
+          if (Object.keys(filtered).length > 0) newMappings[m.file_upload_id] = filtered;
+        }
+      });
+      setColumnMappingMap(prev => ({ ...prev, ...newMappings }));
     }
   }, []);
 
@@ -1112,6 +1152,55 @@ export default function CargaDatos() {
     }
   };
 
+  // C5: Export processed data as CSV
+  const handleExport = async (file: FileRecord) => {
+    if (!profile?.company_id) return;
+    try {
+      const { data: chunks } = await supabase
+        .from('file_extracted_data')
+        .select('extracted_json, data_category')
+        .eq('file_upload_id', file.id)
+        .not('data_category', 'in', '("_raw_cache","_classification","_column_mapping")')
+        .order('chunk_index', { ascending: true });
+
+      if (!chunks || chunks.length === 0) { toast.error('No hay datos para exportar'); return; }
+
+      // Merge all rows from all chunks
+      const allRows: Record<string, unknown>[] = [];
+      for (const chunk of chunks) {
+        const json = chunk.extracted_json as any;
+        const rows = json?.data;
+        if (Array.isArray(rows)) allRows.push(...rows);
+      }
+      if (allRows.length === 0) { toast.error('No hay filas para exportar'); return; }
+
+      // Build CSV
+      const headers = Array.from(new Set(allRows.flatMap(r => Object.keys(r))));
+      const csvRows = [
+        headers.join(','),
+        ...allRows.map(row =>
+          headers.map(h => {
+            const v = row[h];
+            if (v === null || v === undefined) return '';
+            const s = String(v).replace(/"/g, '""');
+            return s.includes(',') || s.includes('"') || s.includes('\n') ? `"${s}"` : s;
+          }).join(',')
+        ),
+      ];
+      const csvContent = csvRows.join('\n');
+      const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${file.file_name.replace(/\.[^.]+$/, '')}_exportado.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast.success(`Exportado: ${allRows.length.toLocaleString('es-AR')} filas`);
+    } catch (err: any) {
+      toast.error('Error exportando: ' + err.message);
+    }
+  };
+
   const handleDelete = async (file: FileRecord) => {
     try {
       if (file.storage_path) {
@@ -1641,6 +1730,17 @@ export default function CargaDatos() {
                               {isReprocessing ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
                             </Button>
                           )}
+                          {(f.status === 'processed' || f.status === 'review' || f.status === 'processed_with_issues') && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="shrink-0 h-8 w-8 text-muted-foreground hover:text-primary"
+                              onClick={() => handleExport(f)}
+                              title="Exportar datos como CSV"
+                            >
+                              <Download className="h-4 w-4" />
+                            </Button>
+                          )}
                           {f.status === 'processing' && f.processing_started_at && (Date.now() - new Date(f.processing_started_at).getTime() > 5 * 60 * 1000) && (
                             <Button
                               variant="ghost"
@@ -1719,6 +1819,23 @@ export default function CargaDatos() {
                               )}
                               {firstExtracted.summary && (
                                 <p className="mt-0.5 leading-relaxed">{firstExtracted.summary}</p>
+                              )}
+                              {/* B3: Column mapping preview chips */}
+                              {columnMappingMap[f.id] && Object.keys(columnMappingMap[f.id]).length > 0 && (
+                                <div className="mt-1.5 flex flex-wrap gap-1">
+                                  {Object.entries(columnMappingMap[f.id]).slice(0, 6).map(([k, v]) => (
+                                    <span key={k} className="inline-flex items-center gap-1 text-[10px] bg-muted/60 border border-border/50 rounded px-1.5 py-0.5 max-w-[200px]">
+                                      <span className="text-muted-foreground shrink-0">{semanticLabel(k)}</span>
+                                      <span className="text-muted-foreground/40 shrink-0">→</span>
+                                      <span className="font-medium truncate">{v}</span>
+                                    </span>
+                                  ))}
+                                  {Object.keys(columnMappingMap[f.id]).length > 6 && (
+                                    <span className="text-[10px] text-muted-foreground self-center">
+                                      +{Object.keys(columnMappingMap[f.id]).length - 6} más
+                                    </span>
+                                  )}
+                                </div>
                               )}
                             </div>
                           </div>

@@ -3,7 +3,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import type { ColumnMapping } from '@/lib/field-utils';
 import { findString, FIELD_DATE, FIELD_AMOUNT } from '@/lib/field-utils';
-import { extractAvailableMonths, detectMultiSourcePeriods, detectCurrencyMix } from '@/lib/data-cleaning';
+import { extractAvailableMonths, detectMultiSourcePeriods, detectCurrencyMix, detectCurrencies } from '@/lib/data-cleaning';
 
 interface ExtractedRecord {
   data_category: string;
@@ -12,6 +12,7 @@ interface ExtractedRecord {
   summary: string | null;
   chunk_index: number;
   file_upload_id: string;
+  created_at: string | null; // used to inject upload timestamp into stock rows for dedup
 }
 
 interface AggregatedData {
@@ -50,6 +51,7 @@ interface ExtractedDataContextValue {
   availableMonths: string[];
   duplicatedPeriods: string[];
   hasCurrencyMix: { ventas: boolean; gastos: boolean };
+  detectedCurrencies: { ventas: string[]; gastos: string[] };
   taggedVentasRows: TaggedRow[];
   taggedGastosRows: TaggedRow[];
   taggedMarketingRows: TaggedRow[];
@@ -82,7 +84,7 @@ export function ExtractedDataProvider({ children }: { children: ReactNode }) {
       while (true) {
         const { data: page, error } = await supabase
           .from('file_extracted_data')
-          .select('data_category, extracted_json, row_count, summary, chunk_index, file_upload_id')
+          .select('data_category, extracted_json, row_count, summary, chunk_index, file_upload_id, created_at')
           .eq('company_id', profile.company_id)
           .not('data_category', 'in', '("_raw_cache","_classification")')
           .order('created_at', { ascending: false })
@@ -144,7 +146,12 @@ export function ExtractedDataProvider({ children }: { children: ReactNode }) {
           const rows = json?.data || [];
           if (!Array.isArray(rows) || rows.length === 0) continue;
           if (agg[cat]) {
-            agg[cat].push(...rows);
+            // C3: tag stock rows with the file's upload timestamp so dedupeStockRows
+            // can resolve conflicts between multiple stock files correctly.
+            const processedRows = cat === 'stock' && r.created_at
+              ? rows.map((row: any) => ({ ...row, __file_created_at: row.__file_created_at ?? r.created_at }))
+              : rows;
+            agg[cat].push(...processedRows);
             if (cat === 'ventas') {
               for (const row of rows) taggedVentas.push({ row, fileUploadId: r.file_upload_id });
             }
@@ -225,8 +232,17 @@ export function ExtractedDataProvider({ children }: { children: ReactNode }) {
     };
   }, [data]);
 
+  // C2: Detected currency codes for richer UI warnings
+  const detectedCurrencies = useMemo(() => {
+    if (!data) return { ventas: [], gastos: [] };
+    return {
+      ventas: data.ventas.length > 0 ? Array.from(detectCurrencies(data.ventas, FIELD_AMOUNT)) : [],
+      gastos: data.gastos.length > 0 ? Array.from(detectCurrencies(data.gastos, FIELD_AMOUNT)) : [],
+    };
+  }, [data]);
+
   return (
-    <ExtractedDataContext.Provider value={{ data, mappings, loading, hasData, availableMonths, duplicatedPeriods, hasCurrencyMix, taggedVentasRows, taggedGastosRows, taggedMarketingRows, refetch: fetchData }}>
+    <ExtractedDataContext.Provider value={{ data, mappings, loading, hasData, availableMonths, duplicatedPeriods, hasCurrencyMix, detectedCurrencies, taggedVentasRows, taggedGastosRows, taggedMarketingRows, refetch: fetchData }}>
       {children}
     </ExtractedDataContext.Provider>
   );
