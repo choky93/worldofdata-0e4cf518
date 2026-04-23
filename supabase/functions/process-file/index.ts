@@ -207,7 +207,15 @@ function excelSerialToISO(serial: number): string {
  * Checks both keyword-matched headers AND explicitly mapped date columns.
  */
 function convertSerialDates(rows: Record<string, unknown>[], headers: string[], mappedDateCol?: string | null): void {
-  const dateHeaders = new Set(headers.filter(h => DATE_KW.some(kw => norm(h).includes(kw))));
+  const dateHeaders = new Set(headers.filter(h => {
+    const n = norm(h);
+    const lower = h.toLowerCase();
+    // Match by keyword OR unnamed/empty column patterns (SheetJS: __EMPTY, __EMPTY_1; pandas: Unnamed: 0, col0, etc.)
+    return DATE_KW.some(kw => n.includes(kw))
+      || lower.startsWith('__empty')
+      || lower.startsWith('unnamed')
+      || /^col\d+$/.test(lower);
+  }));
   if (mappedDateCol) dateHeaders.add(mappedDateCol);
   if (dateHeaders.size === 0) return;
 
@@ -232,16 +240,25 @@ function convertSerialDates(rows: Record<string, unknown>[], headers: string[], 
 function filterSummaryRows(rows: Record<string, unknown>[], headers: string[]): Record<string, unknown>[] {
   const nameHeaders = headers.filter(h => NAME_KW.some(kw => norm(h).includes(kw)));
   if (nameHeaders.length === 0) return rows;
-  return rows.filter(row => {
+  let filteredCount = 0;
+  const result = rows.filter(row => {
     const allEmpty = nameHeaders.every(h => {
       const v = row[h];
       return v === undefined || v === null || String(v ?? '').trim() === '';
     });
     if (!allEmpty) return true;
     const hasNum = Object.values(row).some(v => typeof v === 'number' && v > 0);
-    if (hasNum) { console.log(`[process-file] Filtered summary row`); return false; }
+    if (hasNum) { filteredCount++; return false; }
     return true;
   });
+  if (filteredCount > 0) {
+    const pct = Math.round(filteredCount / rows.length * 100);
+    console.log(`[process-file] Filtered ${filteredCount} summary/empty-name rows (${pct}% of total)`);
+    if (pct > 10) {
+      console.warn(`[process-file] ⚠️ High filter rate (${pct}%) — possible data loss from merged cells or unnamed rows`);
+    }
+  }
+  return result;
 }
 
 function cleanRows(rows: Record<string, unknown>[], headers: string[], mappedDateCol?: string | null): Record<string, unknown>[] {
@@ -400,7 +417,7 @@ ${JSON.stringify(sampleRows.slice(0, 10), null, 2)}`;
       { role: "user", content },
     ],
     temperature: 0.1,
-    max_tokens: 512,
+    max_tokens: 1024,
   });
 
   const raw = (data.content as any)?.[0]?.text || '{}';
@@ -1259,19 +1276,44 @@ serve(async (req) => {
       const parseExcel = () => {
         const wb = XLSX.read(bytes, { type: 'array', dense: true, cellStyles: false, cellNF: false, cellText: false, sheetRows: MAX_EXCEL_ROWS });
         const allRows: Record<string, unknown>[] = [];
-        let headers: string[] = [];
-        for (const sheetName of wb.SheetNames) {
-          const sheet = wb.Sheets[sheetName];
+        let primaryHeaders: string[] = [];
+        const skippedSheets: string[] = [];
+
+        for (const sName of wb.SheetNames) {
+          const sheet = wb.Sheets[sName];
           if (!sheet) continue;
           const sheetRows = XLSX.utils.sheet_to_json(sheet, { defval: '' }) as Record<string, unknown>[];
-          if (sheetRows.length > 0 && headers.length === 0) {
-            headers = Object.keys(sheetRows[0]);
+          if (sheetRows.length === 0) continue;
+
+          const sheetHeaders = Object.keys(sheetRows[0]);
+
+          if (primaryHeaders.length === 0) {
+            // First non-empty sheet defines the primary structure
+            primaryHeaders = sheetHeaders;
+            allRows.push(...sheetRows);
+            console.log(`[process-file] Excel primary sheet "${sName}": ${sheetHeaders.length} cols, ${sheetRows.length} rows`);
+          } else {
+            // Only merge sheets with compatible headers (same column set, order may differ)
+            const sheetSet = new Set(sheetHeaders);
+            const compatible = sheetHeaders.length === primaryHeaders.length &&
+              primaryHeaders.every(h => sheetSet.has(h));
+            if (compatible) {
+              allRows.push(...sheetRows);
+              console.log(`[process-file] Excel sheet "${sName}": compatible, merged ${sheetRows.length} rows`);
+            } else {
+              skippedSheets.push(sName);
+              console.warn(`[process-file] Excel sheet "${sName}": incompatible columns (${sheetHeaders.slice(0, 5).join(', ')}...) — skipped to avoid data corruption`);
+            }
           }
-          allRows.push(...sheetRows);
+
           if (allRows.length >= MAX_EXCEL_ROWS) break;
         }
+
+        if (skippedSheets.length > 0) {
+          console.warn(`[process-file] ⚠️ Skipped ${skippedSheets.length} sheet(s) with different structure: ${skippedSheets.join(', ')}`);
+        }
         if (allRows.length > MAX_EXCEL_ROWS) allRows.length = MAX_EXCEL_ROWS;
-        return { allRows, headers };
+        return { allRows, headers: primaryHeaders };
       };
 
       if (buffer.byteLength > MAX_EXCEL_FILE_SIZE) {
