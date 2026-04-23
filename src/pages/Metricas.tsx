@@ -114,6 +114,20 @@ export default function Metricas() {
   const gastosEvolution = aggregateByMonth(realGastos, FIELD_AMOUNT, mG?.date, mG?.amount);
   const stockEvolution = aggregateByMonth(realStock, FIELD_STOCK_QTY, mS?.date, mS?.stock_qty);
 
+  // Margen bruto por mes (solo si hay ventas + gastos con fechas en el mismo período)
+  const margenEvolution = (() => {
+    if (salesEvolution.length < 2 || gastosEvolution.length < 2) return [];
+    const gastosMap = new Map(gastosEvolution.map(g => [g.month, g.value]));
+    return salesEvolution.map(s => {
+      const g = gastosMap.get(s.month) ?? 0;
+      const net = s.value - g;
+      return {
+        month: s.month,
+        value: s.value > 0 ? Math.round((net / s.value) * 100) : 0,
+      };
+    }).filter(m => m.value !== 0);
+  })();
+
   const hasCharts = salesEvolution.length >= 2;
   const hasAny = hasData && (realVentas.length > 0 || realGastos.length > 0 || realStock.length > 0);
 
@@ -205,6 +219,14 @@ export default function Metricas() {
               title="Evolución de Gastos"
               formatter={formatCurrency}
               tooltip="Total de gastos acumulados por período según los archivos cargados."
+            />
+          )}
+          {margenEvolution.length >= 2 && (
+            <MetricChart
+              data={margenEvolution}
+              title="Margen Bruto (%)"
+              formatter={(v) => `${v.toFixed(1)}%`}
+              tooltip="Porcentaje de margen bruto mensual = (Ventas − Gastos) / Ventas × 100. Requiere datos de ventas y gastos en el mismo período."
             />
           )}
           {stockEvolution.length >= 2 && (

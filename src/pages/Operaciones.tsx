@@ -1,14 +1,16 @@
-import { useState } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { formatCurrency } from '@/lib/formatters';
 import { findNumber, findString, findDateRaw, FIELD_AMOUNT, FIELD_NAME, FIELD_DATE, FIELD_CLIENT, FIELD_CATEGORY } from '@/lib/field-utils';
 import type { ColumnMapping } from '@/lib/field-utils';
-import { parseDate } from '@/lib/data-cleaning';
+import { parseDate, filterByPeriod, extractAvailableMonths } from '@/lib/data-cleaning';
 import { useExtractedData } from '@/hooks/useExtractedData';
+import { usePeriod } from '@/contexts/PeriodContext';
+import { PeriodPills } from '@/components/ui/PeriodPills';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { FileBox, Upload, Loader2, Database } from 'lucide-react';
+import { FileBox, Upload, Loader2, Database, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
 type FilterType = 'all' | 'sale' | 'purchase';
@@ -68,9 +70,15 @@ function fmtDate(raw: string): string {
   return raw;
 }
 
+const OP_PAGE_SIZE = 50;
+
 export default function Operaciones() {
   const { data: extractedData, mappings, hasData, loading } = useExtractedData();
+  const { period, setPeriod } = usePeriod();
   const [filter, setFilter] = useState<FilterType>('all');
+  const [page, setPage] = useState(0);
+
+  useEffect(() => { setPage(0); }, [period, filter]);
 
   if (loading) {
     return (
@@ -84,9 +92,19 @@ export default function Operaciones() {
     );
   }
 
-  const realVentas = extractedData?.ventas || [];
-  const realGastos = extractedData?.gastos || [];
-  const hasOps = hasData && (realVentas.length > 0 || realGastos.length > 0);
+  const allVentas = extractedData?.ventas || [];
+  const allGastos = extractedData?.gastos || [];
+  const mV = mappings.ventas;
+  const mG = mappings.gastos;
+
+  const availableMonths = useMemo(
+    () => extractAvailableMonths(allVentas, FIELD_DATE, (row) => findDateRaw(row, mV?.date)),
+    [allVentas, mV]
+  );
+
+  const realVentas = period === 'all' ? allVentas : filterByPeriod(allVentas, FIELD_DATE, period, (row) => findDateRaw(row, mV?.date));
+  const realGastos = period === 'all' ? allGastos : filterByPeriod(allGastos, FIELD_DATE, period, (row) => findDateRaw(row, mG?.date));
+  const hasOps = hasData && (allVentas.length > 0 || allGastos.length > 0);
 
   if (!hasOps) {
     return (
@@ -111,8 +129,10 @@ export default function Operaciones() {
     );
   }
 
-  const allOps = normalizeOps(realVentas, realGastos, mappings.ventas, mappings.gastos);
+  const allOps = useMemo(() => normalizeOps(realVentas, realGastos, mappings.ventas, mappings.gastos), [realVentas, realGastos, mappings.ventas, mappings.gastos]);
   const filtered = filter === 'all' ? allOps : allOps.filter(op => op.type === filter);
+  const totalPages = Math.ceil(filtered.length / OP_PAGE_SIZE);
+  const pagedOps = filtered.slice(page * OP_PAGE_SIZE, (page + 1) * OP_PAGE_SIZE);
   const totalSales = allOps.filter(op => op.type === 'sale').reduce((s, op) => s + op.amount, 0);
   const totalPurchases = allOps.filter(op => op.type === 'purchase').reduce((s, op) => s + op.amount, 0);
 
@@ -120,9 +140,12 @@ export default function Operaciones() {
     <div className="space-y-6 max-w-7xl">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold">Operaciones</h1>
-        <div className="flex items-center gap-1.5 text-xs alert-success rounded-lg px-3 py-1.5">
-          <Database className="h-3.5 w-3.5" />
-          {allOps.length} operaciones
+        <div className="flex items-center gap-3">
+          <PeriodPills value={period} onChange={setPeriod} availableMonths={availableMonths} />
+          <div className="flex items-center gap-1.5 text-xs alert-success rounded-lg px-3 py-1.5">
+            <Database className="h-3.5 w-3.5" />
+            {filtered.length} operaciones
+          </div>
         </div>
       </div>
 
@@ -145,8 +168,17 @@ export default function Operaciones() {
 
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle className="text-sm text-muted-foreground">Registro de operaciones</CardTitle>
-          <div className="flex gap-1">
+          <div className="flex items-center gap-2">
+            <CardTitle className="text-sm text-muted-foreground">
+              Registro de operaciones
+              {totalPages > 1 && (
+                <span className="ml-2 font-normal text-muted-foreground/60 text-xs">
+                  · página {page + 1} de {totalPages}
+                </span>
+              )}
+            </CardTitle>
+          </div>
+          <div className="flex items-center gap-1">
             {(['all', 'sale', 'purchase'] as const).map(f => (
               <Button
                 key={f}
@@ -171,7 +203,7 @@ export default function Operaciones() {
               <TableHead className="text-right">Monto</TableHead>
             </TableRow></TableHeader>
             <TableBody>
-              {filtered.map(op => (
+              {pagedOps.map(op => (
                 <TableRow key={op.id}>
                   <TableCell className="tabular-nums">{fmtDate(op.date)}</TableCell>
                   <TableCell>
@@ -189,6 +221,27 @@ export default function Operaciones() {
               ))}
             </TableBody>
           </Table>
+          {totalPages > 1 && (
+            <div className="flex items-center justify-center gap-3 mt-4">
+              <button
+                type="button"
+                disabled={page === 0}
+                onClick={() => setPage(p => p - 1)}
+                className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-border hover:bg-muted disabled:opacity-30 transition-colors"
+              >
+                <ChevronLeft className="h-3 w-3" /> Anterior
+              </button>
+              <span className="text-xs text-muted-foreground">{page + 1} / {totalPages}</span>
+              <button
+                type="button"
+                disabled={page >= totalPages - 1}
+                onClick={() => setPage(p => p + 1)}
+                className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-border hover:bg-muted disabled:opacity-30 transition-colors"
+              >
+                Siguiente <ChevronRight className="h-3 w-3" />
+              </button>
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>

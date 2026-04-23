@@ -1,10 +1,13 @@
+import { useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { formatCurrency, formatDate } from '@/lib/formatters';
 import { formatAmount, TOOLTIP_STYLE, AXIS_STYLE } from '@/lib/chart-config';
 import { findNumber, findString, findDateRaw, FIELD_CLIENT, FIELD_TOTAL_PURCHASES, FIELD_DEBT, FIELD_LAST_PURCHASE, FIELD_PURCHASE_COUNT, FIELD_AMOUNT, FIELD_DATE, type ColumnMapping } from '@/lib/field-utils';
-import { parseDate } from '@/lib/data-cleaning';
+import { parseDate, filterByPeriod, extractAvailableMonths } from '@/lib/data-cleaning';
 import { useExtractedData } from '@/hooks/useExtractedData';
+import { usePeriod } from '@/contexts/PeriodContext';
+import { PeriodPills } from '@/components/ui/PeriodPills';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip';
 import { AlertTriangle, Users, Crown, Award, Star, Upload, Loader2, Database, Info } from 'lucide-react';
@@ -77,13 +80,23 @@ function buildClientsFromVentas(ventasRows: any[], mV?: ColumnMapping): ClientRo
 
 export default function Clientes() {
   const { data: extractedData, mappings, hasData, loading } = useExtractedData();
+  const { period, setPeriod } = usePeriod();
   const mC = mappings.clientes;
   const mV = mappings.ventas;
   const realClientes = extractedData?.clientes || [];
-  const realVentas = extractedData?.ventas || [];
+  const allVentas = extractedData?.ventas || [];
   const useClientesDirectos = hasData && realClientes.length > 0;
-  const useClientesDesdeVentas = hasData && realClientes.length === 0 && realVentas.length > 0;
+  const useClientesDesdeVentas = hasData && realClientes.length === 0 && allVentas.length > 0;
   const useReal = useClientesDirectos || useClientesDesdeVentas;
+
+  // Period filtering only applies to ventas-derived clients
+  const availableMonths = useMemo(
+    () => extractAvailableMonths(allVentas, FIELD_DATE, (row) => findDateRaw(row, mV?.date)),
+    [allVentas, mV]
+  );
+  const realVentas = useClientesDesdeVentas
+    ? (period === 'all' ? allVentas : filterByPeriod(allVentas, FIELD_DATE, period, (row) => findDateRaw(row, mV?.date)))
+    : allVentas;
 
   if (loading) {
     return (
@@ -150,9 +163,14 @@ export default function Clientes() {
       <div className="space-y-6 max-w-7xl">
         <div className="flex items-center justify-between">
           <h1 className="text-2xl font-bold">Clientes</h1>
-          <div className="flex items-center gap-1.5 text-xs alert-success rounded-lg px-3 py-1.5">
-            <Database className="h-3.5 w-3.5" />
-            Datos reales ({clients.length} clientes)
+          <div className="flex items-center gap-3">
+            {useClientesDesdeVentas && (
+              <PeriodPills value={period} onChange={setPeriod} availableMonths={availableMonths} />
+            )}
+            <div className="flex items-center gap-1.5 text-xs alert-success rounded-lg px-3 py-1.5">
+              <Database className="h-3.5 w-3.5" />
+              {clients.length} clientes
+            </div>
           </div>
         </div>
 
