@@ -6,6 +6,10 @@ import { Button } from '@/components/ui/button';
 import { APP_NAME } from '@/lib/constants';
 import { useAuth } from '@/contexts/AuthContext';
 import { usePeriod } from '@/contexts/PeriodContext';
+import { useExtractedData } from '@/hooks/useExtractedData';
+import { findNumber, findDateRaw, FIELD_AMOUNT, FIELD_SPEND, FIELD_DATE } from '@/lib/field-utils';
+import { filterByPeriod } from '@/lib/data-cleaning';
+import { formatCurrency } from '@/lib/formatters';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
@@ -15,32 +19,86 @@ type Mode = 'chat' | 'search';
 
 const CHAT_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/ai-chat`;
 
-const chipGroups = [
-  {
-    label: 'Análisis del negocio',
-    chips: [
-      '¿Cómo vienen las ventas este período?',
-      '¿Cuál fue mi mejor mes y por qué?',
-      '¿Qué producto o servicio me deja más margen?',
-    ],
-  },
-  {
-    label: 'Proyecciones',
-    chips: [
-      '¿Cómo viene el mes que viene?',
-      '¿En qué meses históricamente vendo más?',
-      '¿Cuánto efectivo voy a tener a fin de mes?',
-    ],
-  },
-  {
-    label: 'Acciones recomendadas',
-    chips: [
-      '¿Qué debería hacer esta semana para mejorar resultados?',
-      '¿Hay algo que me esté costando plata sin que me dé cuenta?',
-      '¿Cómo está mi inversión en publicidad?',
-    ],
-  },
-];
+function buildChipGroups(hasVentas: boolean, hasGastos: boolean, hasMarketing: boolean, hasStock: boolean, hasClientes: boolean) {
+  const groups = [];
+
+  if (hasVentas) {
+    groups.push({
+      label: 'Análisis de ventas',
+      chips: [
+        '¿Cómo vienen las ventas este período?',
+        '¿Cuál fue mi mejor mes y por qué?',
+        '¿Qué producto o servicio me deja más margen?',
+      ],
+    });
+    groups.push({
+      label: 'Proyecciones',
+      chips: [
+        '¿Cómo viene el mes que viene?',
+        '¿En qué meses históricamente vendo más?',
+        '¿Cuánto efectivo voy a tener a fin de mes?',
+      ],
+    });
+  }
+
+  if (hasMarketing) {
+    groups.push({
+      label: 'Marketing',
+      chips: [
+        '¿Cómo está mi inversión en publicidad?',
+        '¿Cuál es mi campaña con mejor ROAS?',
+        '¿Estoy gastando bien en publicidad?',
+      ],
+    });
+  }
+
+  if (hasStock) {
+    groups.push({
+      label: 'Inventario',
+      chips: [
+        '¿Qué productos necesito reponer urgente?',
+        '¿Tengo sobrestock en algún producto?',
+        '¿Cuántos días de cobertura tengo en promedio?',
+      ],
+    });
+  }
+
+  if (hasClientes) {
+    groups.push({
+      label: 'Clientes',
+      chips: [
+        '¿Quiénes son mis mejores clientes?',
+        '¿Tengo clientes que no compraron hace mucho?',
+        '¿Cuánto tengo pendiente de cobro?',
+      ],
+    });
+  }
+
+  if (hasGastos && hasVentas) {
+    groups.push({
+      label: 'Acciones recomendadas',
+      chips: [
+        '¿Qué debería hacer esta semana para mejorar resultados?',
+        '¿Hay algo que me esté costando plata sin que me dé cuenta?',
+        '¿Cuál es mi margen real este período?',
+      ],
+    });
+  }
+
+  // Fallback if no data loaded yet
+  if (groups.length === 0) {
+    groups.push({
+      label: 'Para empezar',
+      chips: [
+        '¿Qué archivos debería cargar primero?',
+        '¿Cómo puedo analizar la rentabilidad de mi negocio?',
+        '¿Qué métricas son más importantes para una PyME?',
+      ],
+    });
+  }
+
+  return groups;
+}
 
 // ─── Streaming chat ───────────────────────────────────────────────
 async function streamChat({
@@ -241,6 +299,7 @@ function ModeToggle({ mode, onChange }: { mode: Mode; onChange: (m: Mode) => voi
 // ─── Main Component ──────────────────────────────────────────────
 export function AICopilot() {
   const { profile, companyName, companySettings } = useAuth();
+  const { data: extractedData, mappings, hasData } = useExtractedData();
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
@@ -265,6 +324,41 @@ export function AICopilot() {
           })()
         : period;
 
+  // ── Build live period KPIs from extracted data ───────────────
+  const mV = mappings.ventas;
+  const mG = mappings.gastos;
+  const mM = mappings.marketing;
+  const allVentas = extractedData?.ventas || [];
+  const allGastos = extractedData?.gastos || [];
+  const allMarketing = extractedData?.marketing || [];
+  const allStock = extractedData?.stock || [];
+  const allClientes = extractedData?.clientes || [];
+
+  const realVentas = period === 'all' ? allVentas : filterByPeriod(allVentas, FIELD_DATE, period, (row) => findDateRaw(row, mV?.date));
+  const realGastos = period === 'all' ? allGastos : filterByPeriod(allGastos, FIELD_DATE, period, (row) => findDateRaw(row, mG?.date));
+  const realMarketing = period === 'all' ? allMarketing : filterByPeriod(allMarketing, FIELD_DATE, period, (row) => findDateRaw(row, mM?.date));
+
+  const salesTotal = realVentas.reduce((s: number, r: any) => s + findNumber(r, FIELD_AMOUNT, mV?.amount), 0);
+  const gastosTotal = realGastos.reduce((s: number, r: any) => s + findNumber(r, FIELD_AMOUNT, mG?.amount), 0);
+  const marketingSpend = realMarketing.reduce((s: number, r: any) => s + findNumber(r, FIELD_SPEND, mM?.spend), 0);
+  const ganancia = salesTotal - gastosTotal;
+  const margen = salesTotal > 0 ? Math.round((ganancia / salesTotal) * 100) : null;
+
+  // Short summary string for the period — sent as supplement to server context
+  const liveKPIs: string[] = [];
+  if (salesTotal > 0) liveKPIs.push(`Ventas del período: ${formatCurrency(salesTotal)} (${realVentas.length} registros)`);
+  if (gastosTotal > 0) liveKPIs.push(`Gastos del período: ${formatCurrency(gastosTotal)}`);
+  if (ganancia !== 0 && salesTotal > 0 && gastosTotal > 0) liveKPIs.push(`Resultado neto: ${formatCurrency(ganancia)}${margen !== null ? ` (${margen}% margen)` : ''}`);
+  if (marketingSpend > 0) liveKPIs.push(`Inversión publicitaria: ${formatCurrency(marketingSpend)}`);
+  if (allStock.length > 0) liveKPIs.push(`Stock: ${allStock.length} registros de inventario`);
+
+  const hasVentas = allVentas.length > 0;
+  const hasGastos = allGastos.length > 0;
+  const hasMarketing = allMarketing.length > 0;
+  const hasStock = allStock.length > 0;
+  const hasClientes = allClientes.length > 0;
+  const chipGroups = buildChipGroups(hasVentas, hasGastos, hasMarketing, hasStock, hasClientes);
+
   const businessContext = {
     companyId: profile?.company_id,
     companyName,
@@ -277,6 +371,16 @@ export function AICopilot() {
     usesGoogleAds: companySettings?.uses_google_ads,
     currentPeriod: period,
     currentPeriodLabel,
+    // Live period KPIs from client-side extracted data
+    livePeriodSummary: liveKPIs.length > 0 ? `KPIs del período (${currentPeriodLabel}): ${liveKPIs.join('. ')}.` : null,
+    hasData,
+    availableModules: [
+      hasVentas && 'ventas',
+      hasGastos && 'gastos',
+      hasMarketing && 'marketing',
+      hasStock && 'stock',
+      hasClientes && 'clientes',
+    ].filter(Boolean),
   };
 
   const MAX_STORED = 20;

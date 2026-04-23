@@ -322,6 +322,8 @@ async function fetchMarketContext(query: string, industry: string, isForecast: b
 // ── System prompt ───────────────────────────────────────────────
 function buildSystemPrompt(businessContext: string, marketContext: string, context?: Record<string, any>): string {
   const companyName = context?.companyName;
+  const liveSummary = context?.livePeriodSummary;
+  const availableModules: string[] = context?.availableModules || [];
   return [
     `Sos un analista de datos senior que trabaja DENTRO de la empresa${companyName ? ` "${companyName}"` : ""}. Sos parte del equipo. Conocés el negocio de adentro.`,
     "",
@@ -349,6 +351,8 @@ function buildSystemPrompt(businessContext: string, marketContext: string, conte
     "- No uses encabezados formales (##) ni estructuras de informe",
     "",
     businessContext ? `\n## DATOS DEL NEGOCIO (usá estos datos para responder)\n${businessContext}` : "",
+    liveSummary ? `\n## KPIs DEL PERÍODO ACTIVO (calculados en tiempo real)\n${liveSummary}` : "",
+    availableModules.length > 0 ? `\nMódulos con datos cargados: ${availableModules.join(", ")}.` : "",
     marketContext ? `\n## CONTEXTO MACROECONÓMICO ARGENTINO ACTUAL\nCuando hagas proyecciones, tené en cuenta el contexto macroeconómico argentino actual que se detalla abajo. Si hay inflación alta, mencioná que los números en pesos pueden estar distorsionados y sugerí mirar la tendencia en unidades o en porcentajes, no solo en pesos.\n${marketContext}` : "",
   ].filter(Boolean).join("\n");
 }
