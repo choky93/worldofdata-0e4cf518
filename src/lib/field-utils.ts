@@ -39,12 +39,15 @@ export function findField(row: Record<string, unknown>, keywords: string[]): unk
     }
   }
 
-  // Pass 3: partial match (key contains keyword OR keyword contains key, min 3 chars)
+  // Pass 3: partial match (key contains keyword OR keyword contains key).
+  // Minimum 5 chars on both sides to avoid false positives:
+  // e.g. 'venta' (5) would match 'Costo de Ventas' — raising the floor reduces noise
+  // while still catching legitimate compound names like 'monto_total' ↔ 'total'.
   for (const key of keys) {
     const nk = normalize(key);
-    if (nk.length < 3) continue;
+    if (nk.length < 5) continue;
     for (const nkw of normalizedKeywords) {
-      if (nkw.length < 3) continue;
+      if (nkw.length < 5) continue;
       if ((nk.includes(nkw) || nkw.includes(nk)) && row[key] !== undefined && row[key] !== '' && row[key] !== null) {
         return row[key];
       }
@@ -257,7 +260,22 @@ export interface ColumnMapping {
 // ─── Pre-built keyword sets for common business data ─────────
 
 export const FIELD_NAME = ['nombre', 'name', 'descripcion', 'producto', 'detalle', 'concepto', 'item', 'articulo'];
-export const FIELD_AMOUNT = ['monto', 'total', 'amount', 'valor', 'importe', 'ganancia', 'monto_total', 'monto_venta', 'total_mensual', 'precio', 'subtotal', 'neto', 'precio_de_venta', 'precio de venta', 'precio_venta', 'venta', 'valor_venta', 'total_venta'];
+// FIELD_AMOUNT: keywords ordenados de más específico a más genérico para evitar falsos positivos.
+// EXCLUIDOS intencionalmente:
+//   'ganancia' → pertenece a FIELD_PROFIT (margen ≠ ingreso)
+//   'precio'   → demasiado genérico; matchea 'precio_de_costo' por partial match
+//   'venta'    → partial match peligroso: 'Costo de Venta' contiene 'venta'
+export const FIELD_AMOUNT = [
+  // Términos de monto/total — primera prioridad
+  'monto', 'total', 'amount', 'importe', 'valor',
+  // Variantes compuestas específicas
+  'monto_total', 'monto_venta', 'total_mensual', 'total_venta',
+  'subtotal', 'neto',
+  // Precio de venta como último recurso (cuando no hay columna de total)
+  'precio_de_venta', 'precio de venta', 'precio_venta',
+  // Ventas como columna de ingreso (e.g. archivo mensual con columna "Ventas")
+  'ventas', 'valor_venta', 'ingresos', 'facturacion', 'facturación',
+];
 // Claves semánticas normalizadas primero, luego aliases históricos para datos ya cargados.
 export const FIELD_DATE = ['fecha', 'date', 'periodo', 'mes', 'month', 'dia', 'day', 'fecha_operacion', 'fecha_venta', 'fecha_compra', '__EMPTY', '__empty', 'unnamed:_0', 'unnamed_0', 'unnamed', 'col_0', 'column_0'];
 
