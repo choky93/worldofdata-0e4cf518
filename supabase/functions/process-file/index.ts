@@ -28,21 +28,29 @@ class RateLimitError extends Error {
   }
 }
 
-async function fetchOpenAIWithRetry(url: string, init: RequestInit): Promise<Response> {
+async function fetchAnthropicWithRetry(body: object): Promise<Record<string, unknown>> {
   for (let attempt = 0; attempt <= RETRY_DELAYS.length; attempt++) {
-    const resp = await fetch(url, init);
-    if (resp.ok) return resp;
-    if ((resp.status === 429 || resp.status === 503) && attempt < RETRY_DELAYS.length) {
+    const resp = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "x-api-key": Deno.env.get("ANTHROPIC_API_KEY")!,
+        "anthropic-version": "2023-06-01",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+    });
+    if (resp.ok) return resp.json();
+    if ((resp.status === 429 || resp.status === 529 || resp.status === 503) && attempt < RETRY_DELAYS.length) {
       const delay = RETRY_DELAYS[attempt];
-      console.warn(`[process-file] OpenAI ${resp.status}, retrying in ${delay / 1000}s (attempt ${attempt + 1}/${RETRY_DELAYS.length})`);
+      console.warn(`[process-file] Anthropic ${resp.status}, retrying in ${delay / 1000}s (attempt ${attempt + 1}/${RETRY_DELAYS.length})`);
       await new Promise(r => setTimeout(r, delay));
       continue;
     }
-    if (resp.status === 429 || resp.status === 503) {
-      throw new RateLimitError(`OpenAI rate limit after ${RETRY_DELAYS.length} retries [${resp.status}]`);
+    if (resp.status === 429 || resp.status === 529 || resp.status === 503) {
+      throw new RateLimitError(`Anthropic rate limit after ${RETRY_DELAYS.length} retries [${resp.status}]`);
     }
     const errText = await resp.text();
-    throw new Error(`OpenAI error [${resp.status}]: ${errText}`);
+    throw new Error(`Anthropic error [${resp.status}]: ${errText}`);
   }
   throw new Error("Unreachable");
 }
@@ -383,26 +391,19 @@ Columnas: ${JSON.stringify(headers)}
 Primeras ${sampleRows.length} filas de ejemplo:
 ${JSON.stringify(sampleRows.slice(0, 10), null, 2)}`;
 
-  const resp = await fetchOpenAIWithRetry("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${Deno.env.get("OPENAI_API_KEY")!}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model: "gpt-4.1",
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content },
-      ],
-      response_format: { type: "json_object" },
-      temperature: 0.1,
-      max_tokens: 512,
-    }),
+  const JSON_INSTRUCTION = "\n\nRespond with a raw JSON object only. Do not include markdown, code blocks, or any text before or after the JSON. Start your response directly with {";
+
+  const data = await fetchAnthropicWithRetry({
+    model: "claude-sonnet-4-5",
+    system: systemPrompt + JSON_INSTRUCTION,
+    messages: [
+      { role: "user", content },
+    ],
+    temperature: 0.1,
+    max_tokens: 512,
   });
 
-  const data = await resp.json();
-  const raw = data.choices?.[0]?.message?.content || '{}';
+  const raw = (data.content as any)?.[0]?.text || '{}';
   try {
     const parsed = JSON.parse(raw);
     return {
@@ -513,26 +514,19 @@ Columnas: ${JSON.stringify(headers)}
 Todas las filas de ejemplo disponibles:
 ${JSON.stringify(sampleRows.slice(0, 20), null, 2)}`;
 
-  const resp = await fetchOpenAIWithRetry("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${Deno.env.get("OPENAI_API_KEY")!}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model: "gpt-4.1",
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content },
-      ],
-      response_format: { type: "json_object" },
-      temperature: 0.05,
-      max_tokens: 512,
-    }),
+  const JSON_INSTRUCTION = "\n\nRespond with a raw JSON object only. Do not include markdown, code blocks, or any text before or after the JSON. Start your response directly with {";
+
+  const data = await fetchAnthropicWithRetry({
+    model: "claude-sonnet-4-5",
+    system: systemPrompt + JSON_INSTRUCTION,
+    messages: [
+      { role: "user", content },
+    ],
+    temperature: 0.05,
+    max_tokens: 512,
   });
 
-  const data = await resp.json();
-  const raw = data.choices?.[0]?.message?.content || '{}';
+  const raw = (data.content as any)?.[0]?.text || '{}';
   try {
     const parsed = JSON.parse(raw);
     return parsed.column_mapping || {};
@@ -714,37 +708,30 @@ FORMATO DE RESPUESTA — SOLO JSON:
 
 {"category":"ventas|gastos|stock|facturas|marketing|clientes|rrhh|operaciones|finanzas|otro","confidence":0.95,"summary":"descripción del documento: qué es, período que cubre, cuántas filas, fuente si se puede identificar","row_count":26,"columns":["columna1","columna2"],"data":[{"columna1":"valor1","columna2":"valor2"}],"warnings":["lista de situaciones ambiguas, datos faltantes, o cosas que el usuario debería verificar"],"document_type":"tabla_mensual|factura_individual|reporte_publicitario|extracto_bancario|inventario|otro"}`;
 
-  const messages: unknown[] = [{ role: "system", content: systemPrompt }];
+  const JSON_INSTRUCTION = "\n\nRespond with a raw JSON object only. Do not include markdown, code blocks, or any text before or after the JSON. Start your response directly with {";
 
-  if (imageBase64 && imageMime) {
-    messages.push({ role: "user", content: [
-      { type: "text", text: `Analizá este archivo "${fileName}". Extraé TODOS los datos numéricos, tablas, y contenido relevante.${metadata ? ` Metadata: ${JSON.stringify(metadata)}` : ''}` },
-      { type: "image_url", image_url: { url: `data:${imageMime};base64,${imageBase64}`, detail: "high" } },
-    ]});
-  } else {
-    messages.push({
-      role: "user",
-      content: `Archivo: "${fileName}"\n${metadata ? `Metadata: ${JSON.stringify(metadata)}\n` : ''}\nContenido:\n${content.substring(0, MAX_CONTENT_CHARS)}`,
-    });
-  }
+  const userMessage: unknown = imageBase64 && imageMime
+    ? {
+        role: "user",
+        content: [
+          { type: "text", text: `Analizá este archivo "${fileName}". Extraé TODOS los datos numéricos, tablas, y contenido relevante.${metadata ? ` Metadata: ${JSON.stringify(metadata)}` : ''}` },
+          { type: "image", source: { type: "base64", media_type: imageMime, data: imageBase64 } },
+        ],
+      }
+    : {
+        role: "user",
+        content: `Archivo: "${fileName}"\n${metadata ? `Metadata: ${JSON.stringify(metadata)}\n` : ''}\nContenido:\n${content.substring(0, MAX_CONTENT_CHARS)}`,
+      };
 
-  const resp = await fetchOpenAIWithRetry("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${Deno.env.get("OPENAI_API_KEY")!}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model: "gpt-4.1",
-      messages,
-      response_format: { type: "json_object" },
-      temperature: 0.1,
-      max_tokens: 4096,
-    }),
+  const data = await fetchAnthropicWithRetry({
+    model: "claude-sonnet-4-5",
+    system: systemPrompt + JSON_INSTRUCTION,
+    messages: [userMessage],
+    temperature: 0.1,
+    max_tokens: 4096,
   });
 
-  const data = await resp.json();
-  const raw = data.choices?.[0]?.message?.content || '{}';
+  const raw = (data.content as any)?.[0]?.text || '{}';
   let parsed: Record<string, unknown>;
   try {
     parsed = JSON.parse(raw);
