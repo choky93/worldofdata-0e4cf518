@@ -19,6 +19,7 @@ import { SchemaPreviewDialog, type SchemaPreviewPayload } from '@/components/Sch
 import { suggestCategory } from '@/lib/schema-preview';
 import { DataQualityBadge } from '@/components/DataQualityBadge';
 import { computeDataQuality, detectAnomalies, type DataQualityScore } from '@/lib/data-quality';
+import { computeVersionDiff, type VersionDiff } from '@/lib/version-diff';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -619,6 +620,7 @@ export default function CargaDatos() {
     fileName: string;
     overlappingMonths: string[];
     category: string;
+    diff?: VersionDiff; // 5.7: per-month delta (totals, row counts, products)
   } | null>(null);
 
   // Stock duplicate detection state (BUG 1 fix)
@@ -1468,11 +1470,19 @@ export default function CargaDatos() {
           const overlap = detectPeriodOverlap(existingRows, newRows, FIELD_DATE, finder);
 
           if (overlap.length > 0) {
+            // 5.7: compute per-month diff (totals, rows, products) so the
+            // dialog can show the user EXACTLY what changes if they replace.
+            const diff = computeVersionDiff(existingRows, newRows, overlap, {
+              date: catMapping?.date,
+              amount: catMapping?.amount,
+              name: catMapping?.name,
+            });
             setOverlapInfo({
               fileUploadId: ext.file_upload_id,
               fileName: item.file.name,
               overlappingMonths: overlap,
               category: cat,
+              diff,
             });
             break; // Show one overlap dialog at a time
           }
@@ -2493,31 +2503,71 @@ export default function CargaDatos() {
 
       {/* Overlap detection dialog */}
       <AlertDialog open={!!overlapInfo} onOpenChange={(open) => { if (!open) setOverlapInfo(null); }}>
-        <AlertDialogContent>
+        <AlertDialogContent className="max-w-2xl">
           <AlertDialogHeader>
             <AlertDialogTitle className="flex items-center gap-2">
-              <AlertTriangle className="h-5 w-5 text-warning" />
-              Datos duplicados detectados
+              <History className="h-5 w-5 text-warning" />
+              Comparar versiones — {overlapInfo?.fileName}
             </AlertDialogTitle>
             <AlertDialogDescription asChild>
-              <div className="space-y-2">
-                <p>
-                  El archivo <strong>"{overlapInfo?.fileName}"</strong> contiene datos de períodos que ya existen:
+              <div className="space-y-3">
+                <p className="text-sm">
+                  El archivo contiene datos de períodos ya cargados. Antes de decidir, mirá qué <strong>cambia</strong>:
                 </p>
-                <div className="flex flex-wrap gap-1.5">
-                  {overlapInfo?.overlappingMonths.map(p => {
-                    const [y, m] = p.split('-');
-                    const label = new Date(parseInt(y), parseInt(m) - 1, 1).toLocaleDateString('es-AR', { month: 'long', year: 'numeric' });
-                    return (
-                      <Badge key={p} variant="outline" className="text-warning border-warning/30">
-                        {label}
-                      </Badge>
-                    );
-                  })}
+                {/* 5.7: Per-month diff table */}
+                {overlapInfo?.diff && overlapInfo.diff.perMonth.length > 0 && (
+                  <div className="border rounded-md overflow-hidden">
+                    <table className="w-full text-xs">
+                      <thead className="bg-muted/60">
+                        <tr>
+                          <th className="text-left px-2 py-1.5 font-medium">Período</th>
+                          <th className="text-right px-2 py-1.5 font-medium">Filas</th>
+                          <th className="text-right px-2 py-1.5 font-medium">Total</th>
+                          <th className="text-right px-2 py-1.5 font-medium">Δ</th>
+                          <th className="text-right px-2 py-1.5 font-medium">Productos</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {overlapInfo.diff.perMonth.map(d => {
+                          const [y, m] = d.month.split('-');
+                          const label = new Date(parseInt(y), parseInt(m) - 1, 1).toLocaleDateString('es-AR', { month: 'short', year: '2-digit' });
+                          const deltaColor = d.totalDeltaPct > 5 ? 'text-green-600 dark:text-green-400'
+                            : d.totalDeltaPct < -5 ? 'text-red-600 dark:text-red-400'
+                            : 'text-muted-foreground';
+                          const deltaSign = d.totalDeltaPct > 0 ? '+' : '';
+                          return (
+                            <tr key={d.month} className="border-t">
+                              <td className="px-2 py-1.5 font-medium">{label}</td>
+                              <td className="px-2 py-1.5 text-right font-mono">
+                                <span className="text-muted-foreground">{d.oldRowCount}</span>
+                                <span className="mx-1 text-muted-foreground/50">→</span>
+                                {d.newRowCount}
+                              </td>
+                              <td className="px-2 py-1.5 text-right font-mono">
+                                ${d.newTotal.toLocaleString('es-AR', { maximumFractionDigits: 0 })}
+                              </td>
+                              <td className={`px-2 py-1.5 text-right font-mono font-semibold ${deltaColor}`}>
+                                {deltaSign}{d.totalDeltaPct.toFixed(1)}%
+                              </td>
+                              <td className="px-2 py-1.5 text-right text-xs">
+                                {d.newProductsAdded > 0 && <span className="text-green-600 dark:text-green-400">+{d.newProductsAdded}</span>}
+                                {d.newProductsAdded > 0 && d.productsRemoved > 0 && <span className="text-muted-foreground"> · </span>}
+                                {d.productsRemoved > 0 && <span className="text-red-600 dark:text-red-400">-{d.productsRemoved}</span>}
+                                {d.newProductsAdded === 0 && d.productsRemoved === 0 && <span className="text-muted-foreground">=</span>}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+                <div className="flex gap-3 text-xs text-muted-foreground bg-muted/40 rounded-md p-2">
+                  <span><strong>Reemplazar:</strong> los datos antiguos de esos meses se borran y quedan los nuevos.</span>
                 </div>
-                <p className="text-muted-foreground">
-                  ¿Querés reemplazar los datos de esos períodos con los del nuevo archivo, o mantener ambos?
-                </p>
+                <div className="flex gap-3 text-xs text-muted-foreground bg-muted/40 rounded-md p-2">
+                  <span><strong>Mantener ambos:</strong> los archivos coexisten — el dashboard sumará valores de ambos (puede generar duplicados).</span>
+                </div>
               </div>
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -2526,7 +2576,7 @@ export default function CargaDatos() {
               Mantener ambos
             </AlertDialogCancel>
             <AlertDialogAction onClick={handleOverlapReplace} className="bg-warning text-warning-foreground hover:bg-warning/90">
-              Reemplazar
+              Reemplazar versiones antiguas
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
