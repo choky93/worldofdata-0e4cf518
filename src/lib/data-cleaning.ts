@@ -98,6 +98,22 @@ export function cleanParsedRows(rows: Record<string, unknown>[], headers: string
 }
 
 /**
+ * Same as cleanParsedRows but returns filter statistics so the caller can
+ * surface a warning when an unusually high fraction of rows is filtered out
+ * (likely a misread file: wrong delimiter, exotic header layout, etc.).
+ */
+export function cleanParsedRowsWithStats(
+  rows: Record<string, unknown>[],
+  headers: string[]
+): { rows: Record<string, unknown>[]; originalCount: number; filteredCount: number; filterRate: number } {
+  const originalCount = rows.length;
+  const cleaned = cleanParsedRows(rows, headers);
+  const filteredCount = originalCount - cleaned.length;
+  const filterRate = originalCount > 0 ? filteredCount / originalCount : 0;
+  return { rows: cleaned, originalCount, filteredCount, filterRate };
+}
+
+/**
  * Try to parse a date string (ISO, dd/mm/yyyy, Spanish months, quarters, etc.) into a Date.
  */
 const SPANISH_MONTHS: Record<string, number> = {

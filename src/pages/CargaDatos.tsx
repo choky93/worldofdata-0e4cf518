@@ -12,7 +12,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import * as XLSX from 'xlsx';
-import { cleanParsedRows, detectPeriodOverlap, parseDate } from '@/lib/data-cleaning';
+import { cleanParsedRows, cleanParsedRowsWithStats, detectPeriodOverlap, parseDate } from '@/lib/data-cleaning';
 import { useExtractedData } from '@/hooks/useExtractedData';
 import { findString, FIELD_DATE, FIELD_NAME } from '@/lib/field-utils';
 import {
@@ -241,12 +241,45 @@ function fixBrokenHeaders(rows: Record<string, unknown>[]): { rows: Record<strin
 }
 
 /**
+ * Detect CSV delimiter using a median-stability heuristic.
+ * Scans the first 5 non-empty lines, counts how many fields each candidate
+ * delimiter would produce per line (respecting quotes), and picks the one
+ * with the highest minimum field count and stable spread (max-min ≤ 2).
+ * This avoids false positives when commas appear inside text fields.
+ */
+function detectDelimiter(text: string): string {
+  const lines = text.split(/\r?\n/).filter(l => l.trim()).slice(0, 5);
+  if (lines.length === 0) return ',';
+  const candidates = ['\t', ';', '|', ','];
+  let best = ',';
+  let bestScore = 0;
+  for (const d of candidates) {
+    const counts = lines.map(l => {
+      let inQuotes = false;
+      let count = 1;
+      for (let i = 0; i < l.length; i++) {
+        const c = l[i];
+        if (c === '"') inQuotes = !inQuotes;
+        else if (c === d && !inQuotes) count++;
+      }
+      return count;
+    });
+    const min = Math.min(...counts);
+    const max = Math.max(...counts);
+    if (min >= 2 && (max - min) <= 2 && min > bestScore) {
+      best = d;
+      bestScore = min;
+    }
+  }
+  return best;
+}
+
+/**
  * Simple RFC 4180 CSV parser for client-side use.
  */
 function parseCSVClientSide(text: string): Record<string, unknown>[] {
   if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1); // BOM
-  const rawFirst = text.split(/\r?\n/)[0] || '';
-  const delimiter = rawFirst.includes('\t') ? '\t' : rawFirst.includes(';') ? ';' : ',';
+  const delimiter = detectDelimiter(text);
 
   const rows: string[][] = [];
   let current: string[] = [];
@@ -559,6 +592,7 @@ export default function CargaDatos() {
   const [pendingReclassify, setPendingReclassify] = useState<{ fileId: string; fileName: string; newCategory: string; oldCategory: string } | null>(null);
   const [uploadQueue, setUploadQueue] = useState<UploadQueueItem[]>([]);
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const pollInFlightRef = useRef(false); // 1.3: guard against overlapping polls
   const prevErrorIdsRef = useRef<Set<string>>(new Set());
   const [urlImportText, setUrlImportText] = useState('');
   const [isImportingUrls, setIsImportingUrls] = useState(false);
@@ -592,12 +626,23 @@ export default function CargaDatos() {
 
   const fetchExtractedData = useCallback(async (fileIds: string[]) => {
     if (fileIds.length === 0) return;
-    // Main query: summary info per chunk (no extracted_json — too heavy)
-    const { data } = await supabase
-      .from('file_extracted_data')
-      .select('file_upload_id, data_category, summary, row_count, chunk_index')
-      .in('file_upload_id', fileIds)
-      .order('chunk_index', { ascending: true });
+    // 3.2: run both queries in parallel — they hit different rows (data_category
+    // filter) and have different projections (extracted_json is heavy and only
+    // needed for _column_mapping). Promise.all halves the round-trip latency.
+    const [summaryRes, mappingRes] = await Promise.all([
+      supabase
+        .from('file_extracted_data')
+        .select('file_upload_id, data_category, summary, row_count, chunk_index')
+        .in('file_upload_id', fileIds)
+        .order('chunk_index', { ascending: true }),
+      supabase
+        .from('file_extracted_data')
+        .select('file_upload_id, extracted_json')
+        .in('file_upload_id', fileIds)
+        .eq('data_category', '_column_mapping'),
+    ]);
+    const data = summaryRes.data;
+    const mappingData = mappingRes.data;
     if (data) {
       const map: Record<string, ExtractedData[]> = {};
       data.forEach(d => {
@@ -607,12 +652,6 @@ export default function CargaDatos() {
       });
       setExtractedDataMap(prev => ({ ...prev, ...map }));
     }
-    // B3: secondary targeted query for column_mapping records only (extracted_json is light here)
-    const { data: mappingData } = await supabase
-      .from('file_extracted_data')
-      .select('file_upload_id, extracted_json')
-      .in('file_upload_id', fileIds)
-      .eq('data_category', '_column_mapping');
     if (mappingData) {
       const newMappings: Record<string, Record<string, string>> = {};
       mappingData.forEach(m => {
@@ -743,7 +782,14 @@ export default function CargaDatos() {
   useEffect(() => {
     const hasProcessing = files.some(f => f.status === 'processing' || f.status === 'queued');
     if (hasProcessing && !pollingRef.current) {
-      pollingRef.current = setInterval(() => { fetchFiles(); }, 5000);
+      pollingRef.current = setInterval(async () => {
+        // 1.3: skip tick if previous fetch hasn't returned (slow network) to
+        // prevent overlapping requests stomping on each other and triggering
+        // duplicate toasts.
+        if (pollInFlightRef.current) return;
+        pollInFlightRef.current = true;
+        try { await fetchFiles(); } finally { pollInFlightRef.current = false; }
+      }, 5000);
     } else if (!hasProcessing && pollingRef.current) {
       clearInterval(pollingRef.current);
       pollingRef.current = null;
@@ -938,9 +984,18 @@ export default function CargaDatos() {
                   toast.warning(`"${item.file.name}": el archivo tiene ${allRows.length.toLocaleString('es-AR')} filas. Solo se procesarán las primeras 50.000 — para procesar el resto, dividilo en archivos más chicos.`, { duration: 12000 });
                   allRows.length = 50000;
                 }
-                parsedRows = cleanParsedRows(allRows, sheetDataSets[0].headers);
-                parsedHeaders = sheetDataSets[0].headers;
-                console.log(`[CargaDatos] ${sheetDataSets.length} sheets with same headers → concatenated ${parsedRows.length} rows`);
+                {
+                  const stats = cleanParsedRowsWithStats(allRows, sheetDataSets[0].headers);
+                  parsedRows = stats.rows;
+                  parsedHeaders = sheetDataSets[0].headers;
+                  console.log(`[CargaDatos] ${sheetDataSets.length} sheets with same headers → concatenated ${parsedRows.length} rows (filtered ${stats.filteredCount}/${stats.originalCount})`);
+                  if (stats.filterRate > 0.2 && stats.originalCount >= 10) {
+                    toast.warning(`"${item.file.name}": se descartaron ${stats.filteredCount} filas (${(stats.filterRate * 100).toFixed(0)}%) durante la limpieza`, {
+                      description: 'Tasa de filtrado alta. Verificá que las hojas no tengan totales o estructura irregular.',
+                      duration: 12000,
+                    });
+                  }
+                }
               } else {
                 // Different headers: process each sheet as independent file
                 console.log(`[CargaDatos] ${sheetDataSets.length} sheets with different headers → processing independently`);
@@ -975,7 +1030,10 @@ export default function CargaDatos() {
                       storage_path: storagePath,
                       uploaded_by: user.id,
                       company_id: profile.company_id!,
-                      file_hash: `${fileHash}-sheet-${si}`,
+                      // 1.1: include normalized sheet NAME (not just index) so the
+                      // hash still detects duplicates if sheets are reordered or if
+                      // the user re-uploads the same workbook with the same sheets.
+                      file_hash: `${fileHash}-sheet-${(sd.name || `idx${si}`).toLowerCase().replace(/[^a-z0-9]+/g, '_').slice(0, 40)}`,
                     }).select('id').single();
 
                     if (sheetDbErr || !sheetDbData) throw new Error(sheetDbErr?.message || 'DB insert failed');
@@ -1040,8 +1098,17 @@ export default function CargaDatos() {
                 toast.warning(`"${item.file.name}": el archivo tiene ${allRows.length.toLocaleString('es-AR')} filas. Solo se procesarán las primeras 50.000.`, { duration: 12000 });
                 allRows.length = 50000;
               }
-              parsedRows = cleanParsedRows(allRows, sheetDataSets[0].headers);
-              parsedHeaders = sheetDataSets[0].headers;
+              {
+                const stats = cleanParsedRowsWithStats(allRows, sheetDataSets[0].headers);
+                parsedRows = stats.rows;
+                parsedHeaders = sheetDataSets[0].headers;
+                if (stats.filterRate > 0.2 && stats.originalCount >= 10) {
+                  toast.warning(`"${item.file.name}": se descartaron ${stats.filteredCount} filas (${(stats.filterRate * 100).toFixed(0)}%) durante la limpieza`, {
+                    description: 'Tasa de filtrado alta. Verificá que el archivo no tenga totales o estructura irregular.',
+                    duration: 12000,
+                  });
+                }
+              }
             }
             updateItem({ progress: 80 });
             console.log(`[CargaDatos] Client-side parsed: ${parsedRows?.length ?? 0} rows, ${parsedHeaders?.length ?? 0} cols`);
@@ -1065,8 +1132,15 @@ export default function CargaDatos() {
             }
             // Clean data: convert serial dates + filter summary rows
             if (parsedRows && parsedHeaders) {
-              parsedRows = cleanParsedRows(parsedRows, parsedHeaders);
-              console.log(`[CargaDatos] CSV after cleaning: ${parsedRows.length} rows`);
+              const stats = cleanParsedRowsWithStats(parsedRows, parsedHeaders);
+              parsedRows = stats.rows;
+              console.log(`[CargaDatos] CSV after cleaning: ${parsedRows.length} rows (filtered ${stats.filteredCount}/${stats.originalCount}, ${(stats.filterRate * 100).toFixed(1)}%)`);
+              if (stats.filterRate > 0.2 && stats.originalCount >= 10) {
+                toast.warning(`"${item.file.name}": se descartaron ${stats.filteredCount} filas (${(stats.filterRate * 100).toFixed(0)}%) durante la limpieza`, {
+                  description: 'Tasa de filtrado alta. Verificá que el archivo no tenga formato inusual (delimitador raro, encabezados duplicados, columnas vacías).',
+                  duration: 12000,
+                });
+              }
             }
             updateItem({ progress: 80 });
             console.log(`[CargaDatos] Client-side CSV parsed: ${parsedRows?.length ?? 0} rows`);
@@ -1193,8 +1267,40 @@ export default function CargaDatos() {
     fetchStorageUsage();
     await refetchExtractedData();
 
+    // 1.7: Re-read FRESH data from DB before overlap detection. The closure
+    // values (globalExtractedData / taggedVentasRows / etc.) were captured at
+    // handleUpload time and are stale after refetchExtractedData() — React
+    // hasn't re-rendered yet so we'd compare against pre-upload state.
+    const freshAllRecords: { data_category: string; extracted_json: any; file_upload_id: string }[] = [];
+    {
+      const PAGE = 1000;
+      let from = 0;
+      while (true) {
+        const { data: page } = await supabase
+          .from('file_extracted_data')
+          .select('data_category, extracted_json, file_upload_id')
+          .eq('company_id', profile.company_id!)
+          .not('data_category', 'in', '("_raw_cache","_classification","_column_mapping")')
+          .order('created_at', { ascending: false })
+          .range(from, from + PAGE - 1);
+        if (!page || page.length === 0) break;
+        freshAllRecords.push(...page);
+        if (page.length < PAGE) break;
+        from += PAGE;
+      }
+    }
+    const freshByCat: Record<string, { row: any; fileUploadId: string }[]> = {
+      ventas: [], gastos: [], marketing: [], stock: [],
+    };
+    for (const r of freshAllRecords) {
+      const remapped = r.data_category === 'operaciones' ? 'gastos' : r.data_category === 'finanzas' ? 'facturas' : r.data_category;
+      if (!freshByCat[remapped]) continue;
+      const rows = (r.extracted_json as any)?.data || [];
+      if (!Array.isArray(rows)) continue;
+      for (const row of rows) freshByCat[remapped].push({ row, fileUploadId: r.file_upload_id });
+    }
+
     // Check for overlap after processing
-    // We need to re-read the extracted data to check for overlaps
     for (const item of queueItems) {
       if (item.status !== 'done') continue;
       try {
@@ -1219,7 +1325,10 @@ export default function CargaDatos() {
 
           // ─── BUG 1: Stock duplicate detection by product names ─────
           if (cat === 'stock') {
-            const existingStockRows = (globalExtractedData?.stock || []);
+            // 1.7: use FRESH data and exclude rows from the file we just uploaded
+            const existingStockRows = freshByCat.stock
+              .filter(t => t.fileUploadId !== newFileUploadId)
+              .map(t => t.row);
             // Skip if there's no prior stock to compare against
             if (existingStockRows.length === 0) continue;
 
@@ -1257,12 +1366,10 @@ export default function CargaDatos() {
 
           if (cat !== 'ventas' && cat !== 'gastos' && cat !== 'marketing') continue;
 
-          // Use tagged rows from context, filtering out rows from the same file to avoid self-overlap
-          const existingRows = cat === 'ventas'
-            ? taggedVentasRows.filter(t => t.fileUploadId !== newFileUploadId).map(t => t.row)
-            : cat === 'gastos'
-            ? taggedGastosRows.filter(t => t.fileUploadId !== newFileUploadId).map(t => t.row)
-            : taggedMarketingRows.filter(t => t.fileUploadId !== newFileUploadId).map(t => t.row);
+          // 1.7: use FRESH data fetched above, not stale closure tagged rows
+          const existingRows = freshByCat[cat]
+            .filter(t => t.fileUploadId !== newFileUploadId)
+            .map(t => t.row);
 
           const catMapping = cat === 'ventas' ? globalMappings.ventas : cat === 'gastos' ? globalMappings.gastos : globalMappings.marketing;
           const finder = (row: any, kw: string[]) => findString(row, kw, catMapping?.date);
@@ -1294,17 +1401,42 @@ export default function CargaDatos() {
   const handleReclassify = async (fileUploadId: string, newCategory: string) => {
     if (!profile?.company_id) return;
     try {
+      // 1.5: only update DATA records (skip the meta-rows _column_mapping,
+      // _classification, _raw_cache — their data_category is structural).
       const { error } = await supabase
         .from('file_extracted_data')
         .update({ data_category: newCategory })
         .eq('file_upload_id', fileUploadId)
-        .eq('company_id', profile.company_id);
+        .eq('company_id', profile.company_id)
+        .not('data_category', 'in', '("_raw_cache","_classification","_column_mapping")');
       if (error) throw error;
+
+      // Also remap the inner category inside the _column_mapping record so
+      // useExtractedData merges the mapping under the new category bucket.
+      const { data: mappingRecord } = await supabase
+        .from('file_extracted_data')
+        .select('id, extracted_json')
+        .eq('file_upload_id', fileUploadId)
+        .eq('company_id', profile.company_id)
+        .eq('data_category', '_column_mapping')
+        .maybeSingle();
+      if (mappingRecord?.id) {
+        const json = (mappingRecord.extracted_json as any) || {};
+        const newJson = { ...json, category: newCategory };
+        const { error: mapErr } = await supabase
+          .from('file_extracted_data')
+          .update({ extracted_json: newJson })
+          .eq('id', mappingRecord.id);
+        if (mapErr) console.error('[reclassify] failed to remap _column_mapping:', mapErr.message);
+      }
+
       // Update local state
       setExtractedDataMap(prev => {
         const updated = { ...prev };
         if (updated[fileUploadId]) {
-          updated[fileUploadId] = updated[fileUploadId].map(e => ({ ...e, data_category: newCategory }));
+          updated[fileUploadId] = updated[fileUploadId].map(e =>
+            e.data_category.startsWith('_') ? e : { ...e, data_category: newCategory }
+          );
         }
         return updated;
       });
@@ -1400,7 +1532,17 @@ export default function CargaDatos() {
 
   const handleDelete = async (file: FileRecord) => {
     try {
-      // 1.4: Track R2 failure to surface to user (no silent storage leaks)
+      // 4.1: Delete in DB-first order so a failure in either DB step aborts
+      // before we orphan storage. Only delete R2 once DB is consistent.
+      // (Previous order: R2 first → if DB delete failed, the file looked alive
+      // in the UI but had no storage backing it.)
+      const { error: extErr } = await supabase.from('file_extracted_data').delete().eq('file_upload_id', file.id);
+      if (extErr) throw extErr;
+      const { error } = await supabase.from('file_uploads').delete().eq('id', file.id);
+      if (error) throw error;
+
+      // R2 delete is best-effort AFTER DB succeeds. A failure here is a
+      // storage leak (recoverable via janitor) but never inconsistent state.
       let r2Failed = false;
       if (file.storage_path) {
         const { data, error: r2Error } = await supabase.functions.invoke('r2-delete', {
@@ -1411,9 +1553,6 @@ export default function CargaDatos() {
           r2Failed = true;
         }
       }
-      await supabase.from('file_extracted_data').delete().eq('file_upload_id', file.id);
-      const { error } = await supabase.from('file_uploads').delete().eq('id', file.id);
-      if (error) throw error;
       // 1.11: Audit log — surface insert errors to console for traceability
       await supabase.from('audit_logs').insert({
         company_id: profile?.company_id,

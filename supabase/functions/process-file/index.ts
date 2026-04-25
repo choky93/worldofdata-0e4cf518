@@ -105,10 +105,41 @@ function detectAndFixEncoding(buffer: ArrayBuffer): { text: string; encodingWarn
 }
 
 // ─── CSV Parser (RFC 4180) ─────────────────────────────────────
+/**
+ * Median-stability delimiter detector. Scores candidates [\t, ;, |, ,]
+ * across the first 5 non-empty lines (quote-aware). Picks the candidate
+ * with the highest min field count and stable spread (max-min ≤ 2).
+ */
+function detectDelimiter(text: string): string {
+  const lines = text.split(/\r?\n/).filter(l => l.trim()).slice(0, 5);
+  if (lines.length === 0) return ',';
+  const candidates = ['\t', ';', '|', ','];
+  let best = ',';
+  let bestScore = 0;
+  for (const d of candidates) {
+    const counts = lines.map(l => {
+      let inQuotes = false;
+      let count = 1;
+      for (let i = 0; i < l.length; i++) {
+        const c = l[i];
+        if (c === '"') inQuotes = !inQuotes;
+        else if (c === d && !inQuotes) count++;
+      }
+      return count;
+    });
+    const min = Math.min(...counts);
+    const max = Math.max(...counts);
+    if (min >= 2 && (max - min) <= 2 && min > bestScore) {
+      best = d;
+      bestScore = min;
+    }
+  }
+  return best;
+}
+
 function parseCSV(text: string): Record<string, unknown>[] {
   if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
-  const rawFirst = text.split(/\r?\n/)[0] || '';
-  const delimiter = rawFirst.includes('\t') ? '\t' : rawFirst.includes(';') ? ';' : ',';
+  const delimiter = detectDelimiter(text);
   const parsed = parseCSVWithDelimiter(text, delimiter);
   if (parsed.length < 2) return [];
   const headers = parsed[0].map(h => h.trim());
@@ -1089,7 +1120,9 @@ serve(async (req) => {
           file_upload_id: fileUploadId,
           company_id: companyId,
           data_category: "_classification",
-          extracted_json: { category, summary, column_mapping },
+          // 1.10: persist confidence so the LAST batch can apply the same
+          // status logic as a single-batch file.
+          extracted_json: { category, summary, column_mapping, confidence },
           chunk_index: -2,
           row_count: 0,
         }, { onConflict: 'file_upload_id,chunk_index' });
@@ -1189,13 +1222,32 @@ serve(async (req) => {
 
         const isLast = batchIndex === totalBatches - 1;
         if (isLast) {
+          // 1.10: read persisted confidence BEFORE deleting _classification so
+          // we can apply the same low-confidence flagging as single-batch files.
+          const { data: classRead } = await sb.from("file_extracted_data")
+            .select("extracted_json")
+            .eq("file_upload_id", fileUploadId)
+            .eq("data_category", "_classification")
+            .maybeSingle();
+          const persistedConfidence = (classRead?.extracted_json as any)?.confidence;
+
           await sb.from("file_extracted_data").delete()
             .eq("file_upload_id", fileUploadId)
             .eq("data_category", "_classification");
           const { data: flagCheck } = await sb.from("file_uploads").select("processing_error").eq("id", fileUploadId).single();
-          const finalStatus = flagCheck?.processing_error?.includes("Requiere revisión") ? "review" : "processed";
+          let finalStatus: string;
+          if (flagCheck?.processing_error?.includes("Requiere revisión")) {
+            finalStatus = "review";
+          } else if (typeof persistedConfidence === 'number' && persistedConfidence < 0.4) {
+            finalStatus = "processed_with_issues";
+            await sb.from("file_uploads").update({
+              processing_error: `Clasificación con baja confianza (${Math.round(persistedConfidence * 100)}%). Revisá el resumen para verificar que los datos se clasificaron correctamente.`
+            }).eq("id", fileUploadId);
+          } else {
+            finalStatus = "processed";
+          }
           await sb.from("file_uploads").update({ status: finalStatus, ...(finalStatus === "processed" ? { processing_error: null } : {}) }).eq("id", fileUploadId);
-          console.log(`[process-file] ✅ All ${totalBatches} batches stored for "${file_name}" (status: ${finalStatus})`);
+          console.log(`[process-file] ✅ All ${totalBatches} batches stored for "${file_name}" (status: ${finalStatus}, confidence: ${persistedConfidence ?? 'n/a'})`);
         }
 
         return new Response(JSON.stringify({
