@@ -1083,6 +1083,15 @@ serve(async (req) => {
         // First batch: classify with AI
         let { category, summary, column_mapping, confidence } = await classifyWithAI(headers, rowBatch.slice(0, 10), file_name, sheetName);
 
+        // 5.1: if the user confirmed an explicit category in the Schema
+        // Preview dialog, honor it — keep the AI's column_mapping but
+        // override the category. Confidence becomes 1.0 (user assertion).
+        if (explicitCategory && explicitCategory !== category) {
+          console.log(`[process-file] User override: AI classified as "${category}" but user chose "${explicitCategory}"`);
+          category = explicitCategory;
+          confidence = 1.0;
+        }
+
         // Apply date normalization using mapped date column
         const mappedDate = column_mapping?.date || null;
         const cleanedBatch = cleanRows(rowBatch, headers, mappedDate);

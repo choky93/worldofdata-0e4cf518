@@ -15,6 +15,8 @@ import * as XLSX from 'xlsx';
 import { cleanParsedRows, cleanParsedRowsWithStats, detectPeriodOverlap, parseDate } from '@/lib/data-cleaning';
 import { useExtractedData } from '@/hooks/useExtractedData';
 import { findString, FIELD_DATE, FIELD_NAME } from '@/lib/field-utils';
+import { SchemaPreviewDialog, type SchemaPreviewPayload } from '@/components/SchemaPreviewDialog';
+import { suggestCategory } from '@/lib/schema-preview';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -590,6 +592,10 @@ export default function CargaDatos() {
   const [reclassifyingId, setReclassifyingId] = useState<string | null>(null); // file_upload_id being reclassified
   // 2.4: Confirmación antes de reclasificar — evita mis-clicks que rompan el dashboard
   const [pendingReclassify, setPendingReclassify] = useState<{ fileId: string; fileName: string; newCategory: string; oldCategory: string } | null>(null);
+  // 5.1: Schema Preview & Confirmation — block upload until user confirms
+  // category & inspects sample rows. Resolved via a Promise the upload flow awaits.
+  const [pendingPreview, setPendingPreview] = useState<{ payload: SchemaPreviewPayload; category: string } | null>(null);
+  const previewResolverRef = useRef<((value: { confirmed: boolean; category: string }) => void) | null>(null);
   const [uploadQueue, setUploadQueue] = useState<UploadQueueItem[]>([]);
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const pollInFlightRef = useRef(false); // 1.3: guard against overlapping polls
@@ -844,6 +850,31 @@ export default function CargaDatos() {
 
       return { storagePath: uploadData.storagePath };
     }
+  };
+
+  // 5.1: Schema Preview helpers — return a Promise the upload flow awaits.
+  // Concurrent uploads serialize on this dialog (next file's preview only
+  // shows after the prior one is confirmed/cancelled).
+  const awaitSchemaPreview = (payload: SchemaPreviewPayload): Promise<{ confirmed: boolean; category: string }> => {
+    return new Promise((resolve) => {
+      const initialCat = suggestCategory(payload.headers).category;
+      setPendingPreview({ payload, category: initialCat });
+      previewResolverRef.current = resolve;
+    });
+  };
+  const handlePreviewConfirm = () => {
+    if (pendingPreview && previewResolverRef.current) {
+      previewResolverRef.current({ confirmed: true, category: pendingPreview.category });
+      previewResolverRef.current = null;
+      setPendingPreview(null);
+    }
+  };
+  const handlePreviewCancel = () => {
+    if (previewResolverRef.current) {
+      previewResolverRef.current({ confirmed: false, category: '' });
+      previewResolverRef.current = null;
+    }
+    setPendingPreview(null);
   };
 
   // ─── Batch Upload with Parallel Queue ──────────────────────
@@ -1149,6 +1180,26 @@ export default function CargaDatos() {
           }
         }
 
+        // 5.1: Schema Preview & Confirmation. Only ask when client-side
+        // parsing succeeded — server-side fallback has nothing to preview.
+        let categoryOverride: string | undefined;
+        if (parsedRows && parsedHeaders && parsedRows.length > 0) {
+          updateItem({ status: 'pending', progress: 82 });
+          const preview = await awaitSchemaPreview({
+            fileName: item.file.name,
+            headers: parsedHeaders,
+            rows: parsedRows.slice(0, 20),
+            totalRows: parsedRows.length,
+          });
+          if (!preview.confirmed) {
+            updateItem({ status: 'error', error: 'Cancelado por el usuario en la vista previa' });
+            await processNext();
+            return;
+          }
+          categoryOverride = preview.category;
+          updateItem({ status: 'uploading', progress: 84 });
+        }
+
         const { data: dbData, error: dbError } = await supabase.from('file_uploads').insert({
           file_name: item.file.name,
           file_type: detectFileType(item.file.name),
@@ -1190,7 +1241,9 @@ export default function CargaDatos() {
                     batchIndex: bi,
                     totalBatches,
                     totalRows: parsedRows.length,
-                    ...(bi > 0 && resolvedCategory ? { category: resolvedCategory } : {}),
+                    // 5.1: pass user-chosen category to ALL batches (incl. bi=0)
+                    // so the edge function honors the Schema Preview override.
+                    ...(categoryOverride ? { category: categoryOverride } : (bi > 0 && resolvedCategory ? { category: resolvedCategory } : {})),
                   },
                 });
                 if (pfError) throw pfError;
@@ -2435,6 +2488,17 @@ export default function CargaDatos() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* 5.1: Schema Preview & Confirmation dialog */}
+      <SchemaPreviewDialog
+        open={!!pendingPreview}
+        payload={pendingPreview?.payload ?? null}
+        selectedCategory={pendingPreview?.category ?? 'otro'}
+        onCategoryChange={(cat) => setPendingPreview(prev => prev ? { ...prev, category: cat } : prev)}
+        onConfirm={handlePreviewConfirm}
+        onCancel={handlePreviewCancel}
+        categoryLabels={categoryLabels}
+      />
 
       {/* 2.4: Reclassify confirmation dialog */}
       <AlertDialog open={!!pendingReclassify} onOpenChange={(open) => { if (!open) { setPendingReclassify(null); setReclassifyingId(null); } }}>
