@@ -29,7 +29,6 @@ interface AuditLog {
 
 interface ProfileInfo {
   full_name: string | null;
-  email: string | null;
 }
 
 interface Props {
@@ -38,6 +37,9 @@ interface Props {
   refreshKey?: unknown;
 }
 
+// NOTE: Categorical (not semantic) — these tones identify *event type*, not severity.
+// Semantic tokens (--success/--warning/--destructive) intentionally not used here:
+// "deleted" (red) and "uploaded" (green) are visual category labels, not status.
 const ACTION_META: Record<string, { label: string; icon: typeof Upload; tone: string }> = {
   file_uploaded:    { label: 'Subió archivo',         icon: Upload,    tone: 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-400' },
   file_deleted:     { label: 'Eliminó archivo',       icon: Trash2,    tone: 'bg-red-500/15 text-red-700 dark:text-red-400' },
@@ -81,13 +83,13 @@ export function AuditTrailPanel({ companyId, refreshKey }: Props) {
       if (newUserIds.length > 0) {
         const { data: profs } = await supabase
           .from('profiles')
-          .select('id, full_name, email')
+          .select('id, full_name')
           .in('id', newUserIds);
         if (profs) {
           setProfiles(prev => {
             const next = { ...prev };
-            for (const p of profs as { id: string; full_name: string | null; email: string | null }[]) {
-              next[p.id] = { full_name: p.full_name, email: p.email };
+            for (const p of profs as { id: string; full_name: string | null }[]) {
+              next[p.id] = { full_name: p.full_name };
             }
             return next;
           });
@@ -149,7 +151,7 @@ export function AuditTrailPanel({ companyId, refreshKey }: Props) {
                   const oldCat = (log.metadata?.old_category as string | undefined) ?? null;
                   const newCat = (log.metadata?.new_category as string | undefined) ?? null;
                   const userInfo = log.user_id ? profiles[log.user_id] : null;
-                  const userLabel = userInfo?.full_name || userInfo?.email || (log.user_id ? 'Usuario' : 'Sistema');
+                  const userLabel = userInfo?.full_name || (log.user_id ? 'Usuario' : 'Sistema');
                   return (
                     <li key={log.id} className="flex items-start gap-2 px-2 py-1.5 rounded-md hover:bg-muted/40 text-xs">
                       <Badge className={`border-0 shrink-0 gap-1 ${meta.tone}`}>

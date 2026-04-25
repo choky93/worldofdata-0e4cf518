@@ -49,9 +49,10 @@ export function SchemaPreviewDialog({
 
   const previewRows = payload.rows.slice(0, 20);
   const confidencePct = Math.round((suggestion?.confidence ?? 0) * 100);
-  const confidenceColor = confidencePct >= 50 ? 'bg-green-500/10 text-green-700 dark:text-green-400'
-    : confidencePct >= 25 ? 'bg-amber-500/10 text-amber-700 dark:text-amber-400'
-    : 'bg-red-500/10 text-red-700 dark:text-red-400';
+  // Semantic tokens (--success, --warning, --destructive).
+  const confidenceColor = confidencePct >= 50 ? 'bg-success/10 text-success'
+    : confidencePct >= 25 ? 'bg-warning/10 text-warning'
+    : 'bg-destructive/10 text-destructive';
 
   return (
     <Dialog open={open} onOpenChange={(v) => { if (!v) onCancel(); }}>

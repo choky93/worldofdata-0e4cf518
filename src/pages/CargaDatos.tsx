@@ -413,7 +413,7 @@ function ContextualAssistant({
     const threshold = getStaleThresholdDays();
     const fresh = days <= Math.max(1, Math.floor(threshold / 3));
     const stale = days > threshold;
-    const tone = fresh ? 'bg-emerald-500/15 text-emerald-700' : stale ? 'bg-red-500/15 text-red-700' : 'bg-amber-500/15 text-amber-700';
+    const tone = fresh ? 'bg-success/15 text-success' : stale ? 'bg-destructive/15 text-destructive' : 'bg-warning/15 text-warning';
     const label = fresh ? `✓ Hace ${days}d` : stale ? `⚠ Hace ${days}d` : `Hace ${days}d`;
     return <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${tone} shrink-0`}>{label}</span>;
   };
@@ -2795,8 +2795,8 @@ export default function CargaDatos() {
                         {overlapInfo.diff.perMonth.map(d => {
                           const [y, m] = d.month.split('-');
                           const label = new Date(parseInt(y), parseInt(m) - 1, 1).toLocaleDateString('es-AR', { month: 'short', year: '2-digit' });
-                          const deltaColor = d.totalDeltaPct > 5 ? 'text-green-600 dark:text-green-400'
-                            : d.totalDeltaPct < -5 ? 'text-red-600 dark:text-red-400'
+                          const deltaColor = d.totalDeltaPct > 5 ? 'text-success'
+                            : d.totalDeltaPct < -5 ? 'text-destructive'
                             : 'text-muted-foreground';
                           const deltaSign = d.totalDeltaPct > 0 ? '+' : '';
                           return (
@@ -2814,9 +2814,9 @@ export default function CargaDatos() {
                                 {deltaSign}{d.totalDeltaPct.toFixed(1)}%
                               </td>
                               <td className="px-2 py-1.5 text-right text-xs">
-                                {d.newProductsAdded > 0 && <span className="text-green-600 dark:text-green-400">+{d.newProductsAdded}</span>}
+                                {d.newProductsAdded > 0 && <span className="text-success">+{d.newProductsAdded}</span>}
                                 {d.newProductsAdded > 0 && d.productsRemoved > 0 && <span className="text-muted-foreground"> · </span>}
-                                {d.productsRemoved > 0 && <span className="text-red-600 dark:text-red-400">-{d.productsRemoved}</span>}
+                                {d.productsRemoved > 0 && <span className="text-destructive">-{d.productsRemoved}</span>}
                                 {d.newProductsAdded === 0 && d.productsRemoved === 0 && <span className="text-muted-foreground">=</span>}
                               </td>
                             </tr>

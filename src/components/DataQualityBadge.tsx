@@ -20,11 +20,12 @@ interface Props {
 export function DataQualityBadge({ dq, compact = false }: Props) {
   const tone = dq.score >= 80 ? 'good' : dq.score >= 60 ? 'warn' : 'bad';
   const Icon = tone === 'good' ? ShieldCheck : tone === 'warn' ? Shield : ShieldAlert;
+  // Semantic tokens (--success, --warning, --destructive) — defined in src/index.css.
   const className = tone === 'good'
-    ? 'bg-green-500/10 text-green-700 dark:text-green-400 border-green-500/20'
+    ? 'bg-success/10 text-success border-success/20'
     : tone === 'warn'
-    ? 'bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/20'
-    : 'bg-red-500/10 text-red-700 dark:text-red-400 border-red-500/20';
+    ? 'bg-warning/10 text-warning border-warning/20'
+    : 'bg-destructive/10 text-destructive border-destructive/20';
 
   return (
     <TooltipProvider>

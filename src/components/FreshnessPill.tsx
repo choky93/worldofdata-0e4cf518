@@ -14,6 +14,7 @@
  * navigates to CargaDatos filtered by the relevant categories (lineage 5.14).
  */
 
+import * as React from 'react';
 import { cn } from '@/lib/utils';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { daysSince, formatRelativeTime, formatDate } from '@/lib/formatters';
@@ -34,17 +35,29 @@ export function FreshnessPill({ lastUpload, warnDays, onClick, className, compac
   const threshold = warnDays ?? getStaleThresholdDays();
   const days = daysSince(lastUpload);
 
+  // A-1: keyboard activation when clickable.
+  const keyHandler = onClick
+    ? (e: React.KeyboardEvent) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onClick();
+        }
+      }
+    : undefined;
+  const interactiveProps = onClick
+    ? { onClick, role: 'button' as const, tabIndex: 0, onKeyDown: keyHandler }
+    : {};
+
   if (days === null) {
     return (
       <span
         className={cn(
           'inline-flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-full border',
           'bg-muted text-muted-foreground border-border',
-          onClick && 'cursor-pointer hover:opacity-80 transition-opacity',
+          onClick && 'cursor-pointer hover:opacity-80 transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
           className,
         )}
-        onClick={onClick}
-        role={onClick ? 'button' : undefined}
+        {...interactiveProps}
       >
         <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/40 shrink-0" />
         Sin datos
@@ -56,11 +69,12 @@ export function FreshnessPill({ lastUpload, warnDays, onClick, className, compac
   const warn = !fresh && days <= threshold;
   const stale = !fresh && !warn;
 
+  // Semantic tokens (--success, --warning, --destructive) — defined in src/index.css.
   const tone = fresh
-    ? { dot: 'bg-emerald-500', cls: 'bg-emerald-500/15 text-emerald-700 border-emerald-500/25 dark:text-emerald-400' }
+    ? { dot: 'bg-success', cls: 'bg-success/15 text-success border-success/25' }
     : warn
-    ? { dot: 'bg-amber-500', cls: 'bg-amber-500/15 text-amber-700 border-amber-500/25 dark:text-amber-400' }
-    : { dot: 'bg-red-500 animate-pulse', cls: 'bg-red-500/15 text-red-700 border-red-500/25 dark:text-red-400' };
+    ? { dot: 'bg-warning', cls: 'bg-warning/15 text-warning border-warning/30' }
+    : { dot: 'bg-destructive animate-pulse', cls: 'bg-destructive/15 text-destructive border-destructive/25' };
 
   const label = fresh ? (compact ? 'Hoy' : 'Al día') : formatRelativeTime(lastUpload);
 
@@ -69,11 +83,10 @@ export function FreshnessPill({ lastUpload, warnDays, onClick, className, compac
       className={cn(
         'inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full border whitespace-nowrap',
         tone.cls,
-        onClick && 'cursor-pointer hover:opacity-80 transition-opacity',
+        onClick && 'cursor-pointer hover:opacity-80 transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
         className,
       )}
-      onClick={onClick}
-      role={onClick ? 'button' : undefined}
+      {...interactiveProps}
     >
       <span className={cn('h-1.5 w-1.5 rounded-full shrink-0', tone.dot)} />
       {label}
