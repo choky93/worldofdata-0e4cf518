@@ -473,18 +473,17 @@ function StatusDashboard({ files, totalCount, archivedCount = 0 }: { files: File
   if (totalCount === 0) return null;
 
   type TileColor = 'success' | 'warning' | 'destructive' | 'neutral';
+  type TileDef = { count: number; label: string; icon: typeof CheckCircle2; color: TileColor; always?: boolean; spin?: boolean; };
 
-  const tiles: {
-    count: number; label: string; icon: typeof CheckCircle2;
-    color: TileColor; always?: boolean; spin?: boolean;
-  }[] = [
+  const allTiles: TileDef[] = [
     { count: processed, label: 'Procesados', icon: CheckCircle2, color: 'success', always: true },
     { count: review, label: 'A revisar', icon: AlertTriangle, color: 'warning' },
     { count: queued, label: 'En cola', icon: Clock, color: 'neutral' },
     { count: processing, label: 'Procesando', icon: Loader2, color: 'warning', spin: true },
     { count: errors, label: 'Errores', icon: AlertTriangle, color: 'destructive' },
     { count: archivedCount, label: 'Archivados', icon: Archive, color: 'neutral' },
-  ].filter(t => t.always || t.count > 0);
+  ];
+  const tiles = allTiles.filter(t => t.always || t.count > 0);
 
   const colorMap: Record<TileColor, { wrapper: string; text: string }> = {
     success:     { wrapper: 'bg-success/8 border-success/25',     text: 'text-success' },
