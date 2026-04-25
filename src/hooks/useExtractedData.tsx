@@ -156,14 +156,14 @@ export function ExtractedDataProvider({ children }: { children: ReactNode }) {
       }
 
       // Freshness: fecha de última carga activa por categoría
-      const lastUploadDates: Record<string, string> = {};
+      const freshnessDates: Record<string, string> = {};
 
       if (dataRecords.length > 0) {
         for (const r of dataRecords) {
           const cat = remapCategory(r.data_category) as keyof AggregatedData;
           // Track most recent upload per category (records come DESC by created_at)
-          if (r.created_at && (!lastUploadDates[cat] || r.created_at > lastUploadDates[cat])) {
-            lastUploadDates[cat] = r.created_at;
+          if (r.created_at && (!freshnessDates[cat] || r.created_at > freshnessDates[cat])) {
+            freshnessDates[cat] = r.created_at;
           }
           const json = r.extracted_json as any;
           const rows = json?.data || [];
@@ -198,7 +198,7 @@ export function ExtractedDataProvider({ children }: { children: ReactNode }) {
       setTaggedVentasRows(taggedVentas);
       setTaggedGastosRows(taggedGastos);
       setTaggedMarketingRows(taggedMarketing);
-      setLastUploadDates(lastUploadDates);
+      setLastUploadDates(freshnessDates);
     } catch (err) {
       console.error('useExtractedData error:', err);
       setHasData(false);

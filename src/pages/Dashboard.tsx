@@ -230,7 +230,7 @@ export default function Dashboard() {
                   // Indicador de frescura: muestra cuándo fue la última carga activa
                   const lastKey = ['ventas', 'gastos', 'stock'].find(k => lastUploadDates[k]);
                   if (!lastKey) return null;
-                  const days = Math.floor((Date.now() - new Date(lastUploadDates[lastKey]).getTime()) / 86400000);
+                  const days = Math.max(0, Math.floor((Date.now() - new Date(lastUploadDates[lastKey]).getTime()) / 86400000));
                   if (days < 2) return (
                     <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-700 border border-emerald-500/25">
                       <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 shrink-0" />

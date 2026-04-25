@@ -118,7 +118,7 @@ function FreshnessPanel({ lastUploadDates }: { lastUploadDates: Record<string, s
       </div>
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
         {entries.map(([cat, dateStr]) => {
-          const days = Math.floor((now - new Date(dateStr).getTime()) / 86400000);
+          const days = Math.max(0, Math.floor((now - new Date(dateStr).getTime()) / 86400000));
           const isGood = days < 35;
           const isWarn = !isGood && days < 65;
           const isStale = !isGood && !isWarn;
@@ -1306,8 +1306,7 @@ export default function CargaDatos() {
         .update({ status: 'archived' })
         .eq('id', file.id);
       if (error) throw error;
-      fetchFiles();
-      fetchArchivedFiles();
+      await Promise.all([fetchFiles(), fetchArchivedFiles()]);
       await refetchExtractedData();
       toast.success('Archivo archivado. Sus datos ya no afectan el dashboard.');
     } catch (err: any) {
@@ -1323,8 +1322,7 @@ export default function CargaDatos() {
         .update({ status: 'processed' })
         .eq('id', file.id);
       if (error) throw error;
-      fetchFiles();
-      fetchArchivedFiles();
+      await Promise.all([fetchFiles(), fetchArchivedFiles()]);
       await refetchExtractedData();
       toast.success('Archivo restaurado. Sus datos vuelven al dashboard.');
     } catch (err: any) {
