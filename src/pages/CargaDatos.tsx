@@ -20,6 +20,7 @@ import { suggestCategory } from '@/lib/schema-preview';
 import { DataQualityBadge } from '@/components/DataQualityBadge';
 import { computeDataQuality, detectAnomalies, type DataQualityScore } from '@/lib/data-quality';
 import { computeVersionDiff, type VersionDiff } from '@/lib/version-diff';
+import { TEMPLATES, downloadTemplate } from '@/lib/templates';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -2025,6 +2026,23 @@ export default function CargaDatos() {
                 }
               }}
             />
+          </div>
+
+          {/* 5.12: Downloadable templates */}
+          <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
+            <span className="text-muted-foreground">¿No tenés un archivo? Bajá una plantilla:</span>
+            {TEMPLATES.map(t => (
+              <button
+                key={t.id}
+                type="button"
+                onClick={() => { downloadTemplate(t); toast.success(`Plantilla "${t.label}" descargada`); }}
+                className="inline-flex items-center gap-1 px-2 py-1 rounded-md border bg-background hover:bg-muted transition-colors"
+                title={t.description}
+              >
+                <span>{t.emoji}</span>
+                <span>{t.label}</span>
+              </button>
+            ))}
           </div>
 
           {/* Upload Queue */}
