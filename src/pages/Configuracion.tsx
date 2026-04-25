@@ -1,14 +1,16 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
+import { Input } from '@/components/ui/input';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { Link } from 'react-router-dom';
-import { Settings, ArrowRight } from 'lucide-react';
+import { Settings, ArrowRight, Clock } from 'lucide-react';
 import { toast } from 'sonner';
+import { getStaleThresholdDays, setUserSettings } from '@/lib/user-settings';
 
 interface SectionToggle {
   label: string;
@@ -27,6 +29,16 @@ export default function Configuracion() {
   const { companyName, companySettings, profile, refreshProfile } = useAuth();
   const completion = companySettings?.onboarding_completion_pct ?? 0;
   const [updating, setUpdating] = useState<string | null>(null);
+
+  // 2.7 Stale threshold preference (localStorage, per browser)
+  const [staleDays, setStaleDays] = useState<number>(() => getStaleThresholdDays());
+  useEffect(() => { setStaleDays(getStaleThresholdDays()); }, []);
+  const handleStaleChange = (raw: string) => {
+    const n = parseInt(raw, 10);
+    if (!Number.isFinite(n) || n <= 0) return;
+    setStaleDays(n);
+    setUserSettings({ staleThresholdDays: n });
+  };
 
   const handleToggle = async (section: SectionToggle, checked: boolean) => {
     if (!profile?.company_id) return;
@@ -102,6 +114,40 @@ export default function Configuracion() {
             );
           })}
           <p className="text-xs text-muted-foreground pt-2">Activá o desactivá secciones del menú.</p>
+        </CardContent>
+      </Card>
+
+      {/* 2.7 Freshness threshold (per-browser preference) */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-sm text-muted-foreground flex items-center gap-2">
+            <Clock className="h-4 w-4" />
+            Umbral de frescura
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="flex items-end justify-between gap-4">
+            <div className="space-y-1 flex-1">
+              <Label htmlFor="stale-threshold" className="text-sm font-medium">
+                Días para considerar datos desactualizados
+              </Label>
+              <p className="text-xs text-muted-foreground">
+                Las pills de frescura del Dashboard se ponen en rojo cuando la última carga supera este umbral.
+              </p>
+            </div>
+            <Input
+              id="stale-threshold"
+              type="number"
+              min={1}
+              max={365}
+              value={staleDays}
+              onChange={(e) => handleStaleChange(e.target.value)}
+              className="w-24 text-right"
+            />
+          </div>
+          <p className="text-[11px] text-muted-foreground">
+            Preferencia local (este navegador). Default: 30 días.
+          </p>
         </CardContent>
       </Card>
     </div>

@@ -1,4 +1,5 @@
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -21,6 +22,8 @@ import { DataQualityBadge } from '@/components/DataQualityBadge';
 import { computeDataQuality, detectAnomalies, type DataQualityScore } from '@/lib/data-quality';
 import { computeVersionDiff, type VersionDiff } from '@/lib/version-diff';
 import { TEMPLATES, downloadTemplate } from '@/lib/templates';
+import { AuditTrailPanel } from '@/components/AuditTrailPanel';
+import { getStaleThresholdDays } from '@/lib/user-settings';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -85,17 +88,12 @@ const MAX_CONCURRENT_UPLOADS = 4;
 const PRESIGN_THRESHOLD = 20 * 1024 * 1024; // 20MB
 
 // B3: Human-readable labels for semantic column keys
-// C4+: Qué módulos del dashboard alimenta cada categoría (linaje simple)
-const CATEGORY_MODULES: Record<string, string[]> = {
-  ventas: ['Dashboard', 'Ventas', 'Forecast', 'Alertas'],
-  gastos: ['Dashboard', 'Flujo de caja', 'Alertas'],
-  stock: ['Dashboard', 'Stock', 'Alertas'],
-  marketing: ['Marketing', 'Dashboard'],
-  clientes: ['Clientes'],
-  facturas: ['Finanzas'],
-  rrhh: ['RRHH'],
-  otro: ['Otro'],
-};
+// 2.6: Module mapping moved to src/lib/category-modules.ts (single source of truth).
+// We re-export the legacy shape (string label arrays) here for the existing UI.
+import { CATEGORY_MODULES as CAT_MODS_KEYS, MODULES as MOD_INFO } from '@/lib/category-modules';
+const CATEGORY_MODULES: Record<string, string[]> = Object.fromEntries(
+  Object.entries(CAT_MODS_KEYS).map(([cat, mods]) => [cat, mods.map(m => MOD_INFO[m].label)])
+);
 
 // C4+: Panel de frescura de datos por categoría
 function FreshnessPanel({ lastUploadDates }: { lastUploadDates: Record<string, string> }) {
@@ -379,20 +377,70 @@ interface SuggestionItem {
   priority: 'high' | 'medium' | 'low';
 }
 
-function ContextualAssistant({ companySettings }: { companySettings: any }) {
-  const suggestions: SuggestionItem[] = [
-    { icon: '📊', title: 'Hoja de ventas', description: 'Subí tu Excel o CSV con las ventas del mes para calcular facturación, ticket promedio y tendencias.', condition: true, priority: 'high' },
-    { icon: '💰', title: 'Facturas de proveedores', description: 'Subí PDFs o fotos de facturas para registrar costos y calcular tu margen real.', condition: true, priority: 'high' },
-    { icon: '📦', title: 'Lista de productos / stock', description: 'Subí tu inventario con cantidades, precios y costos para detectar faltantes y sobrestock.', condition: !companySettings || companySettings.sells_products || companySettings.has_stock, priority: 'high' },
-    { icon: '📈', title: 'Reporte de Meta Ads', description: 'Exportá el rendimiento de campañas desde Meta Business Suite y subilo acá.', condition: !companySettings || companySettings.uses_meta_ads, priority: 'medium' },
-    { icon: '🔍', title: 'Reporte de Google Ads', description: 'Descargá el informe de rendimiento desde Google Ads y subilo para analizar ROAS.', condition: !companySettings || companySettings.uses_google_ads, priority: 'medium' },
-    { icon: '🚚', title: 'Registro de envíos', description: 'Si tenés un registro de despachos o logística, subilo para cruzar con ventas.', condition: !companySettings || companySettings.has_logistics, priority: 'low' },
-    { icon: '🏦', title: 'Resumen bancario', description: 'Subí tu extracto bancario (CSV o PDF) para conciliar ingresos y egresos.', condition: true, priority: 'low' },
+function ContextualAssistant({
+  companySettings,
+  lastUploadDates,
+}: {
+  companySettings: any;
+  lastUploadDates: Record<string, string>;
+}) {
+  // 2.11: dynamic — each suggestion is keyed to a category and reads
+  // lastUploadDates so we can show "✓ ya cargado · hace 3d" or
+  // "⚠ desactualizado hace 45d" instead of static text.
+  const wantsStock = !companySettings || companySettings.sells_products || companySettings.has_stock;
+  const wantsMeta = !companySettings || companySettings.uses_meta_ads;
+  const wantsGoogle = !companySettings || companySettings.uses_google_ads;
+  const wantsLog = !companySettings || companySettings.has_logistics;
+
+  const suggestions: (SuggestionItem & { category?: string })[] = [
+    { icon: '📊', title: 'Hoja de ventas',           description: 'Subí tu Excel o CSV con las ventas del mes para calcular facturación, ticket promedio y tendencias.', condition: true,          priority: 'high',   category: 'ventas' },
+    { icon: '💰', title: 'Facturas de proveedores',  description: 'Subí PDFs o fotos de facturas para registrar costos y calcular tu margen real.',                       condition: true,          priority: 'high',   category: 'gastos' },
+    { icon: '📦', title: 'Lista de productos / stock', description: 'Subí tu inventario con cantidades, precios y costos para detectar faltantes y sobrestock.',          condition: wantsStock,    priority: 'high',   category: 'stock' },
+    { icon: '📈', title: 'Reporte de Meta Ads',      description: 'Exportá el rendimiento de campañas desde Meta Business Suite y subilo acá.',                            condition: wantsMeta,     priority: 'medium', category: 'marketing' },
+    { icon: '🔍', title: 'Reporte de Google Ads',    description: 'Descargá el informe de rendimiento desde Google Ads y subilo para analizar ROAS.',                      condition: wantsGoogle,   priority: 'medium', category: 'marketing' },
+    { icon: '🚚', title: 'Registro de envíos',       description: 'Si tenés un registro de despachos o logística, subilo para cruzar con ventas.',                         condition: wantsLog,      priority: 'low',    category: 'otro' },
+    { icon: '🏦', title: 'Resumen bancario',         description: 'Subí tu extracto bancario (CSV o PDF) para conciliar ingresos y egresos.',                              condition: true,          priority: 'low',    category: 'facturas' },
   ];
 
   const activeSuggestions = suggestions.filter(s => s.condition);
   const highPriority = activeSuggestions.filter(s => s.priority === 'high');
   const otherPriority = activeSuggestions.filter(s => s.priority !== 'high');
+
+  // 2.11 helper: returns a status pill for a category based on last upload
+  const statusFor = (cat?: string) => {
+    if (!cat || !lastUploadDates[cat]) return null;
+    const days = Math.max(0, Math.floor((Date.now() - new Date(lastUploadDates[cat]).getTime()) / 86400000));
+    const threshold = getStaleThresholdDays();
+    const fresh = days <= Math.max(1, Math.floor(threshold / 3));
+    const stale = days > threshold;
+    const tone = fresh ? 'bg-emerald-500/15 text-emerald-700' : stale ? 'bg-red-500/15 text-red-700' : 'bg-amber-500/15 text-amber-700';
+    const label = fresh ? `✓ Hace ${days}d` : stale ? `⚠ Hace ${days}d` : `Hace ${days}d`;
+    return <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${tone} shrink-0`}>{label}</span>;
+  };
+
+  // 2.11: dynamic top-strip — count missing high-priority categories
+  const missingHigh = highPriority.filter(s => s.category && !lastUploadDates[s.category]).length;
+  const staleHigh = highPriority.filter(s => {
+    if (!s.category || !lastUploadDates[s.category]) return false;
+    const days = Math.floor((Date.now() - new Date(lastUploadDates[s.category]).getTime()) / 86400000);
+    return days > getStaleThresholdDays();
+  }).length;
+
+  const renderItem = (s: SuggestionItem & { category?: string }, i: number) => {
+    const status = statusFor(s.category);
+    return (
+      <div key={i} className="flex items-start gap-2.5 p-2.5 rounded-lg hover:bg-muted/50 transition-colors">
+        <span className="text-base mt-0.5">{s.icon}</span>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-sm font-medium">{s.title}</p>
+            {status}
+          </div>
+          <p className="text-xs text-muted-foreground leading-relaxed">{s.description}</p>
+        </div>
+      </div>
+    );
+  };
 
   return (
     <Card className="h-fit sticky top-4">
@@ -402,36 +450,24 @@ function ContextualAssistant({ companySettings }: { companySettings: any }) {
           ¿Qué archivos subir?
         </CardTitle>
         <p className="text-xs text-muted-foreground mt-1">
-          Basado en la configuración de tu negocio, te recomendamos cargar estos datos:
+          {missingHigh > 0
+            ? `Te faltan ${missingHigh} fuente${missingHigh === 1 ? '' : 's'} prioritaria${missingHigh === 1 ? '' : 's'} para activar el dashboard completo.`
+            : staleHigh > 0
+            ? `${staleHigh} fuente${staleHigh === 1 ? '' : 's'} prioritaria${staleHigh === 1 ? '' : 's'} con datos desactualizados.`
+            : 'Tus fuentes prioritarias están al día. Estos datos opcionales suman precisión:'}
         </p>
       </CardHeader>
       <CardContent className="space-y-1 pb-4">
         {highPriority.length > 0 && (
           <>
             <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-2">Prioritarios</p>
-            {highPriority.map((s, i) => (
-              <div key={i} className="flex items-start gap-2.5 p-2.5 rounded-lg hover:bg-muted/50 transition-colors">
-                <span className="text-base mt-0.5">{s.icon}</span>
-                <div className="min-w-0">
-                  <p className="text-sm font-medium">{s.title}</p>
-                  <p className="text-xs text-muted-foreground leading-relaxed">{s.description}</p>
-                </div>
-              </div>
-            ))}
+            {highPriority.map(renderItem)}
           </>
         )}
         {otherPriority.length > 0 && (
           <>
             <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mt-3 mb-2">Opcionales</p>
-            {otherPriority.map((s, i) => (
-              <div key={i} className="flex items-start gap-2.5 p-2.5 rounded-lg hover:bg-muted/50 transition-colors">
-                <span className="text-base mt-0.5">{s.icon}</span>
-                <div className="min-w-0">
-                  <p className="text-sm font-medium">{s.title}</p>
-                  <p className="text-xs text-muted-foreground leading-relaxed">{s.description}</p>
-                </div>
-              </div>
-            ))}
+            {otherPriority.map(renderItem)}
           </>
         )}
         <p className="text-[10px] text-muted-foreground border-t pt-3 mt-3">
@@ -590,6 +626,8 @@ export default function CargaDatos() {
   const [totalCount, setTotalCount] = useState(0);
   const [extractedDataMap, setExtractedDataMap] = useState<Record<string, ExtractedData[]>>({});
   const [dragging, setDragging] = useState(false);
+  // 2.2 inline drag validation — peeks at the dragged item MIME types
+  const [dragInvalidMsg, setDragInvalidMsg] = useState<string | null>(null);
   const [loadingFiles, setLoadingFiles] = useState(true);
   const [storageUsedBytes, setStorageUsedBytes] = useState<number>(0);
   const [reprocessingId, setReprocessingId] = useState<string | null>(null);
@@ -637,6 +675,20 @@ export default function CargaDatos() {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [typeFilter, setTypeFilter] = useState<string>('all');
+  // 5.14 Lineage: read ?category= URL param to prefilter file list when arriving
+  // from a Dashboard pill click. Filter is applied client-side because category
+  // lives in file_extracted_data, not file_uploads.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const categoryFilter = searchParams.get('category') || 'all';
+  const setCategoryFilter = (v: string) => {
+    const next = new URLSearchParams(searchParams);
+    if (v === 'all') next.delete('category'); else next.set('category', v);
+    setSearchParams(next, { replace: true });
+    setCurrentPage(0);
+  };
+  // 5.9 Bulk recategorize: multi-select state
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkRecategorizing, setBulkRecategorizing] = useState(false);
 
   const fetchExtractedData = useCallback(async (fileIds: string[]) => {
     if (fileIds.length === 0) return;
@@ -891,19 +943,40 @@ export default function CargaDatos() {
     const filesToUpload = Array.from(fileList);
     if (filesToUpload.length === 0) return;
 
-    // Validate file formats
+    // 2.2 Validate file formats AND per-file size (50MB cap on edge function).
+    // Surface ALL rejects in a single toast list rather than one toast per file.
     const SUPPORTED_EXTENSIONS = ['xlsx', 'xls', 'xlsm', 'csv', 'pdf', 'png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp', 'doc', 'docx', 'xml', 'txt'];
+    const PER_FILE_MAX = 50 * 1024 * 1024; // 50MB
     const validFiles: File[] = [];
+    const rejectedByExt: { name: string; ext: string }[] = [];
+    const rejectedBySize: { name: string; mb: string }[] = [];
     for (const file of filesToUpload) {
       const ext = file.name.split('.').pop()?.toLowerCase() || '';
       if (!SUPPORTED_EXTENSIONS.includes(ext)) {
-        toast.error(`Formato no compatible: .${ext}`, {
-          description: `Formatos aceptados: Excel (.xlsx, .xls), CSV (.csv), PDF (.pdf), Imágenes (.jpg, .png, .webp, .gif, .bmp), Word (.doc, .docx) y XML (.xml).`,
-          duration: 8000,
-        });
+        rejectedByExt.push({ name: file.name, ext });
+        continue;
+      }
+      if (file.size > PER_FILE_MAX) {
+        rejectedBySize.push({ name: file.name, mb: (file.size / 1024 / 1024).toFixed(1) });
         continue;
       }
       validFiles.push(file);
+    }
+    if (rejectedByExt.length > 0) {
+      const list = rejectedByExt.slice(0, 3).map(r => `${r.name} (.${r.ext})`).join(', ');
+      const more = rejectedByExt.length > 3 ? ` y ${rejectedByExt.length - 3} más` : '';
+      toast.error(`${rejectedByExt.length} archivo${rejectedByExt.length === 1 ? '' : 's'} con formato no compatible`, {
+        description: `${list}${more}. Aceptados: Excel, CSV, PDF, imágenes, Word, XML.`,
+        duration: 8000,
+      });
+    }
+    if (rejectedBySize.length > 0) {
+      const list = rejectedBySize.slice(0, 3).map(r => `${r.name} (${r.mb}MB)`).join(', ');
+      const more = rejectedBySize.length > 3 ? ` y ${rejectedBySize.length - 3} más` : '';
+      toast.error(`${rejectedBySize.length} archivo${rejectedBySize.length === 1 ? '' : 's'} supera${rejectedBySize.length === 1 ? '' : 'n'} 50MB`, {
+        description: `${list}${more}. Dividí el archivo o exportá en CSV para reducir tamaño.`,
+        duration: 9000,
+      });
     }
     if (validFiles.length === 0) return;
 
@@ -1504,6 +1577,11 @@ export default function CargaDatos() {
   const handleReclassify = async (fileUploadId: string, newCategory: string) => {
     if (!profile?.company_id) return;
     try {
+      // 5.16: capture old category for audit log before mutating
+      const prevChunks = extractedDataMap[fileUploadId] || [];
+      const oldCategory = prevChunks.find(c => !c.data_category.startsWith('_'))?.data_category ?? null;
+      const fileNameForLog = files.find(f => f.id === fileUploadId)?.file_name ?? null;
+
       // 1.5: only update DATA records (skip the meta-rows _column_mapping,
       // _classification, _raw_cache — their data_category is structural).
       const { error } = await supabase
@@ -1513,6 +1591,20 @@ export default function CargaDatos() {
         .eq('company_id', profile.company_id)
         .not('data_category', 'in', '("_raw_cache","_classification","_column_mapping")');
       if (error) throw error;
+
+      // 5.16: audit log for the reclassify event
+      if (oldCategory !== newCategory) {
+        supabase.from('audit_logs').insert({
+          company_id: profile.company_id,
+          user_id: user?.id,
+          action: 'file_reclassified',
+          resource_type: 'file_upload',
+          resource_id: fileUploadId,
+          metadata: { file_name: fileNameForLog, old_category: oldCategory, new_category: newCategory },
+        }).then(({ error: auditErr }) => {
+          if (auditErr) console.error('[audit_logs] file_reclassified insert failed:', auditErr.message);
+        });
+      }
 
       // Also remap the inner category inside the _column_mapping record so
       // useExtractedData merges the mapping under the new category bucket.
@@ -1944,7 +2036,55 @@ export default function CargaDatos() {
   const totalPages = Math.ceil(totalCount / PAGE_SIZE);
   const isUploading = uploadQueue.some(i => i.status === 'pending' || i.status === 'uploading' || i.status === 'processing');
   // C4: Split active vs archived files
-  const activeFilesList = files.filter(f => f.status !== 'archived');
+  // 5.14: also apply client-side categoryFilter (from ?category= URL param) by
+  // peeking at the first non-meta extracted chunk's data_category.
+  const activeFilesList = useMemo(() => {
+    const base = files.filter(f => f.status !== 'archived');
+    if (categoryFilter === 'all') return base;
+    return base.filter(f => {
+      const chunks = extractedDataMap[f.id] || [];
+      return chunks.some(c => c.data_category === categoryFilter);
+    });
+  }, [files, extractedDataMap, categoryFilter]);
+
+  // 5.9: Bulk recategorize — runs handleReclassify for each selected file
+  // sequentially so toasts and refetch are coherent.
+  const handleBulkRecategorize = async (newCategory: string) => {
+    if (selectedIds.size === 0) return;
+    setBulkRecategorizing(true);
+    let ok = 0, fail = 0;
+    for (const id of selectedIds) {
+      try {
+        await handleReclassify(id, newCategory);
+        ok++;
+      } catch {
+        fail++;
+      }
+    }
+    setBulkRecategorizing(false);
+    setSelectedIds(new Set());
+    if (fail === 0) toast.success(`${ok} archivo(s) reclasificados`);
+    else toast.warning(`${ok} reclasificados, ${fail} fallaron`);
+  };
+
+  // 5.9: Toggle/select-all helpers
+  const toggleSelected = (id: string) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+  const toggleSelectAllVisible = () => {
+    setSelectedIds(prev => {
+      const visibleIds = activeFilesList
+        .filter(f => f.status === 'processed' || f.status === 'review' || f.status === 'processed_with_issues')
+        .map(f => f.id);
+      const allSelected = visibleIds.every(id => prev.has(id));
+      if (allSelected) return new Set();
+      return new Set(visibleIds);
+    });
+  };
 
   const statusLabel = (status: string | null) => {
     switch (status) {
@@ -1999,18 +2139,44 @@ export default function CargaDatos() {
 
           {/* Drop zone */}
           <div
-            className={`border-2 border-dashed rounded-xl p-12 text-center transition-all cursor-pointer ${dragging ? 'border-primary bg-primary/5 scale-[1.01]' : 'border-border hover:border-primary/50'} ${isUploading ? 'pointer-events-none opacity-60' : ''}`}
-            onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
-            onDragLeave={() => setDragging(false)}
-            onDrop={handleDrop}
+            className={`border-2 border-dashed rounded-xl p-12 text-center transition-all cursor-pointer ${dragInvalidMsg ? 'border-destructive bg-destructive/5' : dragging ? 'border-primary bg-primary/5 scale-[1.01]' : 'border-border hover:border-primary/50'} ${isUploading ? 'pointer-events-none opacity-60' : ''}`}
+            onDragOver={(e) => {
+              e.preventDefault();
+              setDragging(true);
+              // 2.2: inspect dataTransfer items to flag invalid types during drag
+              const items = e.dataTransfer.items;
+              if (items && items.length > 0) {
+                const ACCEPTED_MIME = /^(application\/(pdf|vnd\.ms-excel|vnd\.openxmlformats-officedocument\.spreadsheetml\.sheet|vnd\.openxmlformats-officedocument\.wordprocessingml\.document|msword|xml|x-xml)|text\/(csv|xml|plain)|image\/(png|jpeg|webp|gif|bmp))$/;
+                let invalidCount = 0;
+                let totalFileItems = 0;
+                for (let i = 0; i < items.length; i++) {
+                  if (items[i].kind !== 'file') continue;
+                  totalFileItems++;
+                  if (items[i].type && !ACCEPTED_MIME.test(items[i].type)) invalidCount++;
+                }
+                if (totalFileItems > 0 && invalidCount === totalFileItems) {
+                  setDragInvalidMsg('Formato no compatible. Soltá un Excel, CSV, PDF, imagen, Word o XML.');
+                } else if (invalidCount > 0) {
+                  setDragInvalidMsg(`${invalidCount} archivo${invalidCount === 1 ? '' : 's'} se ignorará${invalidCount === 1 ? '' : 'n'}: formato no compatible.`);
+                } else {
+                  setDragInvalidMsg(null);
+                }
+              }
+            }}
+            onDragLeave={() => { setDragging(false); setDragInvalidMsg(null); }}
+            onDrop={(e) => { setDragInvalidMsg(null); handleDrop(e); }}
             onClick={() => !isUploading && document.getElementById('file-input')?.click()}
           >
             {isUploading ? (
               <Loader2 className="h-10 w-10 mx-auto text-primary mb-3 animate-spin" />
+            ) : dragInvalidMsg ? (
+              <AlertTriangle className="h-10 w-10 mx-auto text-destructive mb-3" />
             ) : (
               <Upload className="h-10 w-10 mx-auto text-muted-foreground mb-3" />
             )}
-            <p className="font-medium">{isUploading ? 'Subiendo archivos...' : 'Arrastrá archivos acá o hacé click para seleccionar'}</p>
+            <p className={`font-medium ${dragInvalidMsg ? 'text-destructive' : ''}`}>
+              {isUploading ? 'Subiendo archivos...' : dragInvalidMsg ?? 'Arrastrá archivos acá o hacé click para seleccionar'}
+            </p>
             <p className="text-sm text-muted-foreground mt-1">Podés seleccionar muchos a la vez.</p>
             <p className="text-xs text-muted-foreground mt-2">Formatos aceptados: Excel (.xlsx, .xls), CSV (.csv), PDF (.pdf), Imágenes (.png, .jpg, .webp, .gif, .bmp), Word (.doc, .docx), XML (.xml) — Máx. 50MB por archivo. Sin límite de filas (se procesan automáticamente en bloques).</p>
             <input
@@ -2133,15 +2299,80 @@ export default function CargaDatos() {
                 <SelectItem value="XML">XML</SelectItem>
               </SelectContent>
             </Select>
+            {/* 5.14 Lineage: category filter (driven by ?category= URL param) */}
+            <Select value={categoryFilter} onValueChange={setCategoryFilter}>
+              <SelectTrigger className="w-[150px] h-9">
+                <SelectValue placeholder="Categoría" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todas las categorías</SelectItem>
+                {Object.entries(categoryLabels).map(([val, label]) => (
+                  <SelectItem key={val} value={val}>{label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {categoryFilter !== 'all' && (
+              <button
+                type="button"
+                onClick={() => setCategoryFilter('all')}
+                className="text-[11px] underline text-muted-foreground hover:text-foreground"
+                title="Quitar filtro de categoría"
+              >
+                Limpiar
+              </button>
+            )}
           </div>
+
+          {/* 5.9 Bulk action bar — appears when at least one file is selected */}
+          {selectedIds.size > 0 && (
+            <div className="flex items-center gap-3 px-4 py-2.5 rounded-lg border border-primary/30 bg-primary/5">
+              <span className="text-sm font-medium">
+                {selectedIds.size} archivo{selectedIds.size === 1 ? '' : 's'} seleccionado{selectedIds.size === 1 ? '' : 's'}
+              </span>
+              <div className="flex-1" />
+              <Select onValueChange={handleBulkRecategorize} disabled={bulkRecategorizing}>
+                <SelectTrigger className="w-[200px] h-8">
+                  <SelectValue placeholder={bulkRecategorizing ? 'Aplicando...' : 'Cambiar categoría a...'} />
+                </SelectTrigger>
+                <SelectContent>
+                  {Object.entries(categoryLabels).map(([val, label]) => (
+                    <SelectItem key={val} value={val}>{label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => setSelectedIds(new Set())}
+                disabled={bulkRecategorizing}
+              >
+                Cancelar
+              </Button>
+            </div>
+          )}
 
           {/* File List */}
           <Card id="historial-cargas-card">
             <CardHeader className="pb-2">
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between gap-2">
                 <CardTitle className="text-sm text-muted-foreground">
                   Historial de cargas {totalCount > 0 && `(${totalCount})`}
+                  {categoryFilter !== 'all' && (
+                    <span className="ml-2 text-[11px] inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-primary/10 text-primary">
+                      Categoría: {categoryLabels[categoryFilter] || categoryFilter}
+                    </span>
+                  )}
                 </CardTitle>
+                {/* 5.9 select-all toggle (only for processed files) */}
+                {activeFilesList.some(f => f.status === 'processed' || f.status === 'review' || f.status === 'processed_with_issues') && (
+                  <button
+                    type="button"
+                    onClick={toggleSelectAllVisible}
+                    className="text-[11px] text-muted-foreground hover:text-foreground underline"
+                  >
+                    {selectedIds.size > 0 ? 'Deseleccionar' : 'Seleccionar visibles'}
+                  </button>
+                )}
               </div>
             </CardHeader>
             <CardContent>
@@ -2159,9 +2390,21 @@ export default function CargaDatos() {
                     const firstExtracted = extractedChunks?.[0];
                     const totalExtractedRows = extractedChunks?.reduce((sum, c) => sum + (c.row_count || 0), 0) || 0;
 
+                    const isBulkable = f.status === 'processed' || f.status === 'review' || f.status === 'processed_with_issues';
+                    const isSelected = selectedIds.has(f.id);
                     return (
-                      <div key={f.id} className="p-3 rounded-lg hover:bg-muted/50 transition-colors">
+                      <div key={f.id} className={`p-3 rounded-lg hover:bg-muted/50 transition-colors ${isSelected ? 'bg-primary/5 ring-1 ring-primary/20' : ''}`}>
                         <div className="flex items-center gap-3 text-sm">
+                          {/* 5.9 selection checkbox (only for files that can be reclassified) */}
+                          {isBulkable && (
+                            <input
+                              type="checkbox"
+                              className="h-4 w-4 rounded border-input shrink-0 cursor-pointer accent-primary"
+                              checked={isSelected}
+                              onChange={() => toggleSelected(f.id)}
+                              aria-label={`Seleccionar ${f.file_name}`}
+                            />
+                          )}
                           <Icon className="h-5 w-5 text-muted-foreground shrink-0" />
                           <div className="flex-1 min-w-0">
                             <p className="font-medium truncate">{f.file_name}</p>
@@ -2514,9 +2757,12 @@ export default function CargaDatos() {
               )}
             </CardContent>
           </Card>
+
+          {/* 5.16 Audit trail — collapsed by default, opens on demand */}
+          <AuditTrailPanel companyId={profile?.company_id} refreshKey={files.length} />
         </div>
 
-        <ContextualAssistant companySettings={companySettings} />
+        <ContextualAssistant companySettings={companySettings} lastUploadDates={lastUploadDates} />
       </div>
 
       {/* Overlap detection dialog */}

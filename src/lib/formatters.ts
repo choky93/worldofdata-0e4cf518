@@ -78,6 +78,33 @@ export function parseLocalNumber(raw: unknown): number {
   return isNaN(val) ? 0 : val;
 }
 
+/**
+ * Relative time helper used by freshness pills, dataset list, audit trail.
+ * Returns "Hoy" / "Ayer" / "Hace 3d" / "Hace 2 sem" / "Hace 4 mes" — short
+ * Spanish form so it fits inside compact badges.
+ */
+export function formatRelativeTime(date: Date | string | number | null | undefined): string {
+  if (date == null) return '—';
+  const t = typeof date === 'number' ? date : new Date(date).getTime();
+  if (!isFinite(t)) return '—';
+  const days = Math.floor((Date.now() - t) / 86400000);
+  if (days < 0) return 'Hoy';
+  if (days === 0) return 'Hoy';
+  if (days === 1) return 'Ayer';
+  if (days < 7) return `Hace ${days}d`;
+  if (days < 30) return `Hace ${Math.floor(days / 7)} sem`;
+  if (days < 365) return `Hace ${Math.floor(days / 30)} mes`;
+  return `Hace ${Math.floor(days / 365)} año${Math.floor(days / 365) === 1 ? '' : 's'}`;
+}
+
+/** Days elapsed since `date` (>= 0). Returns null if input is unparseable. */
+export function daysSince(date: Date | string | number | null | undefined): number | null {
+  if (date == null) return null;
+  const t = typeof date === 'number' ? date : new Date(date).getTime();
+  if (!isFinite(t)) return null;
+  return Math.max(0, Math.floor((Date.now() - t) / 86400000));
+}
+
 export function getGreeting(): string {
   const hour = new Date().getHours();
   if (hour < 12) return 'Buen día';

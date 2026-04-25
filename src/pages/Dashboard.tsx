@@ -17,8 +17,10 @@ import { ForecastCard } from '@/components/dashboard/ForecastCard';
 import { StockCard } from '@/components/dashboard/StockCard';
 import { InversionPublicitariaCard } from '@/components/dashboard/InversionPublicitariaCard';
 import { AlertTriangle, Database, Upload } from 'lucide-react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
+import { FreshnessPill } from '@/components/FreshnessPill';
+import { CATEGORY_LABELS, type CategoryKey } from '@/lib/category-modules';
 
 function Stagger({ children, index }: { children: React.ReactNode; index: number }) {
   return (
@@ -39,6 +41,7 @@ export default function Dashboard() {
   const mG = mappings.gastos;
   const mM = mappings.marketing;
   const { period, setPeriod } = usePeriod();
+  const navigate = useNavigate();
   const name = profile?.full_name?.split(' ')[0] || 'Usuario';
   const company = companyName || 'tu empresa';
   const showStock = !companySettings || companySettings.has_stock || companySettings.sells_products;
@@ -217,7 +220,7 @@ export default function Dashboard() {
           {!dataLoading && (
             hasData ? (
               <div
-                className="rounded-2xl px-5 py-3 text-xs flex items-center gap-2 flex-wrap"
+                className="rounded-2xl px-5 py-3 text-xs flex items-center gap-3 flex-wrap"
                 style={{
                   background: 'hsl(var(--pastel-mint) / 0.3)',
                   color: 'hsl(155 45% 25%)',
@@ -225,26 +228,22 @@ export default function Dashboard() {
                 }}
               >
                 <Database className="h-3.5 w-3.5 shrink-0" />
-                <span className="flex-1">Mostrando datos reales extraídos de tus archivos cargados</span>
-                {(() => {
-                  // Indicador de frescura: muestra cuándo fue la última carga activa
-                  const lastKey = ['ventas', 'gastos', 'stock'].find(k => lastUploadDates[k]);
-                  if (!lastKey) return null;
-                  const days = Math.max(0, Math.floor((Date.now() - new Date(lastUploadDates[lastKey]).getTime()) / 86400000));
-                  if (days < 2) return (
-                    <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-700 border border-emerald-500/25">
-                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 shrink-0" />
-                      Al día
-                    </span>
-                  );
-                  const isWarn = days < 65;
-                  return (
-                    <span className={`inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full border ${isWarn ? 'bg-amber-500/12 text-amber-700 border-amber-500/25' : 'bg-red-500/12 text-red-700 border-red-500/25'}`}>
-                      <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${isWarn ? 'bg-amber-500' : 'bg-red-500 animate-pulse'}`} />
-                      Hace {days}d sin actualizar
-                    </span>
-                  );
-                })()}
+                <span className="flex-1 min-w-[160px]">Mostrando datos reales extraídos de tus archivos cargados</span>
+                {/* 5.13 Per-category freshness pills — clickable for lineage (5.14) */}
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  {(['ventas', 'gastos', 'stock', 'marketing'] as CategoryKey[])
+                    .filter(c => lastUploadDates[c])
+                    .map(c => (
+                      <span key={c} className="inline-flex items-center gap-1">
+                        <span className="text-[10px] text-foreground/60">{CATEGORY_LABELS[c]}</span>
+                        <FreshnessPill
+                          lastUpload={lastUploadDates[c]}
+                          onClick={() => navigate(`/carga-datos?category=${c}`)}
+                          compact
+                        />
+                      </span>
+                    ))}
+                </div>
               </div>
             ) : (
               <div className="rounded-2xl px-4 py-2.5 text-xs flex items-center gap-2 bg-card text-muted-foreground border border-border">
