@@ -17,6 +17,8 @@ import { useExtractedData } from '@/hooks/useExtractedData';
 import { findString, FIELD_DATE, FIELD_NAME } from '@/lib/field-utils';
 import { SchemaPreviewDialog, type SchemaPreviewPayload } from '@/components/SchemaPreviewDialog';
 import { suggestCategory } from '@/lib/schema-preview';
+import { DataQualityBadge } from '@/components/DataQualityBadge';
+import { computeDataQuality, detectAnomalies, type DataQualityScore } from '@/lib/data-quality';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -596,6 +598,9 @@ export default function CargaDatos() {
   // category & inspects sample rows. Resolved via a Promise the upload flow awaits.
   const [pendingPreview, setPendingPreview] = useState<{ payload: SchemaPreviewPayload; category: string } | null>(null);
   const previewResolverRef = useRef<((value: { confirmed: boolean; category: string }) => void) | null>(null);
+  // 5.2: DQ scores keyed by file_upload_id. Computed at upload time (rows in
+  // scope) and cached in session state. Old files show no badge until reprocessed.
+  const [dqScoresMap, setDqScoresMap] = useState<Record<string, DataQualityScore>>({});
   const [uploadQueue, setUploadQueue] = useState<UploadQueueItem[]>([]);
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const pollInFlightRef = useRef(false); // 1.3: guard against overlapping polls
@@ -1283,6 +1288,40 @@ export default function CargaDatos() {
             } else {
               updateItem({ status: 'done', progress: 100, totalRows: savedTotal });
               toast.success(`"${item.file.name}" procesado correctamente — ${savedTotal.toLocaleString('es-AR')} filas${totalBatches > 1 ? ` en ${totalBatches} bloques` : ''}`);
+            }
+
+            // 5.2 + 5.3: Compute Data Quality Score and Anomaly Report client-side
+            // using rows still in scope. Cached in dqScoresMap (session only).
+            try {
+              const finalCat = categoryOverride || resolvedCategory || 'otro';
+              const dq = computeDataQuality(parsedRows, finalCat);
+              setDqScoresMap(prev => ({ ...prev, [dbData.id]: dq }));
+              if (dq.score < 60) {
+                toast.warning(`"${item.file.name}": calidad de datos baja (DQ ${dq.score}/100)`, {
+                  description: dq.issues.slice(0, 2).join(' · ') || 'Revisá las filas en el detalle.',
+                  duration: 10000,
+                });
+              }
+              const anomalies = detectAnomalies(parsedRows, finalCat);
+              if (anomalies.outlierColumns.length > 0 || anomalies.hasMomChange || anomalies.hasDateGap) {
+                const messages: string[] = [];
+                if (anomalies.outlierColumns.length > 0) {
+                  const top = anomalies.outlierColumns[0];
+                  messages.push(`${top.count} valor(es) atípicos en "${top.column}" (máx ${top.max.toLocaleString('es-AR')})`);
+                }
+                if (anomalies.momDetail) {
+                  messages.push(`Cambio ${anomalies.momDetail.ratio.toFixed(1)}× entre ${anomalies.momDetail.from} → ${anomalies.momDetail.to}`);
+                }
+                if (anomalies.gapDetail) {
+                  messages.push(`Hueco de ${anomalies.gapDetail.days} días entre ${anomalies.gapDetail.start} y ${anomalies.gapDetail.end}`);
+                }
+                toast.warning(`"${item.file.name}": anomalías detectadas`, {
+                  description: messages.join(' · '),
+                  duration: 12000,
+                });
+              }
+            } catch (dqErr) {
+              console.warn('[CargaDatos] DQ/anomaly compute failed:', dqErr);
             }
           } catch (invokeErr: any) {
             await supabase.from('file_uploads').update({ status: 'queued', processing_error: null }).eq('id', dbData.id);
@@ -2116,6 +2155,10 @@ export default function CargaDatos() {
                               ? `Bloque ${f.next_chunk_index}/${f.total_chunks}`
                               : statusLabel(f.status)}
                           </Badge>
+                          {/* 5.2: DQ badge — only renders if score is in cache */}
+                          {dqScoresMap[f.id] && (f.status === 'processed' || f.status === 'review' || f.status === 'processed_with_issues') && (
+                            <DataQualityBadge dq={dqScoresMap[f.id]} />
+                          )}
                           {(f.status === 'queued') && (
                             <>
                               <Button
