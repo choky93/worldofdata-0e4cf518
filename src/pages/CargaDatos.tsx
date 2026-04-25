@@ -301,6 +301,18 @@ function detectFileType(name: string): string {
   return 'Otro';
 }
 
+// 4.2: Sanitize processing_error before showing to end-users.
+// Strips stack traces and overly technical noise that confuses non-technical operators.
+function sanitizeError(err: string | null | undefined): string {
+  if (!err) return '';
+  const looksTechnical = /at\s+\S+\s*\(.+?\)|TypeError|ReferenceError|SyntaxError|\bstack:|^\s*\{[\s\S]*\}\s*$/m.test(err);
+  if (looksTechnical) {
+    return 'Ocurrió un error técnico procesando el archivo. Probá reprocesarlo o contactá a soporte si persiste.';
+  }
+  // Trim long URLs / IDs that confuse users, cap length
+  return err.replace(/https?:\/\/\S+/g, '[link]').slice(0, 400);
+}
+
 async function computeFileHash(file: File): Promise<string> {
   const buffer = await file.arrayBuffer();
   const hashBuffer = await crypto.subtle.digest('SHA-256', buffer);
@@ -410,11 +422,10 @@ function UploadQueue({ items, onDismiss }: { items: UploadQueueItem[]; onDismiss
               ? `✅ ${completed} archivo(s) subido(s)${errors > 0 ? `, ${errors} con error` : ''}`
               : `Subiendo ${total} archivo(s)... (${completed}/${total})`}
           </CardTitle>
-          {allDone && (
-            <Button variant="ghost" size="sm" onClick={onDismiss} className="h-7 text-xs">
-              Cerrar
-            </Button>
-          )}
+          {/* 2.3: Botón siempre visible para evitar bloqueos si un upload queda colgado */}
+          <Button variant="ghost" size="sm" onClick={onDismiss} className="h-7 text-xs">
+            {allDone ? 'Cerrar' : 'Ocultar'}
+          </Button>
         </div>
         <Progress value={overallProgress} className="h-1.5" />
       </CardHeader>
@@ -441,8 +452,15 @@ function UploadQueue({ items, onDismiss }: { items: UploadQueueItem[]; onDismiss
                   ))}
                 </span>
               )}
+              {/* 2.5: Diferenciar fase de subida vs procesamiento IA */}
+              {item.status === 'uploading' && (
+                <span className="text-muted-foreground whitespace-nowrap text-[10px]">Subiendo a storage...</span>
+              )}
               {item.status === 'processing' && item.currentChunk !== undefined && item.totalChunks && item.totalChunks > 1 && (
-                <span className="text-muted-foreground whitespace-nowrap">Bloque {item.currentChunk + 1} de {item.totalChunks}</span>
+                <span className="text-muted-foreground whitespace-nowrap text-[10px]">IA procesando bloque {item.currentChunk + 1}/{item.totalChunks}</span>
+              )}
+              {item.status === 'processing' && (item.currentChunk === undefined || (item.totalChunks ?? 1) <= 1) && (
+                <span className="text-muted-foreground whitespace-nowrap text-[10px]">IA clasificando...</span>
               )}
               {item.status === 'done' && item.totalRows && item.totalRows > 0 && (
                 <span className="text-success whitespace-nowrap">
@@ -470,7 +488,20 @@ function StatusDashboard({ files, totalCount, archivedCount = 0 }: { files: File
   const processing = activeFiles.filter(f => f.status === 'processing').length;
   const errors = activeFiles.filter(f => f.status === 'error').length;
 
-  if (totalCount === 0) return null;
+  // 2.1: Empty state — onboarding inline en lugar de pantalla vacía
+  if (totalCount === 0) {
+    return (
+      <div className="rounded-2xl border-2 border-dashed border-primary/30 p-6 text-center bg-gradient-to-br from-primary/5 via-transparent to-transparent">
+        <div className="flex items-center justify-center mb-2">
+          <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center">
+            <Upload className="h-5 w-5 text-primary/70" />
+          </div>
+        </div>
+        <p className="text-sm font-semibold mb-0.5">Empezá subiendo tu primer archivo</p>
+        <p className="text-xs text-muted-foreground">Arrastrá un Excel, CSV o PDF — la IA detecta y categoriza los datos automáticamente.</p>
+      </div>
+    );
+  }
 
   type TileColor = 'success' | 'warning' | 'destructive' | 'neutral';
   type TileDef = { count: number; label: string; icon: typeof CheckCircle2; color: TileColor; always?: boolean; spin?: boolean; };
@@ -524,6 +555,8 @@ export default function CargaDatos() {
   const [storageUsedBytes, setStorageUsedBytes] = useState<number>(0);
   const [reprocessingId, setReprocessingId] = useState<string | null>(null);
   const [reclassifyingId, setReclassifyingId] = useState<string | null>(null); // file_upload_id being reclassified
+  // 2.4: Confirmación antes de reclasificar — evita mis-clicks que rompan el dashboard
+  const [pendingReclassify, setPendingReclassify] = useState<{ fileId: string; fileName: string; newCategory: string; oldCategory: string } | null>(null);
   const [uploadQueue, setUploadQueue] = useState<UploadQueueItem[]>([]);
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const prevErrorIdsRef = useRef<Set<string>>(new Set());
@@ -644,15 +677,35 @@ export default function CargaDatos() {
       setFiles(records);
       setTotalCount(count || 0);
 
-      // Detect new errors and show toast
-      const currentErrorIds = new Set(records.filter(f => f.status === 'error').map(f => f.id));
+      // 1.13: Toast dedup persistido en localStorage para no re-notificar al cambiar de página/filtro
+      const NOTIFIED_KEY = `wod_notified_error_ids_${profile.company_id}`;
+      let notified: Set<string>;
+      try {
+        const raw = localStorage.getItem(NOTIFIED_KEY);
+        notified = new Set(raw ? JSON.parse(raw) : []);
+      } catch { notified = new Set(); }
+      let changed = false;
       for (const f of records) {
-        if (f.status === 'error' && !prevErrorIdsRef.current.has(f.id)) {
+        if (f.status === 'error' && !notified.has(f.id)) {
           toast.error(`Error procesando "${f.file_name}"`, {
-            description: f.processing_error || 'Error desconocido durante el procesamiento',
+            description: sanitizeError(f.processing_error) || 'Error desconocido durante el procesamiento',
             duration: 8000,
           });
+          notified.add(f.id);
+          changed = true;
         }
+      }
+      // Limpiar IDs cuyo estado dejó de ser error (permitir re-notificación si vuelve a fallar)
+      const currentErrorIds = new Set(records.filter(f => f.status === 'error').map(f => f.id));
+      for (const id of [...notified]) {
+        const stillVisible = records.some(f => f.id === id);
+        if (stillVisible && !currentErrorIds.has(id)) {
+          notified.delete(id);
+          changed = true;
+        }
+      }
+      if (changed) {
+        try { localStorage.setItem(NOTIFIED_KEY, JSON.stringify([...notified])); } catch {}
       }
       prevErrorIdsRef.current = currentErrorIds;
 
@@ -665,13 +718,15 @@ export default function CargaDatos() {
     }
   }, [profile?.company_id, role, user?.id, fetchExtractedData, currentPage, searchTerm, statusFilter, typeFilter]);
 
-  // Fetch storage usage
+  // Fetch storage usage — 1.2: excluye archivados de la cuota visible
+  // (siguen ocupando R2 físicamente pero no le contamos el espacio al usuario hasta que los borre)
   const fetchStorageUsage = useCallback(async () => {
     if (!profile?.company_id) return;
     const { data, error } = await supabase
       .from('file_uploads')
       .select('file_size')
-      .eq('company_id', profile.company_id);
+      .eq('company_id', profile.company_id)
+      .neq('status', 'archived');
     if (!error && data) {
       const total = data.reduce((sum, f) => sum + (f.file_size || 0), 0);
       setStorageUsedBytes(total);
@@ -878,7 +933,11 @@ export default function CargaDatos() {
               if (allSame) {
                 // Same headers: concatenate into single dataset
                 const allRows = sheetDataSets.flatMap(s => s.rows);
-                if (allRows.length > 50000) allRows.length = 50000;
+                // 1.9: avisar al usuario si truncamos
+                if (allRows.length > 50000) {
+                  toast.warning(`"${item.file.name}": el archivo tiene ${allRows.length.toLocaleString('es-AR')} filas. Solo se procesarán las primeras 50.000 — para procesar el resto, dividilo en archivos más chicos.`, { duration: 12000 });
+                  allRows.length = 50000;
+                }
                 parsedRows = cleanParsedRows(allRows, sheetDataSets[0].headers);
                 parsedHeaders = sheetDataSets[0].headers;
                 console.log(`[CargaDatos] ${sheetDataSets.length} sheets with same headers → concatenated ${parsedRows.length} rows`);
@@ -976,7 +1035,11 @@ export default function CargaDatos() {
               }
             } else if (sheetDataSets.length === 1) {
               const allRows = sheetDataSets[0].rows;
-              if (allRows.length > 50000) allRows.length = 50000;
+              // 1.9: avisar al usuario si truncamos
+              if (allRows.length > 50000) {
+                toast.warning(`"${item.file.name}": el archivo tiene ${allRows.length.toLocaleString('es-AR')} filas. Solo se procesarán las primeras 50.000.`, { duration: 12000 });
+                allRows.length = 50000;
+              }
               parsedRows = cleanParsedRows(allRows, sheetDataSets[0].headers);
               parsedHeaders = sheetDataSets[0].headers;
             }
@@ -992,7 +1055,11 @@ export default function CargaDatos() {
             const rows = parseCSVClientSide(text);
             if (rows.length > 0) {
               const fixed = fixBrokenHeaders(rows);
-              if (fixed.rows.length > 50000) fixed.rows.length = 50000;
+              // 1.9: avisar al usuario si truncamos
+              if (fixed.rows.length > 50000) {
+                toast.warning(`"${item.file.name}": el archivo tiene ${fixed.rows.length.toLocaleString('es-AR')} filas. Solo se procesarán las primeras 50.000.`, { duration: 12000 });
+                fixed.rows.length = 50000;
+              }
               parsedRows = fixed.rows;
               parsedHeaders = fixed.headers;
             }
@@ -1098,14 +1165,16 @@ export default function CargaDatos() {
           }
         } else {
           updateItem({ status: 'done', progress: 100 });
-          // Audit log for upload
+          // 1.11: Audit log for upload — surface insert errors to console
           supabase.from('audit_logs').insert({
             company_id: profile!.company_id,
             user_id: user!.id,
             action: 'file_uploaded',
             resource_type: 'file_upload',
             metadata: { file_name: item.file.name, file_size: item.file.size },
-          }).then(() => {});
+          }).then(({ error: auditErr }) => {
+            if (auditErr) console.error('[audit_logs] file_uploaded insert failed:', auditErr.message);
+          });
           toast.success(`"${item.file.name}" en cola para procesar`);
         }
       } catch (err: any) {
@@ -1331,16 +1400,21 @@ export default function CargaDatos() {
 
   const handleDelete = async (file: FileRecord) => {
     try {
+      // 1.4: Track R2 failure to surface to user (no silent storage leaks)
+      let r2Failed = false;
       if (file.storage_path) {
         const { data, error: r2Error } = await supabase.functions.invoke('r2-delete', {
           body: { storagePath: file.storage_path },
         });
-        if (r2Error || !data?.success) console.warn('R2 delete warning:', r2Error?.message || data?.error);
+        if (r2Error || !data?.success) {
+          console.warn('R2 delete warning:', r2Error?.message || data?.error);
+          r2Failed = true;
+        }
       }
       await supabase.from('file_extracted_data').delete().eq('file_upload_id', file.id);
       const { error } = await supabase.from('file_uploads').delete().eq('id', file.id);
       if (error) throw error;
-      // Audit log
+      // 1.11: Audit log — surface insert errors to console for traceability
       await supabase.from('audit_logs').insert({
         company_id: profile?.company_id,
         user_id: user?.id,
@@ -1348,8 +1422,14 @@ export default function CargaDatos() {
         resource_type: 'file_upload',
         resource_id: file.id,
         metadata: { file_name: file.file_name, file_size: file.file_size },
-      }).then(() => {});
-      toast.success('Archivo eliminado');
+      }).then(({ error: auditErr }) => {
+        if (auditErr) console.error('[audit_logs] file_deleted insert failed:', auditErr.message);
+      });
+      if (r2Failed) {
+        toast.warning('Archivo eliminado de la base, pero el archivo físico puede haber quedado en storage. Si el problema persiste, contactá a soporte.', { duration: 10000 });
+      } else {
+        toast.success('Archivo eliminado');
+      }
       setFiles(prev => prev.filter(f => f.id !== file.id));
       setExtractedDataMap(prev => { const next = { ...prev }; delete next[file.id]; return next; });
     } catch (err: any) {
@@ -1374,7 +1454,7 @@ export default function CargaDatos() {
     if (!profile?.company_id) return;
     setReprocessingId(file.id);
     try {
-      // Audit log
+      // 1.11: Audit log — surface insert errors to console for traceability
       supabase.from('audit_logs').insert({
         company_id: profile.company_id,
         user_id: user?.id,
@@ -1382,7 +1462,9 @@ export default function CargaDatos() {
         resource_type: 'file_upload',
         resource_id: file.id,
         metadata: { file_name: file.file_name },
-      }).then(() => {});
+      }).then(({ error: auditErr }) => {
+        if (auditErr) console.error('[audit_logs] file_reprocessed insert failed:', auditErr.message);
+      });
       await supabase.from('file_extracted_data').delete().eq('file_upload_id', file.id);
       
       const ext = file.file_name.split('.').pop()?.toLowerCase() || '';
@@ -1424,7 +1506,11 @@ export default function CargaDatos() {
             allRows.push(...sheetRows);
             if (allRows.length >= 50000) break;
           }
-          if (allRows.length > 50000) allRows.length = 50000;
+          // 1.9: avisar al usuario si truncamos al reprocesar
+          if (allRows.length > 50000) {
+            toast.warning(`"${file.file_name}": el archivo tiene ${allRows.length.toLocaleString('es-AR')} filas. Solo se procesarán las primeras 50.000.`, { duration: 12000 });
+            allRows.length = 50000;
+          }
           
           if (allRows.length === 0) throw new Error('No se encontraron filas en el archivo');
           
@@ -1571,6 +1657,17 @@ export default function CargaDatos() {
         if (parts.length >= 2) return { url: parts[0], name: parts[1] };
         return parts[0];
       });
+
+      // 1.12: Validar que todos los URLs sean http/https — defensa en profundidad contra file://, javascript:, etc.
+      const invalidUrls = urls.filter(u => {
+        const url = typeof u === 'string' ? u : u.url;
+        return !/^https?:\/\//i.test(url || '');
+      });
+      if (invalidUrls.length > 0) {
+        toast.error('URL(s) inválida(s): solo se aceptan enlaces http:// o https://', { duration: 8000 });
+        setIsImportingUrls(false);
+        return;
+      }
 
       const { data, error } = await supabase.functions.invoke('import-url', {
         body: { urls, userId: user.id, companyId: profile.company_id },
@@ -1780,7 +1877,7 @@ export default function CargaDatos() {
           </div>
 
           {/* File List */}
-          <Card>
+          <Card id="historial-cargas-card">
             <CardHeader className="pb-2">
               <div className="flex items-center justify-between">
                 <CardTitle className="text-sm text-muted-foreground">
@@ -1814,7 +1911,7 @@ export default function CargaDatos() {
                               {f.file_size ? ` · ${f.file_size > 1024 * 1024 ? `${(f.file_size / 1024 / 1024).toFixed(1)} MB` : `${(f.file_size / 1024).toFixed(0)} KB`}` : ''}
                             </p>
                             {(f.status === 'error' || f.status === 'review' || f.status === 'processed_with_issues') && f.processing_error && f.processing_error !== RATE_LIMIT_MESSAGE && (
-                              <p className={`text-xs mt-0.5 whitespace-pre-wrap break-words ${f.status === 'error' ? 'text-destructive' : 'text-warning'}`}>{f.processing_error}</p>
+                              <p className={`text-xs mt-0.5 whitespace-pre-wrap break-words ${f.status === 'error' ? 'text-destructive' : 'text-warning'}`}>{sanitizeError(f.processing_error)}</p>
                             )}
                           </div>
                           <Badge className={`border-0 shrink-0 ${f.status === 'queued' && f.processing_error === RATE_LIMIT_MESSAGE ? 'bg-warning/15 text-warning' : statusColor(f.status)}`}>
@@ -1912,7 +2009,19 @@ export default function CargaDatos() {
                                   <div className="flex items-center gap-1.5">
                                     <Select
                                       defaultValue={firstExtracted.data_category}
-                                      onValueChange={(val) => handleReclassify(f.id, val)}
+                                      onValueChange={(val) => {
+                                        // 2.4: pedir confirmación antes de aplicar (evita mis-clicks que rompan dashboard)
+                                        if (val !== firstExtracted.data_category) {
+                                          setPendingReclassify({
+                                            fileId: f.id,
+                                            fileName: f.file_name,
+                                            newCategory: val,
+                                            oldCategory: firstExtracted.data_category,
+                                          });
+                                        } else {
+                                          setReclassifyingId(null);
+                                        }
+                                      }}
                                     >
                                       <SelectTrigger className="h-6 text-xs w-36 border-primary/50">
                                         <SelectValue />
@@ -2112,12 +2221,16 @@ export default function CargaDatos() {
                     Página {currentPage + 1} de {totalPages}
                   </p>
                   <div className="flex gap-1">
+                    {/* 2.10: Scroll to top of list when changing pages */}
                     <Button
                       variant="outline"
                       size="icon"
                       className="h-8 w-8"
                       disabled={currentPage === 0}
-                      onClick={() => setCurrentPage(p => p - 1)}
+                      onClick={() => {
+                        setCurrentPage(p => p - 1);
+                        document.getElementById('historial-cargas-card')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                      }}
                     >
                       <ChevronLeft className="h-4 w-4" />
                     </Button>
@@ -2126,7 +2239,10 @@ export default function CargaDatos() {
                       size="icon"
                       className="h-8 w-8"
                       disabled={currentPage >= totalPages - 1}
-                      onClick={() => setCurrentPage(p => p + 1)}
+                      onClick={() => {
+                        setCurrentPage(p => p + 1);
+                        document.getElementById('historial-cargas-card')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                      }}
                     >
                       <ChevronRight className="h-4 w-4" />
                     </Button>
@@ -2176,6 +2292,53 @@ export default function CargaDatos() {
             </AlertDialogCancel>
             <AlertDialogAction onClick={handleOverlapReplace} className="bg-warning text-warning-foreground hover:bg-warning/90">
               Reemplazar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* 2.4: Reclassify confirmation dialog */}
+      <AlertDialog open={!!pendingReclassify} onOpenChange={(open) => { if (!open) { setPendingReclassify(null); setReclassifyingId(null); } }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5 text-warning" />
+              Confirmar reclasificación
+            </AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-2">
+                <p>
+                  Vas a cambiar la categoría de <strong>"{pendingReclassify?.fileName}"</strong>:
+                </p>
+                <div className="flex items-center gap-2 text-sm">
+                  <span className="px-2 py-0.5 rounded-md bg-muted border text-muted-foreground">
+                    {categoryLabels[pendingReclassify?.oldCategory || ''] || pendingReclassify?.oldCategory}
+                  </span>
+                  <span className="text-muted-foreground/50">→</span>
+                  <span className="px-2 py-0.5 rounded-md bg-warning/10 border border-warning/30 font-medium">
+                    {categoryLabels[pendingReclassify?.newCategory || ''] || pendingReclassify?.newCategory}
+                  </span>
+                </div>
+                <p className="text-muted-foreground text-xs">
+                  Esto va a recalcular los módulos del dashboard que usan estos datos. Los valores se mueven a la nueva categoría inmediatamente.
+                </p>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => { setPendingReclassify(null); setReclassifyingId(null); }}>
+              Cancelar
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (pendingReclassify) {
+                  handleReclassify(pendingReclassify.fileId, pendingReclassify.newCategory);
+                  setPendingReclassify(null);
+                }
+              }}
+              className="bg-warning text-warning-foreground hover:bg-warning/90"
+            >
+              Confirmar cambio
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
