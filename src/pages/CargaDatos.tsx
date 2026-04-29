@@ -18,6 +18,8 @@ import { useExtractedData } from '@/hooks/useExtractedData';
 import { findString, FIELD_DATE, FIELD_NAME } from '@/lib/field-utils';
 import { SchemaPreviewDialog, type SchemaPreviewPayload } from '@/components/SchemaPreviewDialog';
 import { MultiSheetPickerDialog, type SheetInfo } from '@/components/MultiSheetPickerDialog';
+import { useDeleteRequests } from '@/hooks/useDeleteRequests';
+import { Textarea } from '@/components/ui/textarea';
 import { suggestCategory } from '@/lib/schema-preview';
 import { DataQualityBadge } from '@/components/DataQualityBadge';
 import { computeDataQuality, detectAnomalies, type DataQualityScore } from '@/lib/data-quality';
@@ -648,6 +650,11 @@ export default function CargaDatos() {
   // category & inspects sample rows. Resolved via a Promise the upload flow awaits.
   const [pendingPreview, setPendingPreview] = useState<{ payload: SchemaPreviewPayload; category: string } | null>(null);
   const previewResolverRef = useRef<((value: { confirmed: boolean; category: string }) => void) | null>(null);
+  // Ola 17: delete requests — employees solicitan, admin aprueba
+  const { pending: deletePending, requestDelete, approveRequest, rejectRequest } = useDeleteRequests();
+  const [pendingDeleteRequest, setPendingDeleteRequest] = useState<{ file: FileRecord; reason: string } | null>(null);
+  const [submittingDeleteRequest, setSubmittingDeleteRequest] = useState(false);
+
   // Ola 12: multi-hoja UI — picker antes de procesar Excel con varias hojas
   const [pendingSheets, setPendingSheets] = useState<{ fileName: string; sheets: SheetInfo[] } | null>(null);
   const sheetResolverRef = useRef<((value: string[] | null) => void) | null>(null);
@@ -1788,7 +1795,38 @@ export default function CargaDatos() {
     }
   };
 
+  // Ola 17: el delete real solo lo ejecuta el admin. Para employees,
+  // abrimos un dialog que crea una delete_request y notifica al admin.
   const handleDelete = async (file: FileRecord) => {
+    if (role !== 'admin') {
+      setPendingDeleteRequest({ file, reason: '' });
+      return;
+    }
+    return performAdminDelete(file);
+  };
+
+  const handleSubmitDeleteRequest = async () => {
+    if (!pendingDeleteRequest) return;
+    if (!pendingDeleteRequest.reason.trim()) {
+      toast.error('Indicá un motivo para que el admin lo revise');
+      return;
+    }
+    setSubmittingDeleteRequest(true);
+    try {
+      await requestDelete({ id: pendingDeleteRequest.file.id, name: pendingDeleteRequest.file.file_name }, pendingDeleteRequest.reason);
+      toast.success('Solicitud de borrado enviada', {
+        description: 'El admin recibirá la solicitud y la revisará.',
+      });
+      setPendingDeleteRequest(null);
+    } catch (err) {
+      const e = err as { message?: string };
+      toast.error('Error al enviar solicitud', { description: e.message });
+    } finally {
+      setSubmittingDeleteRequest(false);
+    }
+  };
+
+  const performAdminDelete = async (file: FileRecord) => {
     try {
       // 4.1: Delete in DB-first order so a failure in either DB step aborts
       // before we orphan storage. Only delete R2 once DB is consistent.
@@ -2287,6 +2325,64 @@ export default function CargaDatos() {
               ))}
             </div>
           </div>
+
+          {/* Ola 17: Banner para admin con solicitudes de borrado pendientes */}
+          {role === 'admin' && deletePending.length > 0 && (
+            <Card className="border-warning/40 bg-warning/5">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm flex items-center gap-2">
+                  <AlertTriangle className="h-4 w-4 text-warning" />
+                  {deletePending.length} solicitud{deletePending.length === 1 ? '' : 'es'} de borrado pendiente{deletePending.length === 1 ? '' : 's'}
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                {deletePending.map(req => (
+                  <div key={req.id} className="flex items-start gap-2 p-2 rounded-md bg-background border text-sm">
+                    <div className="flex-1 min-w-0">
+                      <p className="font-medium truncate">{req.file_name}</p>
+                      <p className="text-xs text-muted-foreground">
+                        Solicitado por <strong>{req.requester_name || 'Usuario'}</strong>
+                        {req.reason && <> · "<span className="italic">{req.reason}</span>"</>}
+                      </p>
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-7 text-xs gap-1"
+                      onClick={async () => {
+                        try {
+                          await rejectRequest(req, 'Rechazado');
+                          toast.success('Solicitud rechazada');
+                        } catch (err) {
+                          const e = err as { message?: string };
+                          toast.error('Error', { description: e.message });
+                        }
+                      }}
+                    >
+                      Rechazar
+                    </Button>
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      className="h-7 text-xs gap-1"
+                      onClick={async () => {
+                        try {
+                          await approveRequest(req);
+                          toast.success(`"${req.file_name}" eliminado`);
+                          fetchFiles();
+                        } catch (err) {
+                          const e = err as { message?: string };
+                          toast.error('Error al aprobar', { description: e.message });
+                        }
+                      }}
+                    >
+                      Aprobar y borrar
+                    </Button>
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
+          )}
 
           {/* Upload Queue */}
           <UploadQueue items={uploadQueue} onDismiss={() => setUploadQueue([])} />
@@ -2931,6 +3027,43 @@ export default function CargaDatos() {
         onConfirm={handleSheetsConfirm}
         onCancel={handleSheetsCancel}
       />
+
+      {/* Ola 17: dialog de solicitud de borrado (solo employees) */}
+      <AlertDialog open={!!pendingDeleteRequest} onOpenChange={(open) => { if (!open) setPendingDeleteRequest(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5 text-warning" />
+              Solicitar borrado de archivo
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              Solo el admin puede borrar archivos. Tu solicitud se enviará para revisión con el motivo que escribas.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          {pendingDeleteRequest && (
+            <div className="space-y-2 py-2">
+              <p className="text-sm font-medium">Archivo: <span className="font-mono text-xs">{pendingDeleteRequest.file.file_name}</span></p>
+              <div className="space-y-1">
+                <Label htmlFor="delete-reason" className="text-sm">¿Por qué querés borrarlo?</Label>
+                <Textarea
+                  id="delete-reason"
+                  value={pendingDeleteRequest.reason}
+                  onChange={(e) => setPendingDeleteRequest(prev => prev ? { ...prev, reason: e.target.value } : prev)}
+                  rows={3}
+                  placeholder="Ej: archivo duplicado, datos incorrectos, etc."
+                  disabled={submittingDeleteRequest}
+                />
+              </div>
+            </div>
+          )}
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={submittingDeleteRequest}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction onClick={(e) => { e.preventDefault(); handleSubmitDeleteRequest(); }} disabled={submittingDeleteRequest}>
+              {submittingDeleteRequest ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Enviar solicitud'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* 5.1: Schema Preview & Confirmation dialog */}
       <SchemaPreviewDialog
