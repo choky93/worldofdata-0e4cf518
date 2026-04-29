@@ -17,6 +17,7 @@ import { cleanParsedRows, cleanParsedRowsWithStats, detectPeriodOverlap, parseDa
 import { useExtractedData } from '@/hooks/useExtractedData';
 import { findString, FIELD_DATE, FIELD_NAME } from '@/lib/field-utils';
 import { SchemaPreviewDialog, type SchemaPreviewPayload } from '@/components/SchemaPreviewDialog';
+import { MultiSheetPickerDialog, type SheetInfo } from '@/components/MultiSheetPickerDialog';
 import { suggestCategory } from '@/lib/schema-preview';
 import { DataQualityBadge } from '@/components/DataQualityBadge';
 import { computeDataQuality, detectAnomalies, type DataQualityScore } from '@/lib/data-quality';
@@ -647,6 +648,24 @@ export default function CargaDatos() {
   // category & inspects sample rows. Resolved via a Promise the upload flow awaits.
   const [pendingPreview, setPendingPreview] = useState<{ payload: SchemaPreviewPayload; category: string } | null>(null);
   const previewResolverRef = useRef<((value: { confirmed: boolean; category: string }) => void) | null>(null);
+  // Ola 12: multi-hoja UI — picker antes de procesar Excel con varias hojas
+  const [pendingSheets, setPendingSheets] = useState<{ fileName: string; sheets: SheetInfo[] } | null>(null);
+  const sheetResolverRef = useRef<((value: string[] | null) => void) | null>(null);
+  const askSheetsToProcess = (fileName: string, sheets: SheetInfo[]) =>
+    new Promise<string[] | null>((resolve) => {
+      sheetResolverRef.current = resolve;
+      setPendingSheets({ fileName, sheets });
+    });
+  const handleSheetsConfirm = (selected: string[]) => {
+    sheetResolverRef.current?.(selected);
+    sheetResolverRef.current = null;
+    setPendingSheets(null);
+  };
+  const handleSheetsCancel = () => {
+    sheetResolverRef.current?.(null);
+    sheetResolverRef.current = null;
+    setPendingSheets(null);
+  };
   // 5.2: DQ scores keyed by file_upload_id. Computed at upload time (rows in
   // scope) and cached in session state. Old files show no badge until reprocessed.
   const [dqScoresMap, setDqScoresMap] = useState<Record<string, DataQualityScore>>({});
@@ -1090,6 +1109,41 @@ export default function CargaDatos() {
                 continue;
               }
               sheetDataSets.push({ name: sheetName, ...fixed });
+            }
+
+            if (sheetDataSets.length > 1) {
+              // Ola 12: si hay >1 hojas válidas, le damos al usuario la opción
+              // de elegir cuáles procesar antes de seguir.
+              const sheetInfos: SheetInfo[] = sheetDataSets.map(s => ({
+                name: s.name,
+                rows: s.rows.length,
+                headers: s.headers,
+              }));
+              const selectedNames = await askSheetsToProcess(item.file.name, sheetInfos);
+              if (selectedNames === null) {
+                updateItem({ status: 'error', error: 'Cancelado por el usuario' });
+                await processNext();
+                return;
+              }
+              if (selectedNames.length === 0) {
+                updateItem({ status: 'error', error: 'No seleccionaste ninguna hoja' });
+                toast.warning(`"${item.file.name}": no seleccionaste ninguna hoja para procesar.`);
+                await processNext();
+                return;
+              }
+              // Filtrar las hojas elegidas
+              const filteredSets = sheetDataSets.filter(s => selectedNames.includes(s.name));
+              sheetDataSets.length = 0;
+              sheetDataSets.push(...filteredSets);
+              if (sheetDataSets.length === 1) {
+                // Si después del filtro queda solo una, caemos en el flujo single-sheet
+                parsedRows = cleanParsedRows(sheetDataSets[0].rows, sheetDataSets[0].headers);
+                parsedHeaders = sheetDataSets[0].headers;
+                if (selectedNames.length < sheetInfos.length) {
+                  toast.info(`Procesando solo "${sheetDataSets[0].name}" (${sheetInfos.length - 1} hoja(s) descartada(s))`);
+                }
+                // continúa al final del bloque excel con parsedRows ya seteados
+              }
             }
 
             if (sheetDataSets.length > 1) {
@@ -2868,6 +2922,15 @@ export default function CargaDatos() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Ola 12: Multi-hoja picker — antes de procesar Excel con varias hojas válidas */}
+      <MultiSheetPickerDialog
+        open={!!pendingSheets}
+        fileName={pendingSheets?.fileName ?? ''}
+        sheets={pendingSheets?.sheets ?? []}
+        onConfirm={handleSheetsConfirm}
+        onCancel={handleSheetsCancel}
+      />
 
       {/* 5.1: Schema Preview & Confirmation dialog */}
       <SchemaPreviewDialog
