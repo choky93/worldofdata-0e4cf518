@@ -321,12 +321,14 @@ export default function Stock() {
             value={formatCurrency(valorAlCosto)}
             subtext="Capital inmovilizado"
             icon={<Wallet className="h-4 w-4" />}
+            help="Cuánto te costó comprar todo el stock que tenés. Es plata que está atada en mercadería esperando ser vendida."
           />
           <KPICard
             label="Valor de venta"
             value={formatCurrency(valorDeVenta)}
             subtext="Si vendieras todo el stock"
             icon={<DollarSign className="h-4 w-4" />}
+            help="Cuánto facturarías si vendés todo el stock al precio actual. Excluye servicios/preventas."
           />
           <KPICard
             label="Ganancia proyectada"
@@ -334,6 +336,7 @@ export default function Stock() {
             subtext={valorAlCosto > 0 ? `Margen ${formatPercent((gananciaProyectada / valorAlCosto) * 100)}` : '—'}
             icon={<TrendingUp className="h-4 w-4" />}
             accent
+            help="Diferencia entre Valor de venta y Valor al costo. Es lo que ganás si lográs vender el inventario completo."
           />
         </div>
 

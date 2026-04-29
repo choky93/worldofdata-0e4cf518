@@ -12,6 +12,7 @@ import { TrendingUp, Upload, Database, Loader2, Megaphone, ChevronUp, ChevronDow
 import { Badge } from '@/components/ui/badge';
 import { BarChart, Bar, XAxis, YAxis, Tooltip as RTooltip, ResponsiveContainer, CartesianGrid, Legend } from 'recharts';
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip';
+import { HelpTooltip } from '@/components/HelpTooltip';
 import { Button } from '@/components/ui/button';
 import { Link } from 'react-router-dom';
 
@@ -264,31 +265,40 @@ export default function Marketing() {
 
         <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5">
           <Card><CardContent className="pt-6">
-            <p className="text-sm text-muted-foreground">Gasto total</p>
+            <p className="text-sm text-muted-foreground flex items-center gap-1">
+              Gasto total
+              <HelpTooltip content="Cuánto invertiste en publicidad en el período seleccionado, sumando todas las campañas activas e inactivas." />
+            </p>
             <p className="text-3xl font-bold tabular-nums">{formatCurrency(totalSpend)}</p>
           </CardContent></Card>
           <Card><CardContent className="pt-6">
             <p className="text-sm text-muted-foreground flex items-center gap-1">
               ROAS global
-              <Tooltip>
-                <TooltipTrigger asChild><span className="cursor-help">ⓘ</span></TooltipTrigger>
-                <TooltipContent><p className="text-xs">Return On Ad Spend = Ingresos generados / Gasto en publicidad.</p></TooltipContent>
-              </Tooltip>
+              <HelpTooltip content={<><strong>Return On Ad Spend</strong>. Cuántos pesos de venta generaste por cada peso invertido en ads. ROAS 3x = vendiste $3 por cada $1 gastado.</>} />
             </p>
             <p className={`text-3xl font-bold ${globalRoas > 0 ? 'text-success' : ''}`}>
               {globalRoas > 0 ? `${globalRoas.toFixed(1)}x` : '—'}
             </p>
           </CardContent></Card>
           <Card><CardContent className="pt-6">
-            <p className="text-sm text-muted-foreground">Conversiones</p>
+            <p className="text-sm text-muted-foreground flex items-center gap-1">
+              Conversiones
+              <HelpTooltip content="Cuántas acciones objetivo se completaron (compra, lead, mensaje, etc., según el objetivo de cada campaña)." />
+            </p>
             <p className="text-3xl font-bold tabular-nums">{hasConversionsField ? formatNumber(totalConversions) : '—'}</p>
           </CardContent></Card>
           <Card><CardContent className="pt-6">
-            <p className="text-sm text-muted-foreground">Alcance</p>
+            <p className="text-sm text-muted-foreground flex items-center gap-1">
+              Alcance
+              <HelpTooltip content="Personas únicas que vieron tus anuncios al menos una vez. Distinto de impresiones (mismas personas pueden ver varias veces)." />
+            </p>
             <p className="text-3xl font-bold tabular-nums">{hasReachField ? formatNumber(totalReach) : '—'}</p>
           </CardContent></Card>
           <Card><CardContent className="pt-6">
-            <p className="text-sm text-muted-foreground">Impresiones</p>
+            <p className="text-sm text-muted-foreground flex items-center gap-1">
+              Impresiones
+              <HelpTooltip content="Cantidad total de veces que se mostraron tus anuncios. Si la misma persona los ve 3 veces, son 3 impresiones (1 sola persona alcanzada)." />
+            </p>
              <p className="text-3xl font-bold tabular-nums">{hasImpressionsField ? formatNumber(totalImpressions) : '—'}</p>
           </CardContent></Card>
         </div>
