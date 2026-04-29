@@ -24,7 +24,7 @@ import { useExtractedData } from '@/hooks/useExtractedData';
 import { parseDate } from '@/lib/data-cleaning';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip';
-import { AlertTriangle, Package, ShoppingCart, Database, DollarSign, TrendingUp, Wallet, ChevronUp, ChevronDown, ChevronsUpDown, EyeOff, Eye, Info } from 'lucide-react';
+import { AlertTriangle, Package, ShoppingCart, Database, DollarSign, TrendingUp, Wallet, ChevronUp, ChevronDown, ChevronsUpDown, EyeOff, Eye, Info, Bell, Calendar, Clock, Truck } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { KPICard } from '@/components/ui/KPICard';
 import { Button } from '@/components/ui/button';
@@ -37,6 +37,8 @@ import {
   subscribeStockExclusions,
 } from '@/lib/stock-classification';
 import { toast } from 'sonner';
+import { useSuppliers } from '@/hooks/useSuppliers';
+import { Link as RouterLink } from 'react-router-dom';
 
 function StatusBadge({ status }: { status: StockStatus }) {
   switch (status) {
@@ -130,8 +132,10 @@ function normalizeProducts(
   rawDeduped: any[],
   m: ColumnMapping | undefined,
   avgMonthlyByProduct: Map<string, number>,
-  leadTimeDays: number,
-): ProductRow[] {
+  defaultLeadTimeDays: number,
+  // Ola 16: callback opcional para resolver lead time real por proveedor
+  resolveLeadTime?: (name: string) => { days: number; supplier?: { id: string; name: string }; source: 'override' | 'real' | 'promised' | null },
+): (ProductRow & { supplierName?: string; supplierId?: string; leadSource: 'override' | 'real' | 'promised' | 'default' })[] {
   return rawDeduped.map((r: any, i: number) => {
     const stock = Math.round(getStockUnits(r, m?.stock_qty));
     const minStock = Math.round(findNumber(r, FIELD_STOCK_MIN, m?.stock_min));
@@ -144,7 +148,13 @@ function normalizeProducts(
     const coverageDays = avgMonthly > 0 ? (stock / avgMonthly) * 30 : 0;
     const excluded = isExcludedFromStock(name);
     const classification = classifyProduct(name);
-    const status: StockStatus = excluded ? 'no-data' : getStockStatus(coverageDays, leadTimeDays);
+
+    // Ola 16: lead time efectivo por producto
+    const resolved = resolveLeadTime?.(name);
+    const effectiveLead = resolved && resolved.days > 0 ? resolved.days : defaultLeadTimeDays;
+    const leadSource: 'override' | 'real' | 'promised' | 'default' = resolved?.source ?? 'default';
+
+    const status: StockStatus = excluded ? 'no-data' : getStockStatus(coverageDays, effectiveLead);
 
     return {
       id: r.id || String(i + 1),
@@ -157,9 +167,12 @@ function normalizeProducts(
       status,
       avgMonthlyUnits: avgMonthly,
       coverageDays,
-      supplierLeadDays: leadTimeDays,
+      supplierLeadDays: effectiveLead,
       excluded,
       classification,
+      supplierId: resolved?.supplier?.id,
+      supplierName: resolved?.supplier?.name,
+      leadSource,
     };
   });
 }
@@ -172,7 +185,12 @@ export default function Stock() {
   const realVentas = extractedData?.ventas || [];
 
   const useReal = hasData && realStock.length > 0;
+  // Lead time global por defecto (usado solo cuando no hay proveedor vinculado).
+  // Ola 16: si hay proveedor para el producto, getEffectiveLeadTimeForProduct
+  // devuelve un valor más preciso (override > real avg > prometido).
   const leadTimeDays = 20;
+  const { suppliers, getEffectiveLeadTimeForProduct } = useSuppliers();
+  const hasSuppliers = suppliers.length > 0;
 
   // Dedupe stock rows by product (most recent file → fallback to higher stock)
   const dedupedStock = useMemo(
@@ -190,11 +208,11 @@ export default function Stock() {
   useMemo(() => subscribeStockExclusions(() => setExclusionsTick(t => t + 1)), []);
   const [showExcluded, setShowExcluded] = useState(false);
 
-  const products: ProductRow[] = useMemo(
-    () => (useReal ? normalizeProducts(dedupedStock, mS, avgMonthlyByProduct, leadTimeDays) : []),
+  const products = useMemo(
+    () => (useReal ? normalizeProducts(dedupedStock, mS, avgMonthlyByProduct, leadTimeDays, getEffectiveLeadTimeForProduct) : []),
     // exclusionsTick fuerza re-render cuando el usuario cambia un override
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [useReal, dedupedStock, mS, avgMonthlyByProduct, exclusionsTick],
+    [useReal, dedupedStock, mS, avgMonthlyByProduct, exclusionsTick, suppliers.length],
   );
 
   const visibleProducts = useMemo(
@@ -354,31 +372,119 @@ export default function Stock() {
 
         {alerts.length > 0 && (
           <div className="space-y-2">
-            {lowStock.map(p => {
-              const coverageLabel = p.coverageDays === 0
-                ? 'sin datos de venta'
-                : p.coverageDays >= 60
-                  ? `${Math.round(p.coverageDays / 30)} meses de cobertura`
-                  : `${Math.round(p.coverageDays)} días de cobertura`;
-              return (
-                <div key={p.id} className="text-sm p-3 rounded-lg border-l-4 border-l-destructive bg-destructive/5 flex items-start gap-2">
-                  <ShoppingCart className="h-4 w-4 mt-0.5 shrink-0" />
-                  <div>
-                    <p className="font-medium">Pedí {p.name} — solo quedan {p.stock} uds ({coverageLabel})</p>
-                    <p className="text-muted-foreground text-xs mt-0.5">Lead time proveedor: {p.supplierLeadDays} días.</p>
-                  </div>
-                </div>
-              );
-            })}
-            {overstock.map(p => (
-              <div key={p.id} className="text-sm p-3 rounded-lg border-l-4 border-l-warning bg-warning/5 flex items-start gap-2">
-                <Package className="h-4 w-4 mt-0.5 shrink-0" />
-                <div>
-                  <p className="font-medium">Sobrestock de {p.name}: {Math.round(p.coverageDays)} días de cobertura</p>
-                  <p className="text-muted-foreground text-xs mt-0.5">Capital inmovilizado: {formatCurrency(Math.max(0, p.stock - p.maxStock) * p.cost)}</p>
-                </div>
-              </div>
-            ))}
+            <h2 className="text-sm font-semibold text-muted-foreground flex items-center gap-2">
+              <Bell className="h-4 w-4" />
+              Alertas activas ({alerts.length})
+            </h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {lowStock.map(p => {
+                const coverageRound = Math.round(p.coverageDays);
+                const coverageLabel = p.coverageDays === 0
+                  ? 'sin datos de venta'
+                  : p.coverageDays >= 60
+                    ? `${Math.round(p.coverageDays / 30)} meses`
+                    : `${coverageRound} días`;
+                // Ola 16: cuándo pedir = hoy + (cobertura − lead time efectivo)
+                const daysUntilStockout = Math.max(0, coverageRound - p.supplierLeadDays);
+                const orderByDate = new Date();
+                orderByDate.setDate(orderByDate.getDate() + daysUntilStockout);
+                // Cantidad sugerida: 30 días de venta promedio + lead time, redondeado
+                const suggestedQty = p.avgMonthlyUnits > 0
+                  ? Math.ceil((p.avgMonthlyUnits * (30 + p.supplierLeadDays)) / 30 - p.stock)
+                  : Math.max(p.minStock - p.stock, 10);
+                const isCritical = p.status === 'critical';
+
+                return (
+                  <Card key={p.id} className={isCritical ? 'border-l-4 border-l-destructive bg-destructive/5' : 'border-l-4 border-l-warning bg-warning/5'}>
+                    <CardContent className="p-4 space-y-2">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0 flex-1">
+                          <p className="font-medium truncate">{p.name}</p>
+                          <p className="text-xs text-muted-foreground mt-0.5">
+                            <span className="font-semibold">{p.stock}</span> en stock · {coverageLabel} de cobertura
+                          </p>
+                        </div>
+                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded shrink-0 ${isCritical ? 'bg-destructive text-destructive-foreground' : 'bg-warning text-warning-foreground'}`}>
+                          {isCritical ? 'CRÍTICO' : 'BAJO'}
+                        </span>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2 text-xs pt-2 border-t">
+                        <div className="flex items-center gap-1.5">
+                          <Truck className="h-3.5 w-3.5 text-muted-foreground" />
+                          <div>
+                            <p className="text-[10px] text-muted-foreground">Proveedor</p>
+                            <p className="font-medium truncate">{p.supplierName ?? <span className="text-muted-foreground italic">Sin asignar</span>}</p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <Clock className="h-3.5 w-3.5 text-muted-foreground" />
+                          <div>
+                            <p className="text-[10px] text-muted-foreground">
+                              Lead time {p.leadSource === 'real' ? '(real)' : p.leadSource === 'promised' ? '(prometido)' : p.leadSource === 'override' ? '(override)' : '(default)'}
+                            </p>
+                            <p className="font-medium">{p.supplierLeadDays} días</p>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="rounded-md bg-background/60 px-2.5 py-1.5 text-xs space-y-0.5">
+                        <p className="flex items-center gap-1.5">
+                          <Calendar className="h-3 w-3 text-muted-foreground" />
+                          <span className="text-muted-foreground">Pedí antes del</span>
+                          <span className="font-semibold">{orderByDate.toLocaleDateString('es-AR', { day: '2-digit', month: 'short' })}</span>
+                          <span className="text-muted-foreground">({daysUntilStockout}d)</span>
+                        </p>
+                        {suggestedQty > 0 && (
+                          <p className="flex items-center gap-1.5">
+                            <ShoppingCart className="h-3 w-3 text-muted-foreground" />
+                            <span className="text-muted-foreground">Sugerido pedir</span>
+                            <span className="font-semibold">{suggestedQty} unidades</span>
+                            <span className="text-muted-foreground">para 30d + lead</span>
+                          </p>
+                        )}
+                      </div>
+
+                      {!p.supplierName && hasSuppliers && (
+                        <p className="text-[11px] text-muted-foreground italic">
+                          💡 Asigná un proveedor en la página de Proveedores para que el lead time sea más preciso.
+                        </p>
+                      )}
+                      {!hasSuppliers && (
+                        <p className="text-[11px]">
+                          <RouterLink to="/proveedores" className="text-primary underline">
+                            Cargá tus proveedores
+                          </RouterLink>
+                          <span className="text-muted-foreground"> para mejorar las alertas.</span>
+                        </p>
+                      )}
+                    </CardContent>
+                  </Card>
+                );
+              })}
+
+              {overstock.map(p => (
+                <Card key={p.id} className="border-l-4 border-l-warning bg-warning/5">
+                  <CardContent className="p-4 space-y-2">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0 flex-1">
+                        <p className="font-medium truncate">{p.name}</p>
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                          {Math.round(p.coverageDays)} días de cobertura · stock excedente: {Math.max(0, p.stock - p.maxStock)} uds
+                        </p>
+                      </div>
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded shrink-0 bg-warning/30 text-warning-foreground border border-warning/40">
+                        SOBRESTOCK
+                      </span>
+                    </div>
+                    <p className="text-xs">
+                      <span className="text-muted-foreground">Capital inmovilizado:</span>{' '}
+                      <span className="font-semibold">{formatCurrency(Math.max(0, p.stock - p.maxStock) * p.cost)}</span>
+                    </p>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
           </div>
         )}
 
