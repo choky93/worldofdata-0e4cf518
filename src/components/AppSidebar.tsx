@@ -1,7 +1,7 @@
 import {
   LayoutDashboard, ShoppingCart, Wallet, Package, Users, TrendingUp,
   Bell, BarChart3, Megaphone, FileBox, Upload, UserCog, Settings, LogOut,
-  PanelLeftClose, PanelLeftOpen,
+  PanelLeftClose, PanelLeftOpen, Truck,
 } from 'lucide-react';
 import { NavLink } from '@/components/NavLink';
 import { useAuth } from '@/contexts/AuthContext';
@@ -15,6 +15,7 @@ const adminItems = [
   { title: 'Ventas', url: '/ventas', icon: ShoppingCart },
   { title: 'Finanzas', url: '/finanzas', icon: Wallet },
   { title: 'Stock', url: '/stock', icon: Package, conditional: 'has_stock' },
+  { title: 'Proveedores', url: '/proveedores', icon: Truck, conditional: 'has_stock' },
   { title: 'Clientes', url: '/clientes', icon: Users },
   { title: 'Forecast', url: '/forecast', icon: TrendingUp },
   { title: 'Alertas', url: '/alertas', icon: Bell },
