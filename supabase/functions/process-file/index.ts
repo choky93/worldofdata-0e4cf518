@@ -28,7 +28,51 @@ class RateLimitError extends Error {
   }
 }
 
-async function fetchAnthropicWithRetry(body: object): Promise<Record<string, unknown>> {
+// Ola 20: pricing snapshot + log helper para tracking de costos
+const ANTHROPIC_PRICING: Record<string, { input: number; inputCached: number; output: number }> = {
+  "claude-sonnet-4-5": { input: 3.00, inputCached: 0.30, output: 15.00 },
+};
+
+async function logAnthropicUsage(
+  body: { model?: string; usage?: { input_tokens?: number; output_tokens?: number; cache_creation_input_tokens?: number; cache_read_input_tokens?: number } },
+  ctx?: { companyId?: string; userId?: string | null; feature?: string; metadata?: Record<string, unknown> },
+) {
+  if (!ctx?.companyId || !body?.usage) return;
+  try {
+    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+    const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    const sb = createClient(supabaseUrl, serviceKey);
+
+    const model = body.model || "claude-sonnet-4-5";
+    const p = ANTHROPIC_PRICING[model];
+    const u = body.usage;
+    const inputTokens = u.input_tokens || 0;
+    const cachedTokens = u.cache_read_input_tokens || 0;
+    const outputTokens = u.output_tokens || 0;
+    const cost = p
+      ? ((cachedTokens / 1_000_000) * p.inputCached) +
+        ((Math.max(0, inputTokens - cachedTokens) / 1_000_000) * p.input) +
+        ((outputTokens / 1_000_000) * p.output)
+      : 0;
+
+    await sb.from("api_usage_logs").insert({
+      company_id: ctx.companyId,
+      user_id: ctx.userId ?? null,
+      provider: "anthropic",
+      model,
+      feature: ctx.feature || "other",
+      input_tokens: inputTokens,
+      input_tokens_cached: cachedTokens || null,
+      output_tokens: outputTokens,
+      cost_usd: cost,
+      metadata: ctx.metadata || {},
+    });
+  } catch (e) {
+    console.error("[logAnthropicUsage] insert failed:", e);
+  }
+}
+
+async function fetchAnthropicWithRetry(body: object, usageCtx?: { companyId?: string; userId?: string | null; feature?: string; metadata?: Record<string, unknown> }): Promise<Record<string, unknown>> {
   for (let attempt = 0; attempt <= RETRY_DELAYS.length; attempt++) {
     const resp = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
@@ -39,7 +83,12 @@ async function fetchAnthropicWithRetry(body: object): Promise<Record<string, unk
       },
       body: JSON.stringify(body),
     });
-    if (resp.ok) return resp.json();
+    if (resp.ok) {
+      const data = await resp.json();
+      // Ola 20: log usage si tenemos context
+      logAnthropicUsage(data, usageCtx);
+      return data;
+    }
     if ((resp.status === 429 || resp.status === 529 || resp.status === 503) && attempt < RETRY_DELAYS.length) {
       const delay = RETRY_DELAYS[attempt];
       console.warn(`[process-file] Anthropic ${resp.status}, retrying in ${delay / 1000}s (attempt ${attempt + 1}/${RETRY_DELAYS.length})`);
@@ -105,10 +154,41 @@ function detectAndFixEncoding(buffer: ArrayBuffer): { text: string; encodingWarn
 }
 
 // ─── CSV Parser (RFC 4180) ─────────────────────────────────────
+/**
+ * Median-stability delimiter detector. Scores candidates [\t, ;, |, ,]
+ * across the first 5 non-empty lines (quote-aware). Picks the candidate
+ * with the highest min field count and stable spread (max-min ≤ 2).
+ */
+function detectDelimiter(text: string): string {
+  const lines = text.split(/\r?\n/).filter(l => l.trim()).slice(0, 5);
+  if (lines.length === 0) return ',';
+  const candidates = ['\t', ';', '|', ','];
+  let best = ',';
+  let bestScore = 0;
+  for (const d of candidates) {
+    const counts = lines.map(l => {
+      let inQuotes = false;
+      let count = 1;
+      for (let i = 0; i < l.length; i++) {
+        const c = l[i];
+        if (c === '"') inQuotes = !inQuotes;
+        else if (c === d && !inQuotes) count++;
+      }
+      return count;
+    });
+    const min = Math.min(...counts);
+    const max = Math.max(...counts);
+    if (min >= 2 && (max - min) <= 2 && min > bestScore) {
+      best = d;
+      bestScore = min;
+    }
+  }
+  return best;
+}
+
 function parseCSV(text: string): Record<string, unknown>[] {
   if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
-  const rawFirst = text.split(/\r?\n/)[0] || '';
-  const delimiter = rawFirst.includes('\t') ? '\t' : rawFirst.includes(';') ? ';' : ',';
+  const delimiter = detectDelimiter(text);
   const parsed = parseCSVWithDelimiter(text, delimiter);
   if (parsed.length < 2) return [];
   const headers = parsed[0].map(h => h.trim());
@@ -308,6 +388,7 @@ async function classifyWithAI(
   sampleRows: Record<string, unknown>[],
   fileName: string,
   sheetName?: string,
+  usageCtx?: { companyId?: string; userId?: string | null; fileUploadId?: string },
 ): Promise<{ category: string; summary: string; column_mapping: Record<string, string | null> }> {
   console.log(`[process-file] AI classification for "${fileName}"${sheetName ? ` (hoja: "${sheetName}")` : ''} (${headers.length} cols, ${sampleRows.length} sample rows)`);
 
@@ -323,7 +404,7 @@ TAREA: Dado un archivo con sus columnas y filas de ejemplo, determiná:
 
 CATEGORÍAS DISPONIBLES:
 
-- "ventas": registros de ventas, facturación, ingresos, pedidos, transacciones
+- "ventas": registros de ventas YA CONCRETADAS, facturación, ingresos, pedidos cerrados, transacciones reales
 
 - "gastos": egresos, costos, pagos realizados, facturas de proveedores, gastos operativos
 
@@ -333,7 +414,9 @@ CATEGORÍAS DISPONIBLES:
 
 - "marketing": inversión publicitaria, Meta Ads, Google Ads, campañas, métricas de performance
 
-- "clientes": base de clientes, compradores, deudores, cuentas corrientes
+- "clientes": base de clientes/contactos plana (lista de quién compra), compradores, deudores, cuentas corrientes. SIN etapas ni pipeline.
+
+- "crm": exportaciones de un CRM (Salesforce, HubSpot, Pipedrive, Zoho, Microsoft Dynamics) — oportunidades de venta en distintas ETAPAS del pipeline (Prospecting/Qualification/Proposal/Negotiation/Closed Won/Closed Lost). DIFERENCIA CLAVE con "ventas": acá las ventas son POTENCIALES (deals abiertos), no transacciones cerradas. Señales fuertes: columnas "Stage", "Pipeline", "Opportunity", "Deal", "Owner", "Probability", "Close Date", "Expected Close", "Account Name", "Lead Source", "Forecast Category". También aplica a archivos de "accounts" (cuentas/empresas en el CRM) o "contacts" (contactos individuales).
 
 - "rrhh": empleados, sueldos, liquidaciones, personal
 
@@ -342,6 +425,8 @@ CATEGORÍAS DISPONIBLES:
 - "finanzas": flujo de caja, movimientos bancarios, extractos, presupuesto financiero
 
 - "otro": no encaja claramente en ninguna categoría anterior
+
+REGLA CRÍTICA: si el archivo tiene una columna "Stage" / "Pipeline" / "Deal Stage" / "Opportunity Stage" CON valores como "Prospecting", "Qualification", "Proposal", "Negotiation", "Closed Won", "Closed Lost" → ES "crm", NUNCA "ventas". Las ventas tradicionales son cerradas; el pipeline tiene oportunidades en distintos estados.
 
 CAMPOS SEMÁNTICOS POR CATEGORÍA:
 
@@ -356,6 +441,8 @@ CAMPOS SEMÁNTICOS POR CATEGORÍA:
 - facturas: {"amount":"monto total","date":"fecha de emisión","name":"descripción","client":"cliente o proveedor","number":"número de factura","tax":"IVA","net_amount":"monto neto","due_date":"fecha de vencimiento","type":"tipo A/B/C/X"}
 
 - clientes: {"name":"nombre del cliente","total_purchases":"total comprado","debt":"deuda pendiente","last_purchase":"última compra","purchase_count":"cantidad de compras","email":"email","phone":"teléfono","category":"segmento o tipo de cliente"}
+
+- crm: {"deal_name":"nombre de la oportunidad/deal","amount":"valor del deal en USD/ARS","stage":"etapa del pipeline (Prospecting, Qualification, Proposal, Negotiation, Closed Won, Closed Lost)","close_date":"fecha estimada o real de cierre","created_date":"fecha de creación del deal","owner":"vendedor o sales rep asignado","account":"cuenta/empresa cliente","probability":"probabilidad de cierre (%)","lead_source":"origen del lead","contact_email":"email del contacto","contact_phone":"teléfono del contacto"}
 
 - rrhh: {"name":"nombre del empleado","salary":"sueldo","date":"período o fecha","position":"cargo","hours":"horas trabajadas","department":"área"}
 
@@ -418,7 +505,7 @@ ${JSON.stringify(sampleRows.slice(0, 10), null, 2)}`;
     ],
     temperature: 0.1,
     max_tokens: 1024,
-  });
+  }, usageCtx ? { ...usageCtx, feature: "file_classification", metadata: { file_name: fileName, file_upload_id: usageCtx.fileUploadId } } : undefined);
 
   const raw = (data.content as any)?.[0]?.text || '{}';
   try {
@@ -441,6 +528,7 @@ async function reAnalyzeMapping(
   sampleRows: Record<string, unknown>[],
   fileName: string,
   originalCategory: string,
+  usageCtx?: { companyId?: string; userId?: string | null; fileUploadId?: string },
 ): Promise<Record<string, string | null>> {
   console.log(`[process-file] ⚠️ Quarantine re-analysis for "${fileName}" (category: ${originalCategory})`);
 
@@ -541,7 +629,7 @@ ${JSON.stringify(sampleRows.slice(0, 20), null, 2)}`;
     ],
     temperature: 0.05,
     max_tokens: 512,
-  });
+  }, usageCtx ? { ...usageCtx, feature: "category_detection", metadata: { file_name: fileName, file_upload_id: usageCtx.fileUploadId } } : undefined);
 
   const raw = (data.content as any)?.[0]?.text || '{}';
   try {
@@ -571,7 +659,8 @@ async function extractWithAI(
   fileName: string,
   imageBase64?: string,
   imageMime?: string,
-  metadata?: Record<string, unknown>
+  metadata?: Record<string, unknown>,
+  usageCtx?: { companyId?: string; userId?: string | null; fileUploadId?: string },
 ): Promise<{ category: string; data: unknown; summary: string; rowCount: number }> {
   console.log(`[process-file] Calling AI extraction for "${fileName}"`);
 
@@ -746,7 +835,7 @@ FORMATO DE RESPUESTA — SOLO JSON:
     messages: [userMessage],
     temperature: 0.1,
     max_tokens: 4096,
-  });
+  }, usageCtx ? { ...usageCtx, feature: "file_extraction", metadata: { file_name: fileName, file_upload_id: usageCtx.fileUploadId } } : undefined);
 
   const raw = (data.content as any)?.[0]?.text || '{}';
   let parsed: Record<string, unknown>;
@@ -1035,6 +1124,10 @@ serve(async (req) => {
       });
     }
 
+    // Ola 20: contexto reutilizado en todas las llamadas a Claude
+    // para registrar consumo en api_usage_logs.
+    const globalUsageCtx = { companyId, userId: null as string | null, fileUploadId };
+
     const { data: fileRecord, error: fetchErr } = await sb
       .from("file_uploads").select("*").eq("id", fileUploadId).single();
     if (fetchErr || !fileRecord) throw new Error(`File not found: ${fetchErr?.message}`);
@@ -1050,7 +1143,18 @@ serve(async (req) => {
     if (rowBatch && headers && batchIndex !== undefined && totalBatches !== undefined) {
       if (batchIndex === 0) {
         // First batch: classify with AI
-        let { category, summary, column_mapping, confidence } = await classifyWithAI(headers, rowBatch.slice(0, 10), file_name, sheetName);
+        // Ola 20: pasamos usageCtx para registrar consumo de Anthropic en api_usage_logs
+        const usageCtx = { companyId, userId: null, fileUploadId };
+        let { category, summary, column_mapping, confidence } = await classifyWithAI(headers, rowBatch.slice(0, 10), file_name, sheetName, usageCtx);
+
+        // 5.1: if the user confirmed an explicit category in the Schema
+        // Preview dialog, honor it — keep the AI's column_mapping but
+        // override the category. Confidence becomes 1.0 (user assertion).
+        if (explicitCategory && explicitCategory !== category) {
+          console.log(`[process-file] User override: AI classified as "${category}" but user chose "${explicitCategory}"`);
+          category = explicitCategory;
+          confidence = 1.0;
+        }
 
         // Apply date normalization using mapped date column
         const mappedDate = column_mapping?.date || null;
@@ -1069,7 +1173,7 @@ serve(async (req) => {
         // Quarantine check
         if (!isMappingAcceptable(column_mapping, category)) {
           console.log(`[process-file] ⚠️ Mapping insufficient for "${file_name}". Triggering re-analysis...`);
-          const reMapping = await reAnalyzeMapping(headers, cleanedBatch.slice(0, 20), file_name, category);
+          const reMapping = await reAnalyzeMapping(headers, cleanedBatch.slice(0, 20), file_name, category, usageCtx);
           if (isMappingAcceptable(reMapping, category)) {
             console.log(`[process-file] ✅ Re-analysis succeeded for "${file_name}"`);
             column_mapping = reMapping;
@@ -1089,7 +1193,9 @@ serve(async (req) => {
           file_upload_id: fileUploadId,
           company_id: companyId,
           data_category: "_classification",
-          extracted_json: { category, summary, column_mapping },
+          // 1.10: persist confidence so the LAST batch can apply the same
+          // status logic as a single-batch file.
+          extracted_json: { category, summary, column_mapping, confidence },
           chunk_index: -2,
           row_count: 0,
         }, { onConflict: 'file_upload_id,chunk_index' });
@@ -1189,13 +1295,32 @@ serve(async (req) => {
 
         const isLast = batchIndex === totalBatches - 1;
         if (isLast) {
+          // 1.10: read persisted confidence BEFORE deleting _classification so
+          // we can apply the same low-confidence flagging as single-batch files.
+          const { data: classRead } = await sb.from("file_extracted_data")
+            .select("extracted_json")
+            .eq("file_upload_id", fileUploadId)
+            .eq("data_category", "_classification")
+            .maybeSingle();
+          const persistedConfidence = (classRead?.extracted_json as any)?.confidence;
+
           await sb.from("file_extracted_data").delete()
             .eq("file_upload_id", fileUploadId)
             .eq("data_category", "_classification");
           const { data: flagCheck } = await sb.from("file_uploads").select("processing_error").eq("id", fileUploadId).single();
-          const finalStatus = flagCheck?.processing_error?.includes("Requiere revisión") ? "review" : "processed";
+          let finalStatus: string;
+          if (flagCheck?.processing_error?.includes("Requiere revisión")) {
+            finalStatus = "review";
+          } else if (typeof persistedConfidence === 'number' && persistedConfidence < 0.4) {
+            finalStatus = "processed_with_issues";
+            await sb.from("file_uploads").update({
+              processing_error: `Clasificación con baja confianza (${Math.round(persistedConfidence * 100)}%). Revisá el resumen para verificar que los datos se clasificaron correctamente.`
+            }).eq("id", fileUploadId);
+          } else {
+            finalStatus = "processed";
+          }
           await sb.from("file_uploads").update({ status: finalStatus, ...(finalStatus === "processed" ? { processing_error: null } : {}) }).eq("id", fileUploadId);
-          console.log(`[process-file] ✅ All ${totalBatches} batches stored for "${file_name}" (status: ${finalStatus})`);
+          console.log(`[process-file] ✅ All ${totalBatches} batches stored for "${file_name}" (status: ${finalStatus}, confidence: ${persistedConfidence ?? 'n/a'})`);
         }
 
         return new Response(JSON.stringify({
@@ -1218,7 +1343,7 @@ serve(async (req) => {
         resultInfo = await processTabularData(sb, rows, parsedHeaders, file_name, fileUploadId, companyId);
       } else {
         console.log(`[process-file] Legacy preParsed → could not parse rows, using AI extraction`);
-        const result = await extractWithAI(content.substring(0, MAX_CONTENT_CHARS), file_name);
+        const result = await extractWithAI(content.substring(0, MAX_CONTENT_CHARS), file_name, undefined, undefined, undefined, globalUsageCtx);
         { const { error: d } = await sb.from("file_extracted_data").delete().eq("file_upload_id", fileUploadId);
           if (d) console.error('[process-file] DELETE error:', d.message);
           const { error: e } = await sb.from("file_extracted_data").insert({
@@ -1258,7 +1383,7 @@ serve(async (req) => {
         const parsedHeaders = fixed.headers.length > 0 ? fixed.headers : Object.keys(allRows[0]);
         resultInfo = await processTabularData(sb, allRows, parsedHeaders, file_name, fileUploadId, companyId);
       } else {
-        const result = await extractWithAI(text.substring(0, MAX_CONTENT_CHARS), file_name);
+        const result = await extractWithAI(text.substring(0, MAX_CONTENT_CHARS), file_name, undefined, undefined, undefined, globalUsageCtx);
         { const { error: d } = await sb.from("file_extracted_data").delete().eq("file_upload_id", fileUploadId);
           if (d) console.error('[process-file] DELETE error:', d.message);
           const { error: e } = await sb.from("file_extracted_data").insert({
@@ -1345,7 +1470,7 @@ serve(async (req) => {
           } else {
             const wb = XLSX.read(bytes, { type: 'array' });
             const csv = XLSX.utils.sheet_to_csv(wb.Sheets[wb.SheetNames[0]], { FS: ',', RS: '\n' });
-            const result = await extractWithAI(csv.substring(0, MAX_CONTENT_CHARS), file_name);
+            const result = await extractWithAI(csv.substring(0, MAX_CONTENT_CHARS), file_name, undefined, undefined, undefined, globalUsageCtx);
             { const { error: d } = await sb.from("file_extracted_data").delete().eq("file_upload_id", fileUploadId);
               if (d) console.error('[process-file] DELETE error:', d.message);
               const { error: e } = await sb.from("file_extracted_data").insert({
@@ -1377,7 +1502,7 @@ serve(async (req) => {
         imageMime = getMimeType(file_name);
       }
 
-      const result = await extractWithAI(content, file_name, imageBase64, imageMime, processingMetadata);
+      const result = await extractWithAI(content, file_name, imageBase64, imageMime, processingMetadata, globalUsageCtx);
       { const { error: d } = await sb.from("file_extracted_data").delete().eq("file_upload_id", fileUploadId);
         if (d) console.error('[process-file] DELETE error:', d.message);
         const { error: e } = await sb.from("file_extracted_data").insert({
@@ -1417,7 +1542,7 @@ serve(async (req) => {
           resultInfo = { category: r.category, summary: r.summary, totalRows: r.totalRows };
         } else {
           const content = `[PDF con ${pdfResult.pages} páginas]\n\n${pdfResult.text}`;
-          const result = await extractWithAI(content, file_name, undefined, undefined, processingMetadata);
+          const result = await extractWithAI(content, file_name, undefined, undefined, processingMetadata, globalUsageCtx);
           { const { error: d } = await sb.from("file_extracted_data").delete().eq("file_upload_id", fileUploadId);
             if (d) console.error('[process-file] DELETE error:', d.message);
             const { error: e } = await sb.from("file_extracted_data").insert({
@@ -1436,7 +1561,7 @@ serve(async (req) => {
         } else {
           content = `[PDF muy grande (${(buffer.byteLength / 1024 / 1024).toFixed(1)} MB). Texto parcial: "${pdfResult.text.substring(0, 1000)}". Nombre: "${file_name}".]`;
         }
-        const result = await extractWithAI(content, file_name, undefined, undefined, processingMetadata);
+        const result = await extractWithAI(content, file_name, undefined, undefined, processingMetadata, globalUsageCtx);
         { const { error: d } = await sb.from("file_extracted_data").delete().eq("file_upload_id", fileUploadId);
           if (d) console.error('[process-file] DELETE error:', d.message);
           const { error: e } = await sb.from("file_extracted_data").insert({
@@ -1463,7 +1588,7 @@ serve(async (req) => {
       } else {
         content = `[Archivo desconocido: ${ext}. Nombre: "${file_name}". ${(buffer.byteLength / 1024).toFixed(0)} KB]`;
       }
-      const result = await extractWithAI(content, file_name);
+      const result = await extractWithAI(content, file_name, undefined, undefined, undefined, globalUsageCtx);
       { const { error: d } = await sb.from("file_extracted_data").delete().eq("file_upload_id", fileUploadId);
         if (d) console.error('[process-file] DELETE error:', d.message);
         const { error: e } = await sb.from("file_extracted_data").insert({

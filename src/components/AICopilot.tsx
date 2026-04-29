@@ -298,7 +298,7 @@ function ModeToggle({ mode, onChange }: { mode: Mode; onChange: (m: Mode) => voi
 
 // ─── Main Component ──────────────────────────────────────────────
 export function AICopilot() {
-  const { profile, companyName, companySettings } = useAuth();
+  const { profile, companyName, companySettings, user } = useAuth();
   const { data: extractedData, mappings, hasData } = useExtractedData();
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -361,6 +361,7 @@ export function AICopilot() {
 
   const businessContext = {
     companyId: profile?.company_id,
+    userId: user?.id, // Ola 20: para registrar quién hizo la consulta en api_usage_logs
     companyName,
     industry: (companySettings as any)?.industry,
     sellsProducts: companySettings?.sells_products,

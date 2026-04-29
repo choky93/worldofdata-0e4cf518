@@ -8,7 +8,63 @@ const corsHeaders = {
 };
 
 const OPENAI_URL = "https://api.openai.com/v1/chat/completions";
-const MAX_CONTEXT_CHARS = 4000;
+// Ola 13: subimos el contexto para que el Copilot tenga más datos.
+// 4000 era demasiado angosto y forzaba al modelo a decir "me faltan datos".
+const MAX_CONTEXT_CHARS = 12000;
+
+// Ola 20: pricing en USD por 1M tokens, mantenido en sync con
+// src/lib/ai-pricing.ts del frontend.
+const PRICING: Record<string, { input: number; inputCached: number; output: number }> = {
+  "gpt-4o": { input: 2.50, inputCached: 1.25, output: 10.00 },
+  "gpt-4o-mini": { input: 0.15, inputCached: 0.075, output: 0.60 },
+  "sonar": { input: 1.00, inputCached: 0, output: 1.00 },
+  "sonar-pro": { input: 3.00, inputCached: 0, output: 15.00 },
+  "claude-sonnet-4-5": { input: 3.00, inputCached: 0.30, output: 15.00 },
+};
+
+function calcCost(model: string, inputTokens: number, outputTokens: number, cachedTokens = 0): number {
+  const p = PRICING[model];
+  if (!p) return 0;
+  const cachedCost = p.inputCached ? (cachedTokens / 1_000_000) * p.inputCached : 0;
+  const uncached = Math.max(0, inputTokens - cachedTokens);
+  return cachedCost + (uncached / 1_000_000) * p.input + (outputTokens / 1_000_000) * p.output;
+}
+
+interface UsageLogParams {
+  companyId: string;
+  userId?: string | null;
+  provider: 'openai' | 'perplexity' | 'anthropic';
+  model: string;
+  feature: string;
+  inputTokens: number;
+  outputTokens: number;
+  cachedTokens?: number;
+  metadata?: Record<string, unknown>;
+}
+
+async function logApiUsage(params: UsageLogParams) {
+  try {
+    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+    const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    const sb = createClient(supabaseUrl, serviceKey);
+    const cost = calcCost(params.model, params.inputTokens, params.outputTokens, params.cachedTokens || 0);
+    await sb.from("api_usage_logs").insert({
+      company_id: params.companyId,
+      user_id: params.userId ?? null,
+      provider: params.provider,
+      model: params.model,
+      feature: params.feature,
+      input_tokens: params.inputTokens,
+      input_tokens_cached: params.cachedTokens ?? null,
+      output_tokens: params.outputTokens,
+      cost_usd: cost,
+      metadata: params.metadata ?? {},
+    });
+  } catch (e) {
+    // Loggear el error pero NO fallar la respuesta del usuario por esto.
+    console.error("[logApiUsage] insert failed:", e);
+  }
+}
 
 // ── Helpers ─────────────────────────────────────────────────────
 function fmtARS(n: number): string {
@@ -71,7 +127,14 @@ function summarizeSales(rows: Record<string, unknown>[]): string {
   const noDate = monthly.get("sin-fecha");
 
   let text = `VENTAS: Total histórico ${fmtARS(total)}. Mejor mes: ${shortMonth(best[0])} (${fmtARS(best[1])}). Peor mes: ${shortMonth(worst[0])} (${fmtARS(worst[1])}). Promedio mensual: ${fmtARS(avg)}. Tendencia últimos 3 meses: ${trend}.`;
-  if (last6) text += ` Últimos 6 meses: ${last6}.`;
+  // Ola 13: incluimos la SERIE TEMPORAL COMPLETA mes a mes para que el modelo
+  // pueda responder preguntas como "cuál fue el mejor mes" sin pedir datos extra.
+  if (sorted.length > 0) {
+    const fullSeries = sorted.map(([k, v]) => `${shortMonth(k)}=${fmtARS(v)}`).join(", ");
+    text += ` Serie mensual completa (${sorted.length} meses): ${fullSeries}.`;
+  } else if (last6) {
+    text += ` Últimos 6 meses: ${last6}.`;
+  }
   if (noDate) text += ` Ventas sin fecha asignada: ${fmtARS(noDate)}.`;
   return text;
 }
@@ -81,6 +144,7 @@ function summarizeMarketing(rows: Record<string, unknown>[]): string {
   let totalSpend = 0, totalConv = 0, roasSum = 0, roasCount = 0;
   let bestRoas: { name: string; val: number } | null = null;
   let worstRoas: { name: string; val: number } | null = null;
+  const monthly = new Map<string, { spend: number; conv: number }>();
 
   for (const r of rows) {
     const spend = findNumber(r, ["gasto", "spend", "inversion", "inversión", "costo", "cost"]);
@@ -96,6 +160,15 @@ function summarizeMarketing(rows: Record<string, unknown>[]): string {
       if (!bestRoas || roas > bestRoas.val) bestRoas = { name: name || "sin nombre", val: roas };
       if (!worstRoas || roas < worstRoas.val) worstRoas = { name: name || "sin nombre", val: roas };
     }
+    // Ola 13: serie mensual de inversión publicitaria
+    const date = findDate(r);
+    if (date && spend != null) {
+      const key = date.slice(0, 7);
+      const m = monthly.get(key) || { spend: 0, conv: 0 };
+      m.spend += spend;
+      if (conv != null) m.conv += conv;
+      monthly.set(key, m);
+    }
   }
   if (totalSpend === 0 && totalConv === 0 && roasCount === 0) return "MARKETING: Sin datos de campañas.";
 
@@ -104,6 +177,10 @@ function summarizeMarketing(rows: Record<string, unknown>[]): string {
   if (bestRoas) parts.push(`Mejor ROAS: "${bestRoas.name}" (${bestRoas.val.toFixed(2)}).`);
   if (worstRoas && worstRoas.name !== bestRoas?.name) parts.push(`Peor ROAS: "${worstRoas.name}" (${worstRoas.val.toFixed(2)}).`);
   if (totalConv > 0) parts.push(`Total conversiones: ${totalConv.toLocaleString("es-AR")}.`);
+  if (monthly.size > 0) {
+    const sortedMonths = [...monthly.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+    parts.push(`Inversión por mes: ${sortedMonths.map(([k, v]) => `${shortMonth(k)}=${fmtARS(v.spend)}${v.conv ? ` (${v.conv} conv)` : ''}`).join(", ")}.`);
+  }
   return parts.join(" ");
 }
 
@@ -166,13 +243,16 @@ async function fetchCompanyContext(companyId: string): Promise<string> {
     parts.push(`Diagnóstico: madurez ${diag.maturity_classification || "?"}, dolor principal: ${diag.pain_point || "?"}, mejora potencial: ${diag.potential_improvement_pct || 0}%, indicadores prioritarios: ${diag.priority_indicators?.join(", ") || "ninguno"}.`);
   }
 
-  // Extracted data — fetch and summarize
+  // Extracted data — fetch and summarize.
+  // Ola 13: subimos el límite a 200 chunks. Antes (20) si el cliente subía
+  // 30+ archivos mensuales, los más viejos se perdían y el modelo respondía
+  // "no tengo datos suficientes" cuando en realidad sí los tenía cargados.
   const { data: extracted } = await sb
     .from("file_extracted_data")
     .select("data_category, summary, row_count, extracted_json, created_at")
     .eq("company_id", companyId)
     .order("created_at", { ascending: false })
-    .limit(20);
+    .limit(200);
 
   // Failed file uploads
   const { data: failedFiles } = await sb
@@ -275,7 +355,7 @@ function isForecastQuery(userMessage: string): boolean {
 }
 
 // ── Fetch Perplexity market context ─────────────────────────────
-async function fetchMarketContext(query: string, industry: string, isForecast: boolean): Promise<string> {
+async function fetchMarketContext(query: string, industry: string, isForecast: boolean, usageCtx?: { companyId: string; userId?: string | null }): Promise<string> {
   const PERPLEXITY_API_KEY = Deno.env.get("PERPLEXITY_API_KEY");
   if (!PERPLEXITY_API_KEY) return "";
 
@@ -308,6 +388,20 @@ async function fetchMarketContext(query: string, industry: string, isForecast: b
     const data = await resp.json();
     const content = data.choices?.[0]?.message?.content || "";
     const citations = data.citations || [];
+
+    // Ola 20: log usage de Perplexity
+    if (usageCtx?.companyId && data.usage) {
+      logApiUsage({
+        companyId: usageCtx.companyId,
+        userId: usageCtx.userId,
+        provider: "perplexity",
+        model: "sonar",
+        feature: "market_context",
+        inputTokens: data.usage.prompt_tokens || 0,
+        outputTokens: data.usage.completion_tokens || 0,
+      });
+    }
+
     let result = content;
     if (citations.length) {
       result += `\nFuentes: ${citations.slice(0, 3).join(", ")}`;
@@ -320,35 +414,44 @@ async function fetchMarketContext(query: string, industry: string, isForecast: b
 }
 
 // ── System prompt ───────────────────────────────────────────────
+//
+// Ola 19 — Optimización OpenAI prompt caching:
+// El prompt está estructurado para que las partes ESTÁTICAS (rol + reglas
+// + formato) estén ARRIBA y las DINÁMICAS (companyName, datos del negocio)
+// abajo. OpenAI cachea automáticamente prefijos >1024 tokens estables, así
+// que esto reduce ~40% el costo de input desde la 2da consulta.
 function buildSystemPrompt(businessContext: string, marketContext: string, context?: Record<string, any>): string {
   const companyName = context?.companyName;
   const liveSummary = context?.livePeriodSummary;
   const availableModules: string[] = context?.availableModules || [];
   return [
-    `Sos un analista de datos senior que trabaja DENTRO de la empresa${companyName ? ` "${companyName}"` : ""}. Sos parte del equipo. Conocés el negocio de adentro.`,
-    "",
-    `El usuario está mirando actualmente: ${context?.currentPeriodLabel || "todo el historial disponible"}. Cuando respondas sobre datos del negocio, priorizá ese período salvo que te pregunten específicamente por otro.`,
+    // ─── PARTE ESTÁTICA (idéntica en todas las consultas — se cachea) ───
+    "Sos un analista de datos senior que trabaja DENTRO de la empresa de tu interlocutor. Sos parte del equipo. Conocés el negocio de adentro.",
     "",
     "## TU ROL",
     "- Sos un colega experto que analiza datos y da respuestas directas, NO un asistente genérico.",
     "- Tenés acceso completo a los datos del negocio (ventas, stock, gastos, clientes, etc.).",
     "- Tu trabajo es ANALIZAR y DAR RESPUESTAS, no decirle al usuario qué debería analizar.",
     "",
-    "## REGLAS ESTRICTAS",
-    "1. **NUNCA** hagas listas de pasos o cosas para revisar. Vos ya las revisaste. Dá la conclusión.",
-    "2. **SIEMPRE** usá números concretos de los datos que tenés: cifras, porcentajes, nombres de productos, montos.",
-    "3. **EMPEZÁ** con la respuesta/conclusión directa. Después explicá brevemente por qué.",
-    "4. **SUGERÍ** acciones concretas y específicas, no genéricas.",
-    "5. Si no tenés datos suficientes, decilo honestamente pero dá tu mejor hipótesis con lo que sí tenés.",
-    "6. **MÁXIMO** 3-4 párrafos por respuesta. Sé conciso.",
+    "## REGLAS ESTRICTAS (en orden de importancia)",
+    "1. **JAMÁS empieces pidiendo datos.** Tenés DATOS DEL NEGOCIO inyectados en este prompt. Usalos. Está prohibido empezar con 'me faltan datos', 'necesito X', 'no puedo responder sin Y' o similares. Si la pregunta requiere datos que no están, RESPONDÉ CON LO QUE SÍ TENÉS y al final mencioná en una línea qué ayudaría a refinar la respuesta.",
+    "2. **EMPEZÁ con la respuesta/conclusión directa.** Después explicá brevemente por qué. Nunca devuelvas una checklist de pasos a seguir antes de dar tu hipótesis.",
+    "3. **SIEMPRE usá números concretos** de los datos que tenés: cifras, porcentajes, nombres de productos/campañas, montos, meses específicos. Si tenés 'mejor mes Mar 25 ($X)', citalo textual.",
+    "4. **NUNCA hagas listas de pasos** o cosas para revisar. Vos ya las revisaste. Dá la conclusión.",
+    "5. **SUGERÍ acciones concretas y específicas**, no genéricas. No digas 'revisá el marketing', decí 'probá aumentar un 15% el presupuesto de Meta Ads en la campaña X que tiene mejor ROAS'.",
+    "6. **MÁXIMO 3-4 párrafos** por respuesta. Sé conciso.",
     "7. Usá tono conversacional argentino (vos/tuteo). Hablá como un compañero de trabajo, no como un manual.",
-    "8. Cuando des sugerencias, sé específico: no digas 'revisá el marketing', decí 'probá aumentar un 15% el presupuesto de Meta Ads en la categoría X que tiene mejor ROAS'.",
+    "8. Si literalmente NO hay ningún dato relevante en el contexto (ej: te preguntan por marketing pero la sección MARKETING dice 'Sin datos de campañas'), explicá qué módulo cargar y qué responderías cuando esté. Pero esto es la excepción, no la regla.",
     "",
     "## FORMATO",
     "- Respuestas cortas y directas",
     "- Podés usar **negrita** para destacar datos clave",
     "- Evitá listas numeradas largas (máximo 3 items si es necesario)",
     "- No uses encabezados formales (##) ni estructuras de informe",
+    "",
+    // ─── FIN PARTE ESTÁTICA — todo lo de abajo es dinámico (no se cachea) ───
+    companyName ? `## EMPRESA\nEstás trabajando con la empresa "${companyName}".` : "",
+    `\n## PERÍODO ACTIVO\nEl usuario está mirando: ${context?.currentPeriodLabel || "todo el historial disponible"}. Cuando respondas sobre datos del negocio, priorizá ese período salvo que te pregunten específicamente por otro.`,
     "",
     businessContext ? `\n## DATOS DEL NEGOCIO (usá estos datos para responder)\n${businessContext}` : "",
     liveSummary ? `\n## KPIs DEL PERÍODO ACTIVO (calculados en tiempo real)\n${liveSummary}` : "",
@@ -442,7 +545,10 @@ serve(async (req) => {
     if (needsMarketContext(userQuery)) {
       const forecast = isForecastQuery(userQuery);
       try {
-        marketContext = await fetchMarketContext(userQuery, industry, forecast);
+        marketContext = await fetchMarketContext(userQuery, industry, forecast, {
+          companyId: context?.companyId,
+          userId: context?.userId,
+        });
       } catch (e) {
         console.error("Error fetching market context:", e);
       }
@@ -463,6 +569,13 @@ serve(async (req) => {
           ...messages,
         ],
         stream: true,
+        // Ola 19: techo en respuestas. El system prompt pide 3-4 párrafos
+        // (~600 tokens). 800 es margen seguro. Evita respuestas infladas
+        // que cuestan plata sin agregar valor.
+        max_tokens: 800,
+        // Ola 19: incluir métricas de uso al final del stream para el panel
+        // de Uso de IA (Ola 20).
+        stream_options: { include_usage: true },
       }),
     });
 
@@ -487,7 +600,52 @@ serve(async (req) => {
       });
     }
 
-    return new Response(response.body, {
+    // Ola 20: proxy del stream para extraer usage info al final.
+    // OpenAI con stream_options.include_usage envía un último chunk SSE
+    // tipo: data: {"choices":[],"usage":{"prompt_tokens":N,"completion_tokens":M,"prompt_tokens_details":{"cached_tokens":K}}}
+    // Parseamos cada chunk on-the-fly y al detectar usage hacemos logApiUsage.
+    const decoder = new TextDecoder();
+    let usageBuffer = "";
+    const usageCompanyId = context?.companyId as string | undefined;
+    const usageUserId = context?.userId as string | undefined;
+
+    const transform = new TransformStream<Uint8Array, Uint8Array>({
+      transform(chunk, controller) {
+        // Pasamos el chunk al cliente sin tocarlo (frontend espera SSE)
+        controller.enqueue(chunk);
+        // Buscamos usage info en el texto
+        if (usageCompanyId) {
+          usageBuffer += decoder.decode(chunk, { stream: true });
+          // Procesamos línea a línea — los SSE events están separados por \n\n
+          const lines = usageBuffer.split("\n");
+          usageBuffer = lines.pop() || "";  // dejamos lo último incompleto en el buffer
+          for (const line of lines) {
+            if (!line.startsWith("data: ")) continue;
+            const payload = line.slice(6).trim();
+            if (!payload || payload === "[DONE]") continue;
+            try {
+              const parsed = JSON.parse(payload);
+              if (parsed.usage) {
+                logApiUsage({
+                  companyId: usageCompanyId,
+                  userId: usageUserId ?? null,
+                  provider: "openai",
+                  model: "gpt-4o",
+                  feature: "copilot",
+                  inputTokens: parsed.usage.prompt_tokens || 0,
+                  outputTokens: parsed.usage.completion_tokens || 0,
+                  cachedTokens: parsed.usage.prompt_tokens_details?.cached_tokens || 0,
+                });
+              }
+            } catch {
+              // Chunk parcial o no-JSON: ignorar.
+            }
+          }
+        }
+      },
+    });
+
+    return new Response(response.body!.pipeThrough(transform), {
       headers: {
         ...corsHeaders,
         "Content-Type": "text/event-stream",

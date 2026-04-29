@@ -8,7 +8,7 @@ import { formatXAxisDate, formatAmount, formatAmountFull, TOOLTIP_STYLE, AXIS_ST
 import { findNumber, findString, findDateRaw, FIELD_AMOUNT, FIELD_DATE, FIELD_CLIENT, FIELD_NAME, FIELD_COST, FIELD_PROFIT } from '@/lib/field-utils';
 import { useExtractedData } from '@/hooks/useExtractedData';
 import { filterByPeriod, parseDate, type PeriodKey } from '@/lib/data-cleaning';
-import { PeriodPills } from '@/components/ui/PeriodPills';
+import { PeriodSelector } from '@/components/PeriodSelector';
 import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Tooltip as UITooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip';
@@ -271,7 +271,7 @@ export default function Ventas() {
         <div className="flex items-center justify-between">
           <h1 className="text-2xl font-bold">Ventas</h1>
             <div className="flex items-center gap-3">
-              <PeriodPills value={period} onChange={setPeriod} availableMonths={availableMonths} />
+              <PeriodSelector value={period} onChange={setPeriod} availableMonths={availableMonths} />
               <div className="flex items-center gap-1.5 text-xs alert-success rounded-lg px-3 py-1.5">
                 <Database className="h-3.5 w-3.5" />
                 Datos reales ({realVentas.length} registros)
@@ -390,7 +390,7 @@ export default function Ventas() {
                   className="text-right cursor-pointer select-none hover:text-foreground transition-colors"
                   onClick={() => toggleSort('amount')}
                 >
-                  Monto <SortIcon col="amount" sortConfig={sortConfig} />
+                  Precio de venta <SortIcon col="amount" sortConfig={sortConfig} />
                 </TableHead>
                 {hasCostData && <TableHead className="text-right">Costo</TableHead>}
                 {(hasCostData || hasProfitData) && (

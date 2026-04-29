@@ -1,4 +1,5 @@
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -7,14 +8,25 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Progress } from '@/components/ui/progress';
 import { Upload, FileText, Image, FileSpreadsheet, Trash2, Lightbulb, Loader2, RefreshCw, CheckCircle2, Search, ChevronLeft, ChevronRight, Filter, XCircle, BarChart3, Clock, AlertTriangle, Layers, Link2, ArrowUp, Globe, Package, Pencil, X as XIcon, Download, Archive, RotateCcw, History } from 'lucide-react';
 import { Textarea } from '@/components/ui/textarea';
+import { Label } from '@/components/ui/label';
 import { formatDate } from '@/lib/formatters';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import * as XLSX from 'xlsx';
-import { cleanParsedRows, detectPeriodOverlap, parseDate } from '@/lib/data-cleaning';
+import { cleanParsedRows, cleanParsedRowsWithStats, detectPeriodOverlap, parseDate } from '@/lib/data-cleaning';
 import { useExtractedData } from '@/hooks/useExtractedData';
 import { findString, FIELD_DATE, FIELD_NAME } from '@/lib/field-utils';
+import { SchemaPreviewDialog, type SchemaPreviewPayload } from '@/components/SchemaPreviewDialog';
+import { MultiSheetPickerDialog, type SheetInfo } from '@/components/MultiSheetPickerDialog';
+import { useDeleteRequests } from '@/hooks/useDeleteRequests';
+import { suggestCategory } from '@/lib/schema-preview';
+import { DataQualityBadge } from '@/components/DataQualityBadge';
+import { computeDataQuality, detectAnomalies, type DataQualityScore } from '@/lib/data-quality';
+import { computeVersionDiff, type VersionDiff } from '@/lib/version-diff';
+import { TEMPLATES, downloadTemplate } from '@/lib/templates';
+import { AuditTrailPanel } from '@/components/AuditTrailPanel';
+import { getStaleThresholdDays } from '@/lib/user-settings';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -79,17 +91,12 @@ const MAX_CONCURRENT_UPLOADS = 4;
 const PRESIGN_THRESHOLD = 20 * 1024 * 1024; // 20MB
 
 // B3: Human-readable labels for semantic column keys
-// C4+: Qué módulos del dashboard alimenta cada categoría (linaje simple)
-const CATEGORY_MODULES: Record<string, string[]> = {
-  ventas: ['Dashboard', 'Ventas', 'Forecast', 'Alertas'],
-  gastos: ['Dashboard', 'Flujo de caja', 'Alertas'],
-  stock: ['Dashboard', 'Stock', 'Alertas'],
-  marketing: ['Marketing', 'Dashboard'],
-  clientes: ['Clientes'],
-  facturas: ['Finanzas'],
-  rrhh: ['RRHH'],
-  otro: ['Otro'],
-};
+// 2.6: Module mapping moved to src/lib/category-modules.ts (single source of truth).
+// We re-export the legacy shape (string label arrays) here for the existing UI.
+import { CATEGORY_MODULES as CAT_MODS_KEYS, MODULES as MOD_INFO } from '@/lib/category-modules';
+const CATEGORY_MODULES: Record<string, string[]> = Object.fromEntries(
+  Object.entries(CAT_MODS_KEYS).map(([cat, mods]) => [cat, mods.map(m => MOD_INFO[m].label)])
+);
 
 // C4+: Panel de frescura de datos por categoría
 function FreshnessPanel({ lastUploadDates }: { lastUploadDates: Record<string, string> }) {
@@ -241,12 +248,45 @@ function fixBrokenHeaders(rows: Record<string, unknown>[]): { rows: Record<strin
 }
 
 /**
+ * Detect CSV delimiter using a median-stability heuristic.
+ * Scans the first 5 non-empty lines, counts how many fields each candidate
+ * delimiter would produce per line (respecting quotes), and picks the one
+ * with the highest minimum field count and stable spread (max-min ≤ 2).
+ * This avoids false positives when commas appear inside text fields.
+ */
+function detectDelimiter(text: string): string {
+  const lines = text.split(/\r?\n/).filter(l => l.trim()).slice(0, 5);
+  if (lines.length === 0) return ',';
+  const candidates = ['\t', ';', '|', ','];
+  let best = ',';
+  let bestScore = 0;
+  for (const d of candidates) {
+    const counts = lines.map(l => {
+      let inQuotes = false;
+      let count = 1;
+      for (let i = 0; i < l.length; i++) {
+        const c = l[i];
+        if (c === '"') inQuotes = !inQuotes;
+        else if (c === d && !inQuotes) count++;
+      }
+      return count;
+    });
+    const min = Math.min(...counts);
+    const max = Math.max(...counts);
+    if (min >= 2 && (max - min) <= 2 && min > bestScore) {
+      best = d;
+      bestScore = min;
+    }
+  }
+  return best;
+}
+
+/**
  * Simple RFC 4180 CSV parser for client-side use.
  */
 function parseCSVClientSide(text: string): Record<string, unknown>[] {
   if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1); // BOM
-  const rawFirst = text.split(/\r?\n/)[0] || '';
-  const delimiter = rawFirst.includes('\t') ? '\t' : rawFirst.includes(';') ? ';' : ',';
+  const delimiter = detectDelimiter(text);
 
   const rows: string[][] = [];
   let current: string[] = [];
@@ -340,20 +380,79 @@ interface SuggestionItem {
   priority: 'high' | 'medium' | 'low';
 }
 
-function ContextualAssistant({ companySettings }: { companySettings: any }) {
-  const suggestions: SuggestionItem[] = [
-    { icon: '📊', title: 'Hoja de ventas', description: 'Subí tu Excel o CSV con las ventas del mes para calcular facturación, ticket promedio y tendencias.', condition: true, priority: 'high' },
-    { icon: '💰', title: 'Facturas de proveedores', description: 'Subí PDFs o fotos de facturas para registrar costos y calcular tu margen real.', condition: true, priority: 'high' },
-    { icon: '📦', title: 'Lista de productos / stock', description: 'Subí tu inventario con cantidades, precios y costos para detectar faltantes y sobrestock.', condition: !companySettings || companySettings.sells_products || companySettings.has_stock, priority: 'high' },
-    { icon: '📈', title: 'Reporte de Meta Ads', description: 'Exportá el rendimiento de campañas desde Meta Business Suite y subilo acá.', condition: !companySettings || companySettings.uses_meta_ads, priority: 'medium' },
-    { icon: '🔍', title: 'Reporte de Google Ads', description: 'Descargá el informe de rendimiento desde Google Ads y subilo para analizar ROAS.', condition: !companySettings || companySettings.uses_google_ads, priority: 'medium' },
-    { icon: '🚚', title: 'Registro de envíos', description: 'Si tenés un registro de despachos o logística, subilo para cruzar con ventas.', condition: !companySettings || companySettings.has_logistics, priority: 'low' },
-    { icon: '🏦', title: 'Resumen bancario', description: 'Subí tu extracto bancario (CSV o PDF) para conciliar ingresos y egresos.', condition: true, priority: 'low' },
+function ContextualAssistant({
+  companySettings,
+  lastUploadDates,
+}: {
+  companySettings: any;
+  lastUploadDates: Record<string, string>;
+}) {
+  // 2.11: dynamic — each suggestion is keyed to a category and reads
+  // lastUploadDates so we can show "✓ ya cargado · hace 3d" or
+  // "⚠ desactualizado hace 45d" instead of static text.
+  const wantsStock = !companySettings || companySettings.sells_products || companySettings.has_stock;
+  const wantsMeta = !companySettings || companySettings.uses_meta_ads;
+  const wantsGoogle = !companySettings || companySettings.uses_google_ads;
+  const wantsLog = !companySettings || companySettings.has_logistics;
+
+  const suggestions: (SuggestionItem & { category?: string })[] = [
+    { icon: '📊', title: 'Hoja de ventas',           description: 'Subí tu Excel o CSV con las ventas del mes para calcular facturación, ticket promedio y tendencias.', condition: true,          priority: 'high',   category: 'ventas' },
+    { icon: '💰', title: 'Facturas de proveedores',  description: 'Subí PDFs o fotos de facturas para registrar costos y calcular tu margen real.',                       condition: true,          priority: 'high',   category: 'gastos' },
+    { icon: '📦', title: 'Lista de productos / stock', description: 'Subí tu inventario con cantidades, precios y costos para detectar faltantes y sobrestock.',          condition: wantsStock,    priority: 'high',   category: 'stock' },
+    { icon: '📈', title: 'Reporte de Meta Ads',      description: 'Exportá el rendimiento de campañas desde Meta Business Suite y subilo acá.',                            condition: wantsMeta,     priority: 'medium', category: 'marketing' },
+    { icon: '🔍', title: 'Reporte de Google Ads',    description: 'Descargá el informe de rendimiento desde Google Ads y subilo para analizar ROAS.',                      condition: wantsGoogle,   priority: 'medium', category: 'marketing' },
+    { icon: '🚚', title: 'Registro de envíos',       description: 'Si tenés un registro de despachos o logística, subilo para cruzar con ventas.',                         condition: wantsLog,      priority: 'low',    category: 'otro' },
+    { icon: '🏦', title: 'Resumen bancario',         description: 'Subí tu extracto bancario (CSV o PDF) para conciliar ingresos y egresos.',                              condition: true,          priority: 'low',    category: 'facturas' },
   ];
 
   const activeSuggestions = suggestions.filter(s => s.condition);
   const highPriority = activeSuggestions.filter(s => s.priority === 'high');
   const otherPriority = activeSuggestions.filter(s => s.priority !== 'high');
+
+  // 2.11 helper: returns a status pill for a category based on last upload
+  const statusFor = (cat?: string) => {
+    // Si la categoría no fue cargada aún, mostramos un badge "Falta cargar"
+    // (Ola 9 — Lucas pidió que se vea como alerta visual, no que quede vacío).
+    if (!cat || !lastUploadDates[cat]) {
+      return (
+        <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-warning/15 text-warning shrink-0 whitespace-nowrap">
+          ⚠ Falta cargar
+        </span>
+      );
+    }
+    const days = Math.max(0, Math.floor((Date.now() - new Date(lastUploadDates[cat]).getTime()) / 86400000));
+    // Ola 10: umbral por categoría (auto-ajuste según perfil del negocio)
+    const threshold = getStaleThresholdDays(cat, companySettings);
+    const fresh = days <= Math.max(1, Math.floor(threshold / 3));
+    const stale = days > threshold;
+    const tone = fresh ? 'bg-success/15 text-success' : stale ? 'bg-destructive/15 text-destructive' : 'bg-warning/15 text-warning';
+    const label = fresh ? `✓ Hace ${days}d` : stale ? `⚠ Hace ${days}d` : `Hace ${days}d`;
+    return <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${tone} shrink-0`}>{label}</span>;
+  };
+
+  // 2.11: dynamic top-strip — count missing high-priority categories
+  const missingHigh = highPriority.filter(s => s.category && !lastUploadDates[s.category]).length;
+  const staleHigh = highPriority.filter(s => {
+    if (!s.category || !lastUploadDates[s.category]) return false;
+    const days = Math.floor((Date.now() - new Date(lastUploadDates[s.category]).getTime()) / 86400000);
+    return days > getStaleThresholdDays(s.category, companySettings);
+  }).length;
+
+  const renderItem = (s: SuggestionItem & { category?: string }, i: number) => {
+    const status = statusFor(s.category);
+    return (
+      <div key={i} className="flex items-start gap-2.5 p-2.5 rounded-lg hover:bg-muted/50 transition-colors">
+        <span className="text-base mt-0.5">{s.icon}</span>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-sm font-medium">{s.title}</p>
+            {status}
+          </div>
+          <p className="text-xs text-muted-foreground leading-relaxed">{s.description}</p>
+        </div>
+      </div>
+    );
+  };
 
   return (
     <Card className="h-fit sticky top-4">
@@ -363,36 +462,24 @@ function ContextualAssistant({ companySettings }: { companySettings: any }) {
           ¿Qué archivos subir?
         </CardTitle>
         <p className="text-xs text-muted-foreground mt-1">
-          Basado en la configuración de tu negocio, te recomendamos cargar estos datos:
+          {missingHigh > 0
+            ? `Te faltan ${missingHigh} fuente${missingHigh === 1 ? '' : 's'} prioritaria${missingHigh === 1 ? '' : 's'} para activar el dashboard completo.`
+            : staleHigh > 0
+            ? `${staleHigh} fuente${staleHigh === 1 ? '' : 's'} prioritaria${staleHigh === 1 ? '' : 's'} con datos desactualizados.`
+            : 'Tus fuentes prioritarias están al día. Estos datos opcionales suman precisión:'}
         </p>
       </CardHeader>
       <CardContent className="space-y-1 pb-4">
         {highPriority.length > 0 && (
           <>
             <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-2">Prioritarios</p>
-            {highPriority.map((s, i) => (
-              <div key={i} className="flex items-start gap-2.5 p-2.5 rounded-lg hover:bg-muted/50 transition-colors">
-                <span className="text-base mt-0.5">{s.icon}</span>
-                <div className="min-w-0">
-                  <p className="text-sm font-medium">{s.title}</p>
-                  <p className="text-xs text-muted-foreground leading-relaxed">{s.description}</p>
-                </div>
-              </div>
-            ))}
+            {highPriority.map(renderItem)}
           </>
         )}
         {otherPriority.length > 0 && (
           <>
             <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mt-3 mb-2">Opcionales</p>
-            {otherPriority.map((s, i) => (
-              <div key={i} className="flex items-start gap-2.5 p-2.5 rounded-lg hover:bg-muted/50 transition-colors">
-                <span className="text-base mt-0.5">{s.icon}</span>
-                <div className="min-w-0">
-                  <p className="text-sm font-medium">{s.title}</p>
-                  <p className="text-xs text-muted-foreground leading-relaxed">{s.description}</p>
-                </div>
-              </div>
-            ))}
+            {otherPriority.map(renderItem)}
           </>
         )}
         <p className="text-[10px] text-muted-foreground border-t pt-3 mt-3">
@@ -551,14 +638,47 @@ export default function CargaDatos() {
   const [totalCount, setTotalCount] = useState(0);
   const [extractedDataMap, setExtractedDataMap] = useState<Record<string, ExtractedData[]>>({});
   const [dragging, setDragging] = useState(false);
+  // 2.2 inline drag validation — peeks at the dragged item MIME types
+  const [dragInvalidMsg, setDragInvalidMsg] = useState<string | null>(null);
   const [loadingFiles, setLoadingFiles] = useState(true);
   const [storageUsedBytes, setStorageUsedBytes] = useState<number>(0);
   const [reprocessingId, setReprocessingId] = useState<string | null>(null);
   const [reclassifyingId, setReclassifyingId] = useState<string | null>(null); // file_upload_id being reclassified
   // 2.4: Confirmación antes de reclasificar — evita mis-clicks que rompan el dashboard
   const [pendingReclassify, setPendingReclassify] = useState<{ fileId: string; fileName: string; newCategory: string; oldCategory: string } | null>(null);
+  // 5.1: Schema Preview & Confirmation — block upload until user confirms
+  // category & inspects sample rows. Resolved via a Promise the upload flow awaits.
+  const [pendingPreview, setPendingPreview] = useState<{ payload: SchemaPreviewPayload; category: string } | null>(null);
+  const previewResolverRef = useRef<((value: { confirmed: boolean; category: string }) => void) | null>(null);
+  // Ola 17: delete requests — employees solicitan, admin aprueba
+  const { pending: deletePending, requestDelete, approveRequest, rejectRequest } = useDeleteRequests();
+  const [pendingDeleteRequest, setPendingDeleteRequest] = useState<{ file: FileRecord; reason: string } | null>(null);
+  const [submittingDeleteRequest, setSubmittingDeleteRequest] = useState(false);
+
+  // Ola 12: multi-hoja UI — picker antes de procesar Excel con varias hojas
+  const [pendingSheets, setPendingSheets] = useState<{ fileName: string; sheets: SheetInfo[] } | null>(null);
+  const sheetResolverRef = useRef<((value: string[] | null) => void) | null>(null);
+  const askSheetsToProcess = (fileName: string, sheets: SheetInfo[]) =>
+    new Promise<string[] | null>((resolve) => {
+      sheetResolverRef.current = resolve;
+      setPendingSheets({ fileName, sheets });
+    });
+  const handleSheetsConfirm = (selected: string[]) => {
+    sheetResolverRef.current?.(selected);
+    sheetResolverRef.current = null;
+    setPendingSheets(null);
+  };
+  const handleSheetsCancel = () => {
+    sheetResolverRef.current?.(null);
+    sheetResolverRef.current = null;
+    setPendingSheets(null);
+  };
+  // 5.2: DQ scores keyed by file_upload_id. Computed at upload time (rows in
+  // scope) and cached in session state. Old files show no badge until reprocessed.
+  const [dqScoresMap, setDqScoresMap] = useState<Record<string, DataQualityScore>>({});
   const [uploadQueue, setUploadQueue] = useState<UploadQueueItem[]>([]);
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const pollInFlightRef = useRef(false); // 1.3: guard against overlapping polls
   const prevErrorIdsRef = useRef<Set<string>>(new Set());
   const [urlImportText, setUrlImportText] = useState('');
   const [isImportingUrls, setIsImportingUrls] = useState(false);
@@ -574,6 +694,7 @@ export default function CargaDatos() {
     fileName: string;
     overlappingMonths: string[];
     category: string;
+    diff?: VersionDiff; // 5.7: per-month delta (totals, row counts, products)
   } | null>(null);
 
   // Stock duplicate detection state (BUG 1 fix)
@@ -589,15 +710,40 @@ export default function CargaDatos() {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [typeFilter, setTypeFilter] = useState<string>('all');
+  // 5.14 Lineage: read ?category= URL param to prefilter file list when arriving
+  // from a Dashboard pill click. Filter is applied client-side because category
+  // lives in file_extracted_data, not file_uploads.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const categoryFilter = searchParams.get('category') || 'all';
+  const setCategoryFilter = (v: string) => {
+    const next = new URLSearchParams(searchParams);
+    if (v === 'all') next.delete('category'); else next.set('category', v);
+    setSearchParams(next, { replace: true });
+    setCurrentPage(0);
+  };
+  // 5.9 Bulk recategorize: multi-select state
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkRecategorizing, setBulkRecategorizing] = useState(false);
 
   const fetchExtractedData = useCallback(async (fileIds: string[]) => {
     if (fileIds.length === 0) return;
-    // Main query: summary info per chunk (no extracted_json — too heavy)
-    const { data } = await supabase
-      .from('file_extracted_data')
-      .select('file_upload_id, data_category, summary, row_count, chunk_index')
-      .in('file_upload_id', fileIds)
-      .order('chunk_index', { ascending: true });
+    // 3.2: run both queries in parallel — they hit different rows (data_category
+    // filter) and have different projections (extracted_json is heavy and only
+    // needed for _column_mapping). Promise.all halves the round-trip latency.
+    const [summaryRes, mappingRes] = await Promise.all([
+      supabase
+        .from('file_extracted_data')
+        .select('file_upload_id, data_category, summary, row_count, chunk_index')
+        .in('file_upload_id', fileIds)
+        .order('chunk_index', { ascending: true }),
+      supabase
+        .from('file_extracted_data')
+        .select('file_upload_id, extracted_json')
+        .in('file_upload_id', fileIds)
+        .eq('data_category', '_column_mapping'),
+    ]);
+    const data = summaryRes.data;
+    const mappingData = mappingRes.data;
     if (data) {
       const map: Record<string, ExtractedData[]> = {};
       data.forEach(d => {
@@ -607,12 +753,6 @@ export default function CargaDatos() {
       });
       setExtractedDataMap(prev => ({ ...prev, ...map }));
     }
-    // B3: secondary targeted query for column_mapping records only (extracted_json is light here)
-    const { data: mappingData } = await supabase
-      .from('file_extracted_data')
-      .select('file_upload_id, extracted_json')
-      .in('file_upload_id', fileIds)
-      .eq('data_category', '_column_mapping');
     if (mappingData) {
       const newMappings: Record<string, Record<string, string>> = {};
       mappingData.forEach(m => {
@@ -743,7 +883,14 @@ export default function CargaDatos() {
   useEffect(() => {
     const hasProcessing = files.some(f => f.status === 'processing' || f.status === 'queued');
     if (hasProcessing && !pollingRef.current) {
-      pollingRef.current = setInterval(() => { fetchFiles(); }, 5000);
+      pollingRef.current = setInterval(async () => {
+        // 1.3: skip tick if previous fetch hasn't returned (slow network) to
+        // prevent overlapping requests stomping on each other and triggering
+        // duplicate toasts.
+        if (pollInFlightRef.current) return;
+        pollInFlightRef.current = true;
+        try { await fetchFiles(); } finally { pollInFlightRef.current = false; }
+      }, 5000);
     } else if (!hasProcessing && pollingRef.current) {
       clearInterval(pollingRef.current);
       pollingRef.current = null;
@@ -800,25 +947,71 @@ export default function CargaDatos() {
     }
   };
 
+  // 5.1: Schema Preview helpers — return a Promise the upload flow awaits.
+  // Concurrent uploads serialize on this dialog (next file's preview only
+  // shows after the prior one is confirmed/cancelled).
+  const awaitSchemaPreview = (payload: SchemaPreviewPayload): Promise<{ confirmed: boolean; category: string }> => {
+    return new Promise((resolve) => {
+      const initialCat = suggestCategory(payload.headers).category;
+      setPendingPreview({ payload, category: initialCat });
+      previewResolverRef.current = resolve;
+    });
+  };
+  const handlePreviewConfirm = () => {
+    if (pendingPreview && previewResolverRef.current) {
+      previewResolverRef.current({ confirmed: true, category: pendingPreview.category });
+      previewResolverRef.current = null;
+      setPendingPreview(null);
+    }
+  };
+  const handlePreviewCancel = () => {
+    if (previewResolverRef.current) {
+      previewResolverRef.current({ confirmed: false, category: '' });
+      previewResolverRef.current = null;
+    }
+    setPendingPreview(null);
+  };
+
   // ─── Batch Upload with Parallel Queue ──────────────────────
   const uploadFiles = async (fileList: FileList | File[]) => {
     if (!user || !profile?.company_id) return;
     const filesToUpload = Array.from(fileList);
     if (filesToUpload.length === 0) return;
 
-    // Validate file formats
+    // 2.2 Validate file formats AND per-file size (50MB cap on edge function).
+    // Surface ALL rejects in a single toast list rather than one toast per file.
     const SUPPORTED_EXTENSIONS = ['xlsx', 'xls', 'xlsm', 'csv', 'pdf', 'png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp', 'doc', 'docx', 'xml', 'txt'];
+    const PER_FILE_MAX = 50 * 1024 * 1024; // 50MB
     const validFiles: File[] = [];
+    const rejectedByExt: { name: string; ext: string }[] = [];
+    const rejectedBySize: { name: string; mb: string }[] = [];
     for (const file of filesToUpload) {
       const ext = file.name.split('.').pop()?.toLowerCase() || '';
       if (!SUPPORTED_EXTENSIONS.includes(ext)) {
-        toast.error(`Formato no compatible: .${ext}`, {
-          description: `Formatos aceptados: Excel (.xlsx, .xls), CSV (.csv), PDF (.pdf), Imágenes (.jpg, .png, .webp, .gif, .bmp), Word (.doc, .docx) y XML (.xml).`,
-          duration: 8000,
-        });
+        rejectedByExt.push({ name: file.name, ext });
+        continue;
+      }
+      if (file.size > PER_FILE_MAX) {
+        rejectedBySize.push({ name: file.name, mb: (file.size / 1024 / 1024).toFixed(1) });
         continue;
       }
       validFiles.push(file);
+    }
+    if (rejectedByExt.length > 0) {
+      const list = rejectedByExt.slice(0, 3).map(r => `${r.name} (.${r.ext})`).join(', ');
+      const more = rejectedByExt.length > 3 ? ` y ${rejectedByExt.length - 3} más` : '';
+      toast.error(`${rejectedByExt.length} archivo${rejectedByExt.length === 1 ? '' : 's'} con formato no compatible`, {
+        description: `${list}${more}. Aceptados: Excel, CSV, PDF, imágenes, Word, XML.`,
+        duration: 8000,
+      });
+    }
+    if (rejectedBySize.length > 0) {
+      const list = rejectedBySize.slice(0, 3).map(r => `${r.name} (${r.mb}MB)`).join(', ');
+      const more = rejectedBySize.length > 3 ? ` y ${rejectedBySize.length - 3} más` : '';
+      toast.error(`${rejectedBySize.length} archivo${rejectedBySize.length === 1 ? '' : 's'} supera${rejectedBySize.length === 1 ? '' : 'n'} 50MB`, {
+        description: `${list}${more}. Dividí el archivo o exportá en CSV para reducir tamaño.`,
+        duration: 9000,
+      });
     }
     if (validFiles.length === 0) return;
 
@@ -926,6 +1119,41 @@ export default function CargaDatos() {
             }
 
             if (sheetDataSets.length > 1) {
+              // Ola 12: si hay >1 hojas válidas, le damos al usuario la opción
+              // de elegir cuáles procesar antes de seguir.
+              const sheetInfos: SheetInfo[] = sheetDataSets.map(s => ({
+                name: s.name,
+                rows: s.rows.length,
+                headers: s.headers,
+              }));
+              const selectedNames = await askSheetsToProcess(item.file.name, sheetInfos);
+              if (selectedNames === null) {
+                updateItem({ status: 'error', error: 'Cancelado por el usuario' });
+                await processNext();
+                return;
+              }
+              if (selectedNames.length === 0) {
+                updateItem({ status: 'error', error: 'No seleccionaste ninguna hoja' });
+                toast.warning(`"${item.file.name}": no seleccionaste ninguna hoja para procesar.`);
+                await processNext();
+                return;
+              }
+              // Filtrar las hojas elegidas
+              const filteredSets = sheetDataSets.filter(s => selectedNames.includes(s.name));
+              sheetDataSets.length = 0;
+              sheetDataSets.push(...filteredSets);
+              if (sheetDataSets.length === 1) {
+                // Si después del filtro queda solo una, caemos en el flujo single-sheet
+                parsedRows = cleanParsedRows(sheetDataSets[0].rows, sheetDataSets[0].headers);
+                parsedHeaders = sheetDataSets[0].headers;
+                if (selectedNames.length < sheetInfos.length) {
+                  toast.info(`Procesando solo "${sheetDataSets[0].name}" (${sheetInfos.length - 1} hoja(s) descartada(s))`);
+                }
+                // continúa al final del bloque excel con parsedRows ya seteados
+              }
+            }
+
+            if (sheetDataSets.length > 1) {
               // Check if all sheets share the same headers → concatenate
               const firstHeaders = [...sheetDataSets[0].headers].sort().join('|');
               const allSame = sheetDataSets.every(s => [...s.headers].sort().join('|') === firstHeaders);
@@ -938,9 +1166,18 @@ export default function CargaDatos() {
                   toast.warning(`"${item.file.name}": el archivo tiene ${allRows.length.toLocaleString('es-AR')} filas. Solo se procesarán las primeras 50.000 — para procesar el resto, dividilo en archivos más chicos.`, { duration: 12000 });
                   allRows.length = 50000;
                 }
-                parsedRows = cleanParsedRows(allRows, sheetDataSets[0].headers);
-                parsedHeaders = sheetDataSets[0].headers;
-                console.log(`[CargaDatos] ${sheetDataSets.length} sheets with same headers → concatenated ${parsedRows.length} rows`);
+                {
+                  const stats = cleanParsedRowsWithStats(allRows, sheetDataSets[0].headers);
+                  parsedRows = stats.rows;
+                  parsedHeaders = sheetDataSets[0].headers;
+                  console.log(`[CargaDatos] ${sheetDataSets.length} sheets with same headers → concatenated ${parsedRows.length} rows (filtered ${stats.filteredCount}/${stats.originalCount})`);
+                  if (stats.filterRate > 0.2 && stats.originalCount >= 10) {
+                    toast.warning(`"${item.file.name}": se descartaron ${stats.filteredCount} filas (${(stats.filterRate * 100).toFixed(0)}%) durante la limpieza`, {
+                      description: 'Tasa de filtrado alta. Verificá que las hojas no tengan totales o estructura irregular.',
+                      duration: 12000,
+                    });
+                  }
+                }
               } else {
                 // Different headers: process each sheet as independent file
                 console.log(`[CargaDatos] ${sheetDataSets.length} sheets with different headers → processing independently`);
@@ -975,7 +1212,10 @@ export default function CargaDatos() {
                       storage_path: storagePath,
                       uploaded_by: user.id,
                       company_id: profile.company_id!,
-                      file_hash: `${fileHash}-sheet-${si}`,
+                      // 1.1: include normalized sheet NAME (not just index) so the
+                      // hash still detects duplicates if sheets are reordered or if
+                      // the user re-uploads the same workbook with the same sheets.
+                      file_hash: `${fileHash}-sheet-${(sd.name || `idx${si}`).toLowerCase().replace(/[^a-z0-9]+/g, '_').slice(0, 40)}`,
                     }).select('id').single();
 
                     if (sheetDbErr || !sheetDbData) throw new Error(sheetDbErr?.message || 'DB insert failed');
@@ -1040,8 +1280,17 @@ export default function CargaDatos() {
                 toast.warning(`"${item.file.name}": el archivo tiene ${allRows.length.toLocaleString('es-AR')} filas. Solo se procesarán las primeras 50.000.`, { duration: 12000 });
                 allRows.length = 50000;
               }
-              parsedRows = cleanParsedRows(allRows, sheetDataSets[0].headers);
-              parsedHeaders = sheetDataSets[0].headers;
+              {
+                const stats = cleanParsedRowsWithStats(allRows, sheetDataSets[0].headers);
+                parsedRows = stats.rows;
+                parsedHeaders = sheetDataSets[0].headers;
+                if (stats.filterRate > 0.2 && stats.originalCount >= 10) {
+                  toast.warning(`"${item.file.name}": se descartaron ${stats.filteredCount} filas (${(stats.filterRate * 100).toFixed(0)}%) durante la limpieza`, {
+                    description: 'Tasa de filtrado alta. Verificá que el archivo no tenga totales o estructura irregular.',
+                    duration: 12000,
+                  });
+                }
+              }
             }
             updateItem({ progress: 80 });
             console.log(`[CargaDatos] Client-side parsed: ${parsedRows?.length ?? 0} rows, ${parsedHeaders?.length ?? 0} cols`);
@@ -1065,14 +1314,55 @@ export default function CargaDatos() {
             }
             // Clean data: convert serial dates + filter summary rows
             if (parsedRows && parsedHeaders) {
-              parsedRows = cleanParsedRows(parsedRows, parsedHeaders);
-              console.log(`[CargaDatos] CSV after cleaning: ${parsedRows.length} rows`);
+              const stats = cleanParsedRowsWithStats(parsedRows, parsedHeaders);
+              parsedRows = stats.rows;
+              console.log(`[CargaDatos] CSV after cleaning: ${parsedRows.length} rows (filtered ${stats.filteredCount}/${stats.originalCount}, ${(stats.filterRate * 100).toFixed(1)}%)`);
+              if (stats.filterRate > 0.2 && stats.originalCount >= 10) {
+                toast.warning(`"${item.file.name}": se descartaron ${stats.filteredCount} filas (${(stats.filterRate * 100).toFixed(0)}%) durante la limpieza`, {
+                  description: 'Tasa de filtrado alta. Verificá que el archivo no tenga formato inusual (delimitador raro, encabezados duplicados, columnas vacías).',
+                  duration: 12000,
+                });
+              }
             }
             updateItem({ progress: 80 });
             console.log(`[CargaDatos] Client-side CSV parsed: ${parsedRows?.length ?? 0} rows`);
           } catch (parseErr) {
             console.warn('[CargaDatos] Client-side CSV parse failed, falling back to server:', parseErr);
           }
+        }
+
+        // Ola 21: si el parse client-side dejó parsedRows EXISTENTE pero VACÍO
+        // (ej: el cleanup filtró todas las filas como "totales" o el archivo
+        // tenía solo headers), antes esto provocaba que el upload quedara en
+        // 'queued' indefinidamente. Ahora lo marcamos como error explícito.
+        if (parsedRows && parsedRows.length === 0) {
+          updateItem({ status: 'error', error: 'El archivo no contiene filas válidas para procesar (¿solo headers? ¿totales?). Verificá el contenido y volvé a subirlo.' });
+          toast.error(`"${item.file.name}": no se encontraron filas válidas`, {
+            description: 'El archivo se parseó pero quedó vacío después de la limpieza. Capaz tiene solo headers o líneas de totales.',
+            duration: 10000,
+          });
+          await processNext();
+          return;
+        }
+
+        // 5.1: Schema Preview & Confirmation. Only ask when client-side
+        // parsing succeeded — server-side fallback has nothing to preview.
+        let categoryOverride: string | undefined;
+        if (parsedRows && parsedHeaders && parsedRows.length > 0) {
+          updateItem({ status: 'pending', progress: 82 });
+          const preview = await awaitSchemaPreview({
+            fileName: item.file.name,
+            headers: parsedHeaders,
+            rows: parsedRows.slice(0, 20),
+            totalRows: parsedRows.length,
+          });
+          if (!preview.confirmed) {
+            updateItem({ status: 'error', error: 'Cancelado por el usuario en la vista previa' });
+            await processNext();
+            return;
+          }
+          categoryOverride = preview.category;
+          updateItem({ status: 'uploading', progress: 84 });
         }
 
         const { data: dbData, error: dbError } = await supabase.from('file_uploads').insert({
@@ -1116,7 +1406,9 @@ export default function CargaDatos() {
                     batchIndex: bi,
                     totalBatches,
                     totalRows: parsedRows.length,
-                    ...(bi > 0 && resolvedCategory ? { category: resolvedCategory } : {}),
+                    // 5.1: pass user-chosen category to ALL batches (incl. bi=0)
+                    // so the edge function honors the Schema Preview override.
+                    ...(categoryOverride ? { category: categoryOverride } : (bi > 0 && resolvedCategory ? { category: resolvedCategory } : {})),
                   },
                 });
                 if (pfError) throw pfError;
@@ -1157,6 +1449,40 @@ export default function CargaDatos() {
               updateItem({ status: 'done', progress: 100, totalRows: savedTotal });
               toast.success(`"${item.file.name}" procesado correctamente — ${savedTotal.toLocaleString('es-AR')} filas${totalBatches > 1 ? ` en ${totalBatches} bloques` : ''}`);
             }
+
+            // 5.2 + 5.3: Compute Data Quality Score and Anomaly Report client-side
+            // using rows still in scope. Cached in dqScoresMap (session only).
+            try {
+              const finalCat = categoryOverride || resolvedCategory || 'otro';
+              const dq = computeDataQuality(parsedRows, finalCat);
+              setDqScoresMap(prev => ({ ...prev, [dbData.id]: dq }));
+              if (dq.score < 60) {
+                toast.warning(`"${item.file.name}": calidad de datos baja (DQ ${dq.score}/100)`, {
+                  description: dq.issues.slice(0, 2).join(' · ') || 'Revisá las filas en el detalle.',
+                  duration: 10000,
+                });
+              }
+              const anomalies = detectAnomalies(parsedRows, finalCat);
+              if (anomalies.outlierColumns.length > 0 || anomalies.hasMomChange || anomalies.hasDateGap) {
+                const messages: string[] = [];
+                if (anomalies.outlierColumns.length > 0) {
+                  const top = anomalies.outlierColumns[0];
+                  messages.push(`${top.count} valor(es) atípicos en "${top.column}" (máx ${top.max.toLocaleString('es-AR')})`);
+                }
+                if (anomalies.momDetail) {
+                  messages.push(`Cambio ${anomalies.momDetail.ratio.toFixed(1)}× entre ${anomalies.momDetail.from} → ${anomalies.momDetail.to}`);
+                }
+                if (anomalies.gapDetail) {
+                  messages.push(`Hueco de ${anomalies.gapDetail.days} días entre ${anomalies.gapDetail.start} y ${anomalies.gapDetail.end}`);
+                }
+                toast.warning(`"${item.file.name}": anomalías detectadas`, {
+                  description: messages.join(' · '),
+                  duration: 12000,
+                });
+              }
+            } catch (dqErr) {
+              console.warn('[CargaDatos] DQ/anomaly compute failed:', dqErr);
+            }
           } catch (invokeErr: any) {
             await supabase.from('file_uploads').update({ status: 'queued', processing_error: null }).eq('id', dbData.id);
             console.warn('[CargaDatos] Row batch upload failed, queued for server retry:', invokeErr);
@@ -1193,8 +1519,40 @@ export default function CargaDatos() {
     fetchStorageUsage();
     await refetchExtractedData();
 
+    // 1.7: Re-read FRESH data from DB before overlap detection. The closure
+    // values (globalExtractedData / taggedVentasRows / etc.) were captured at
+    // handleUpload time and are stale after refetchExtractedData() — React
+    // hasn't re-rendered yet so we'd compare against pre-upload state.
+    const freshAllRecords: { data_category: string; extracted_json: any; file_upload_id: string }[] = [];
+    {
+      const PAGE = 1000;
+      let from = 0;
+      while (true) {
+        const { data: page } = await supabase
+          .from('file_extracted_data')
+          .select('data_category, extracted_json, file_upload_id')
+          .eq('company_id', profile.company_id!)
+          .not('data_category', 'in', '("_raw_cache","_classification","_column_mapping")')
+          .order('created_at', { ascending: false })
+          .range(from, from + PAGE - 1);
+        if (!page || page.length === 0) break;
+        freshAllRecords.push(...page);
+        if (page.length < PAGE) break;
+        from += PAGE;
+      }
+    }
+    const freshByCat: Record<string, { row: any; fileUploadId: string }[]> = {
+      ventas: [], gastos: [], marketing: [], stock: [],
+    };
+    for (const r of freshAllRecords) {
+      const remapped = r.data_category === 'operaciones' ? 'gastos' : r.data_category === 'finanzas' ? 'facturas' : r.data_category;
+      if (!freshByCat[remapped]) continue;
+      const rows = (r.extracted_json as any)?.data || [];
+      if (!Array.isArray(rows)) continue;
+      for (const row of rows) freshByCat[remapped].push({ row, fileUploadId: r.file_upload_id });
+    }
+
     // Check for overlap after processing
-    // We need to re-read the extracted data to check for overlaps
     for (const item of queueItems) {
       if (item.status !== 'done') continue;
       try {
@@ -1219,7 +1577,10 @@ export default function CargaDatos() {
 
           // ─── BUG 1: Stock duplicate detection by product names ─────
           if (cat === 'stock') {
-            const existingStockRows = (globalExtractedData?.stock || []);
+            // 1.7: use FRESH data and exclude rows from the file we just uploaded
+            const existingStockRows = freshByCat.stock
+              .filter(t => t.fileUploadId !== newFileUploadId)
+              .map(t => t.row);
             // Skip if there's no prior stock to compare against
             if (existingStockRows.length === 0) continue;
 
@@ -1257,23 +1618,29 @@ export default function CargaDatos() {
 
           if (cat !== 'ventas' && cat !== 'gastos' && cat !== 'marketing') continue;
 
-          // Use tagged rows from context, filtering out rows from the same file to avoid self-overlap
-          const existingRows = cat === 'ventas'
-            ? taggedVentasRows.filter(t => t.fileUploadId !== newFileUploadId).map(t => t.row)
-            : cat === 'gastos'
-            ? taggedGastosRows.filter(t => t.fileUploadId !== newFileUploadId).map(t => t.row)
-            : taggedMarketingRows.filter(t => t.fileUploadId !== newFileUploadId).map(t => t.row);
+          // 1.7: use FRESH data fetched above, not stale closure tagged rows
+          const existingRows = freshByCat[cat]
+            .filter(t => t.fileUploadId !== newFileUploadId)
+            .map(t => t.row);
 
           const catMapping = cat === 'ventas' ? globalMappings.ventas : cat === 'gastos' ? globalMappings.gastos : globalMappings.marketing;
           const finder = (row: any, kw: string[]) => findString(row, kw, catMapping?.date);
           const overlap = detectPeriodOverlap(existingRows, newRows, FIELD_DATE, finder);
 
           if (overlap.length > 0) {
+            // 5.7: compute per-month diff (totals, rows, products) so the
+            // dialog can show the user EXACTLY what changes if they replace.
+            const diff = computeVersionDiff(existingRows, newRows, overlap, {
+              date: catMapping?.date,
+              amount: catMapping?.amount,
+              name: catMapping?.name,
+            });
             setOverlapInfo({
               fileUploadId: ext.file_upload_id,
               fileName: item.file.name,
               overlappingMonths: overlap,
               category: cat,
+              diff,
             });
             break; // Show one overlap dialog at a time
           }
@@ -1294,17 +1661,61 @@ export default function CargaDatos() {
   const handleReclassify = async (fileUploadId: string, newCategory: string) => {
     if (!profile?.company_id) return;
     try {
+      // 5.16: capture old category for audit log before mutating
+      const prevChunks = extractedDataMap[fileUploadId] || [];
+      const oldCategory = prevChunks.find(c => !c.data_category.startsWith('_'))?.data_category ?? null;
+      const fileNameForLog = files.find(f => f.id === fileUploadId)?.file_name ?? null;
+
+      // 1.5: only update DATA records (skip the meta-rows _column_mapping,
+      // _classification, _raw_cache — their data_category is structural).
       const { error } = await supabase
         .from('file_extracted_data')
         .update({ data_category: newCategory })
         .eq('file_upload_id', fileUploadId)
-        .eq('company_id', profile.company_id);
+        .eq('company_id', profile.company_id)
+        .not('data_category', 'in', '("_raw_cache","_classification","_column_mapping")');
       if (error) throw error;
+
+      // 5.16: audit log for the reclassify event
+      if (oldCategory !== newCategory) {
+        supabase.from('audit_logs').insert({
+          company_id: profile.company_id,
+          user_id: user?.id,
+          action: 'file_reclassified',
+          resource_type: 'file_upload',
+          resource_id: fileUploadId,
+          metadata: { file_name: fileNameForLog, old_category: oldCategory, new_category: newCategory },
+        }).then(({ error: auditErr }) => {
+          if (auditErr) console.error('[audit_logs] file_reclassified insert failed:', auditErr.message);
+        });
+      }
+
+      // Also remap the inner category inside the _column_mapping record so
+      // useExtractedData merges the mapping under the new category bucket.
+      const { data: mappingRecord } = await supabase
+        .from('file_extracted_data')
+        .select('id, extracted_json')
+        .eq('file_upload_id', fileUploadId)
+        .eq('company_id', profile.company_id)
+        .eq('data_category', '_column_mapping')
+        .maybeSingle();
+      if (mappingRecord?.id) {
+        const json = (mappingRecord.extracted_json as any) || {};
+        const newJson = { ...json, category: newCategory };
+        const { error: mapErr } = await supabase
+          .from('file_extracted_data')
+          .update({ extracted_json: newJson })
+          .eq('id', mappingRecord.id);
+        if (mapErr) console.error('[reclassify] failed to remap _column_mapping:', mapErr.message);
+      }
+
       // Update local state
       setExtractedDataMap(prev => {
         const updated = { ...prev };
         if (updated[fileUploadId]) {
-          updated[fileUploadId] = updated[fileUploadId].map(e => ({ ...e, data_category: newCategory }));
+          updated[fileUploadId] = updated[fileUploadId].map(e =>
+            e.data_category.startsWith('_') ? e : { ...e, data_category: newCategory }
+          );
         }
         return updated;
       });
@@ -1398,9 +1809,50 @@ export default function CargaDatos() {
     }
   };
 
+  // Ola 17: el delete real solo lo ejecuta el admin. Para employees,
+  // abrimos un dialog que crea una delete_request y notifica al admin.
   const handleDelete = async (file: FileRecord) => {
+    if (role !== 'admin') {
+      setPendingDeleteRequest({ file, reason: '' });
+      return;
+    }
+    return performAdminDelete(file);
+  };
+
+  const handleSubmitDeleteRequest = async () => {
+    if (!pendingDeleteRequest) return;
+    if (!pendingDeleteRequest.reason.trim()) {
+      toast.error('Indicá un motivo para que el admin lo revise');
+      return;
+    }
+    setSubmittingDeleteRequest(true);
     try {
-      // 1.4: Track R2 failure to surface to user (no silent storage leaks)
+      await requestDelete({ id: pendingDeleteRequest.file.id, name: pendingDeleteRequest.file.file_name }, pendingDeleteRequest.reason);
+      toast.success('Solicitud de borrado enviada', {
+        description: 'El admin recibirá la solicitud y la revisará.',
+      });
+      setPendingDeleteRequest(null);
+    } catch (err) {
+      const e = err as { message?: string };
+      toast.error('Error al enviar solicitud', { description: e.message });
+    } finally {
+      setSubmittingDeleteRequest(false);
+    }
+  };
+
+  const performAdminDelete = async (file: FileRecord) => {
+    try {
+      // 4.1: Delete in DB-first order so a failure in either DB step aborts
+      // before we orphan storage. Only delete R2 once DB is consistent.
+      // (Previous order: R2 first → if DB delete failed, the file looked alive
+      // in the UI but had no storage backing it.)
+      const { error: extErr } = await supabase.from('file_extracted_data').delete().eq('file_upload_id', file.id);
+      if (extErr) throw extErr;
+      const { error } = await supabase.from('file_uploads').delete().eq('id', file.id);
+      if (error) throw error;
+
+      // R2 delete is best-effort AFTER DB succeeds. A failure here is a
+      // storage leak (recoverable via janitor) but never inconsistent state.
       let r2Failed = false;
       if (file.storage_path) {
         const { data, error: r2Error } = await supabase.functions.invoke('r2-delete', {
@@ -1411,9 +1863,6 @@ export default function CargaDatos() {
           r2Failed = true;
         }
       }
-      await supabase.from('file_extracted_data').delete().eq('file_upload_id', file.id);
-      const { error } = await supabase.from('file_uploads').delete().eq('id', file.id);
-      if (error) throw error;
       // 1.11: Audit log — surface insert errors to console for traceability
       await supabase.from('audit_logs').insert({
         company_id: profile?.company_id,
@@ -1702,7 +2151,55 @@ export default function CargaDatos() {
   const totalPages = Math.ceil(totalCount / PAGE_SIZE);
   const isUploading = uploadQueue.some(i => i.status === 'pending' || i.status === 'uploading' || i.status === 'processing');
   // C4: Split active vs archived files
-  const activeFilesList = files.filter(f => f.status !== 'archived');
+  // 5.14: also apply client-side categoryFilter (from ?category= URL param) by
+  // peeking at the first non-meta extracted chunk's data_category.
+  const activeFilesList = useMemo(() => {
+    const base = files.filter(f => f.status !== 'archived');
+    if (categoryFilter === 'all') return base;
+    return base.filter(f => {
+      const chunks = extractedDataMap[f.id] || [];
+      return chunks.some(c => c.data_category === categoryFilter);
+    });
+  }, [files, extractedDataMap, categoryFilter]);
+
+  // 5.9: Bulk recategorize — runs handleReclassify for each selected file
+  // sequentially so toasts and refetch are coherent.
+  const handleBulkRecategorize = async (newCategory: string) => {
+    if (selectedIds.size === 0) return;
+    setBulkRecategorizing(true);
+    let ok = 0, fail = 0;
+    for (const id of selectedIds) {
+      try {
+        await handleReclassify(id, newCategory);
+        ok++;
+      } catch {
+        fail++;
+      }
+    }
+    setBulkRecategorizing(false);
+    setSelectedIds(new Set());
+    if (fail === 0) toast.success(`${ok} archivo(s) reclasificados`);
+    else toast.warning(`${ok} reclasificados, ${fail} fallaron`);
+  };
+
+  // 5.9: Toggle/select-all helpers
+  const toggleSelected = (id: string) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+  const toggleSelectAllVisible = () => {
+    setSelectedIds(prev => {
+      const visibleIds = activeFilesList
+        .filter(f => f.status === 'processed' || f.status === 'review' || f.status === 'processed_with_issues')
+        .map(f => f.id);
+      const allSelected = visibleIds.every(id => prev.has(id));
+      if (allSelected) return new Set();
+      return new Set(visibleIds);
+    });
+  };
 
   const statusLabel = (status: string | null) => {
     switch (status) {
@@ -1757,18 +2254,44 @@ export default function CargaDatos() {
 
           {/* Drop zone */}
           <div
-            className={`border-2 border-dashed rounded-xl p-12 text-center transition-all cursor-pointer ${dragging ? 'border-primary bg-primary/5 scale-[1.01]' : 'border-border hover:border-primary/50'} ${isUploading ? 'pointer-events-none opacity-60' : ''}`}
-            onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
-            onDragLeave={() => setDragging(false)}
-            onDrop={handleDrop}
+            className={`border-2 border-dashed rounded-xl p-12 text-center transition-all cursor-pointer ${dragInvalidMsg ? 'border-destructive bg-destructive/5' : dragging ? 'border-primary bg-primary/5 scale-[1.01]' : 'border-border hover:border-primary/50'} ${isUploading ? 'pointer-events-none opacity-60' : ''}`}
+            onDragOver={(e) => {
+              e.preventDefault();
+              setDragging(true);
+              // 2.2: inspect dataTransfer items to flag invalid types during drag
+              const items = e.dataTransfer.items;
+              if (items && items.length > 0) {
+                const ACCEPTED_MIME = /^(application\/(pdf|vnd\.ms-excel|vnd\.openxmlformats-officedocument\.spreadsheetml\.sheet|vnd\.openxmlformats-officedocument\.wordprocessingml\.document|msword|xml|x-xml)|text\/(csv|xml|plain)|image\/(png|jpeg|webp|gif|bmp))$/;
+                let invalidCount = 0;
+                let totalFileItems = 0;
+                for (let i = 0; i < items.length; i++) {
+                  if (items[i].kind !== 'file') continue;
+                  totalFileItems++;
+                  if (items[i].type && !ACCEPTED_MIME.test(items[i].type)) invalidCount++;
+                }
+                if (totalFileItems > 0 && invalidCount === totalFileItems) {
+                  setDragInvalidMsg('Formato no compatible. Soltá un Excel, CSV, PDF, imagen, Word o XML.');
+                } else if (invalidCount > 0) {
+                  setDragInvalidMsg(`${invalidCount} archivo${invalidCount === 1 ? '' : 's'} se ignorará${invalidCount === 1 ? '' : 'n'}: formato no compatible.`);
+                } else {
+                  setDragInvalidMsg(null);
+                }
+              }
+            }}
+            onDragLeave={() => { setDragging(false); setDragInvalidMsg(null); }}
+            onDrop={(e) => { setDragInvalidMsg(null); handleDrop(e); }}
             onClick={() => !isUploading && document.getElementById('file-input')?.click()}
           >
             {isUploading ? (
               <Loader2 className="h-10 w-10 mx-auto text-primary mb-3 animate-spin" />
+            ) : dragInvalidMsg ? (
+              <AlertTriangle className="h-10 w-10 mx-auto text-destructive mb-3" />
             ) : (
               <Upload className="h-10 w-10 mx-auto text-muted-foreground mb-3" />
             )}
-            <p className="font-medium">{isUploading ? 'Subiendo archivos...' : 'Arrastrá archivos acá o hacé click para seleccionar'}</p>
+            <p className={`font-medium ${dragInvalidMsg ? 'text-destructive' : ''}`}>
+              {isUploading ? 'Subiendo archivos...' : dragInvalidMsg ?? 'Arrastrá archivos acá o hacé click para seleccionar'}
+            </p>
             <p className="text-sm text-muted-foreground mt-1">Podés seleccionar muchos a la vez.</p>
             <p className="text-xs text-muted-foreground mt-2">Formatos aceptados: Excel (.xlsx, .xls), CSV (.csv), PDF (.pdf), Imágenes (.png, .jpg, .webp, .gif, .bmp), Word (.doc, .docx), XML (.xml) — Máx. 50MB por archivo. Sin límite de filas (se procesan automáticamente en bloques).</p>
             <input
@@ -1785,6 +2308,95 @@ export default function CargaDatos() {
               }}
             />
           </div>
+
+          {/* 5.12 + Ola 9: Downloadable templates — más visibles, con descripción y CTA claro */}
+          <div className="mt-4 rounded-xl border border-dashed border-primary/30 bg-primary/5 p-4">
+            <div className="flex items-start gap-3 mb-3">
+              <span className="text-2xl" aria-hidden>📋</span>
+              <div className="flex-1 min-w-0">
+                <h3 className="text-sm font-semibold">¿No tenés un archivo todavía? Bajá una plantilla</h3>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Cada plantilla viene con las columnas exactas que el sistema reconoce. Llenala con tus datos y subila acá.
+                </p>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
+              {TEMPLATES.map(t => (
+                <button
+                  key={t.id}
+                  type="button"
+                  onClick={() => { downloadTemplate(t); toast.success(`Plantilla "${t.label}" descargada`); }}
+                  className="group flex flex-col items-start gap-1 px-3 py-2.5 rounded-lg border bg-background hover:bg-muted hover:border-primary/40 transition-colors text-left"
+                  title={t.description}
+                >
+                  <div className="flex items-center gap-1.5 w-full">
+                    <span className="text-base" aria-hidden>{t.emoji}</span>
+                    <span className="text-xs font-semibold truncate flex-1">{t.label}</span>
+                    <span className="text-[10px] text-muted-foreground group-hover:text-primary transition-colors shrink-0">↓</span>
+                  </div>
+                  <span className="text-[10px] text-muted-foreground line-clamp-2 leading-snug">{t.description}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Ola 17: Banner para admin con solicitudes de borrado pendientes */}
+          {role === 'admin' && deletePending.length > 0 && (
+            <Card className="border-warning/40 bg-warning/5">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm flex items-center gap-2">
+                  <AlertTriangle className="h-4 w-4 text-warning" />
+                  {deletePending.length} solicitud{deletePending.length === 1 ? '' : 'es'} de borrado pendiente{deletePending.length === 1 ? '' : 's'}
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                {deletePending.map(req => (
+                  <div key={req.id} className="flex items-start gap-2 p-2 rounded-md bg-background border text-sm">
+                    <div className="flex-1 min-w-0">
+                      <p className="font-medium truncate">{req.file_name}</p>
+                      <p className="text-xs text-muted-foreground">
+                        Solicitado por <strong>{req.requester_name || 'Usuario'}</strong>
+                        {req.reason && <> · "<span className="italic">{req.reason}</span>"</>}
+                      </p>
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-7 text-xs gap-1"
+                      onClick={async () => {
+                        try {
+                          await rejectRequest(req, 'Rechazado');
+                          toast.success('Solicitud rechazada');
+                        } catch (err) {
+                          const e = err as { message?: string };
+                          toast.error('Error', { description: e.message });
+                        }
+                      }}
+                    >
+                      Rechazar
+                    </Button>
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      className="h-7 text-xs gap-1"
+                      onClick={async () => {
+                        try {
+                          await approveRequest(req);
+                          toast.success(`"${req.file_name}" eliminado`);
+                          fetchFiles();
+                        } catch (err) {
+                          const e = err as { message?: string };
+                          toast.error('Error al aprobar', { description: e.message });
+                        }
+                      }}
+                    >
+                      Aprobar y borrar
+                    </Button>
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
+          )}
 
           {/* Upload Queue */}
           <UploadQueue items={uploadQueue} onDismiss={() => setUploadQueue([])} />
@@ -1874,15 +2486,80 @@ export default function CargaDatos() {
                 <SelectItem value="XML">XML</SelectItem>
               </SelectContent>
             </Select>
+            {/* 5.14 Lineage: category filter (driven by ?category= URL param) */}
+            <Select value={categoryFilter} onValueChange={setCategoryFilter}>
+              <SelectTrigger className="w-[150px] h-9">
+                <SelectValue placeholder="Categoría" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todas las categorías</SelectItem>
+                {Object.entries(categoryLabels).map(([val, label]) => (
+                  <SelectItem key={val} value={val}>{label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {categoryFilter !== 'all' && (
+              <button
+                type="button"
+                onClick={() => setCategoryFilter('all')}
+                className="text-[11px] underline text-muted-foreground hover:text-foreground"
+                title="Quitar filtro de categoría"
+              >
+                Limpiar
+              </button>
+            )}
           </div>
+
+          {/* 5.9 Bulk action bar — appears when at least one file is selected */}
+          {selectedIds.size > 0 && (
+            <div className="flex items-center gap-3 px-4 py-2.5 rounded-lg border border-primary/30 bg-primary/5">
+              <span className="text-sm font-medium">
+                {selectedIds.size} archivo{selectedIds.size === 1 ? '' : 's'} seleccionado{selectedIds.size === 1 ? '' : 's'}
+              </span>
+              <div className="flex-1" />
+              <Select onValueChange={handleBulkRecategorize} disabled={bulkRecategorizing}>
+                <SelectTrigger className="w-[200px] h-8">
+                  <SelectValue placeholder={bulkRecategorizing ? 'Aplicando...' : 'Cambiar categoría a...'} />
+                </SelectTrigger>
+                <SelectContent>
+                  {Object.entries(categoryLabels).map(([val, label]) => (
+                    <SelectItem key={val} value={val}>{label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => setSelectedIds(new Set())}
+                disabled={bulkRecategorizing}
+              >
+                Cancelar
+              </Button>
+            </div>
+          )}
 
           {/* File List */}
           <Card id="historial-cargas-card">
             <CardHeader className="pb-2">
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between gap-2">
                 <CardTitle className="text-sm text-muted-foreground">
                   Historial de cargas {totalCount > 0 && `(${totalCount})`}
+                  {categoryFilter !== 'all' && (
+                    <span className="ml-2 text-[11px] inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-primary/10 text-primary">
+                      Categoría: {categoryLabels[categoryFilter] || categoryFilter}
+                    </span>
+                  )}
                 </CardTitle>
+                {/* 5.9 select-all toggle (only for processed files) */}
+                {activeFilesList.some(f => f.status === 'processed' || f.status === 'review' || f.status === 'processed_with_issues') && (
+                  <button
+                    type="button"
+                    onClick={toggleSelectAllVisible}
+                    className="text-[11px] text-muted-foreground hover:text-foreground underline"
+                  >
+                    {selectedIds.size > 0 ? 'Deseleccionar' : 'Seleccionar visibles'}
+                  </button>
+                )}
               </div>
             </CardHeader>
             <CardContent>
@@ -1900,9 +2577,21 @@ export default function CargaDatos() {
                     const firstExtracted = extractedChunks?.[0];
                     const totalExtractedRows = extractedChunks?.reduce((sum, c) => sum + (c.row_count || 0), 0) || 0;
 
+                    const isBulkable = f.status === 'processed' || f.status === 'review' || f.status === 'processed_with_issues';
+                    const isSelected = selectedIds.has(f.id);
                     return (
-                      <div key={f.id} className="p-3 rounded-lg hover:bg-muted/50 transition-colors">
+                      <div key={f.id} className={`p-3 rounded-lg hover:bg-muted/50 transition-colors ${isSelected ? 'bg-primary/5 ring-1 ring-primary/20' : ''}`}>
                         <div className="flex items-center gap-3 text-sm">
+                          {/* 5.9 selection checkbox (only for files that can be reclassified) */}
+                          {isBulkable && (
+                            <input
+                              type="checkbox"
+                              className="h-4 w-4 rounded border-input shrink-0 cursor-pointer accent-primary"
+                              checked={isSelected}
+                              onChange={() => toggleSelected(f.id)}
+                              aria-label={`Seleccionar ${f.file_name}`}
+                            />
+                          )}
                           <Icon className="h-5 w-5 text-muted-foreground shrink-0" />
                           <div className="flex-1 min-w-0">
                             <p className="font-medium truncate">{f.file_name}</p>
@@ -1924,6 +2613,10 @@ export default function CargaDatos() {
                               ? `Bloque ${f.next_chunk_index}/${f.total_chunks}`
                               : statusLabel(f.status)}
                           </Badge>
+                          {/* 5.2: DQ badge — only renders if score is in cache */}
+                          {dqScoresMap[f.id] && (f.status === 'processed' || f.status === 'review' || f.status === 'processed_with_issues') && (
+                            <DataQualityBadge dq={dqScoresMap[f.id]} />
+                          )}
                           {(f.status === 'queued') && (
                             <>
                               <Button
@@ -2251,38 +2944,81 @@ export default function CargaDatos() {
               )}
             </CardContent>
           </Card>
+
+          {/* 5.16 Audit trail — collapsed by default, opens on demand */}
+          <AuditTrailPanel companyId={profile?.company_id} refreshKey={files.length} />
         </div>
 
-        <ContextualAssistant companySettings={companySettings} />
+        <ContextualAssistant companySettings={companySettings} lastUploadDates={lastUploadDates} />
       </div>
 
       {/* Overlap detection dialog */}
       <AlertDialog open={!!overlapInfo} onOpenChange={(open) => { if (!open) setOverlapInfo(null); }}>
-        <AlertDialogContent>
+        <AlertDialogContent className="max-w-2xl">
           <AlertDialogHeader>
             <AlertDialogTitle className="flex items-center gap-2">
-              <AlertTriangle className="h-5 w-5 text-warning" />
-              Datos duplicados detectados
+              <History className="h-5 w-5 text-warning" />
+              Comparar versiones — {overlapInfo?.fileName}
             </AlertDialogTitle>
             <AlertDialogDescription asChild>
-              <div className="space-y-2">
-                <p>
-                  El archivo <strong>"{overlapInfo?.fileName}"</strong> contiene datos de períodos que ya existen:
+              <div className="space-y-3">
+                <p className="text-sm">
+                  El archivo contiene datos de períodos ya cargados. Antes de decidir, mirá qué <strong>cambia</strong>:
                 </p>
-                <div className="flex flex-wrap gap-1.5">
-                  {overlapInfo?.overlappingMonths.map(p => {
-                    const [y, m] = p.split('-');
-                    const label = new Date(parseInt(y), parseInt(m) - 1, 1).toLocaleDateString('es-AR', { month: 'long', year: 'numeric' });
-                    return (
-                      <Badge key={p} variant="outline" className="text-warning border-warning/30">
-                        {label}
-                      </Badge>
-                    );
-                  })}
+                {/* 5.7: Per-month diff table */}
+                {overlapInfo?.diff && overlapInfo.diff.perMonth.length > 0 && (
+                  <div className="border rounded-md overflow-hidden">
+                    <table className="w-full text-xs">
+                      <thead className="bg-muted/60">
+                        <tr>
+                          <th className="text-left px-2 py-1.5 font-medium">Período</th>
+                          <th className="text-right px-2 py-1.5 font-medium">Filas</th>
+                          <th className="text-right px-2 py-1.5 font-medium">Total</th>
+                          <th className="text-right px-2 py-1.5 font-medium">Δ</th>
+                          <th className="text-right px-2 py-1.5 font-medium">Productos</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {overlapInfo.diff.perMonth.map(d => {
+                          const [y, m] = d.month.split('-');
+                          const label = new Date(parseInt(y), parseInt(m) - 1, 1).toLocaleDateString('es-AR', { month: 'short', year: '2-digit' });
+                          const deltaColor = d.totalDeltaPct > 5 ? 'text-success'
+                            : d.totalDeltaPct < -5 ? 'text-destructive'
+                            : 'text-muted-foreground';
+                          const deltaSign = d.totalDeltaPct > 0 ? '+' : '';
+                          return (
+                            <tr key={d.month} className="border-t">
+                              <td className="px-2 py-1.5 font-medium">{label}</td>
+                              <td className="px-2 py-1.5 text-right font-mono">
+                                <span className="text-muted-foreground">{d.oldRowCount}</span>
+                                <span className="mx-1 text-muted-foreground/50">→</span>
+                                {d.newRowCount}
+                              </td>
+                              <td className="px-2 py-1.5 text-right font-mono">
+                                ${d.newTotal.toLocaleString('es-AR', { maximumFractionDigits: 0 })}
+                              </td>
+                              <td className={`px-2 py-1.5 text-right font-mono font-semibold ${deltaColor}`}>
+                                {deltaSign}{d.totalDeltaPct.toFixed(1)}%
+                              </td>
+                              <td className="px-2 py-1.5 text-right text-xs">
+                                {d.newProductsAdded > 0 && <span className="text-success">+{d.newProductsAdded}</span>}
+                                {d.newProductsAdded > 0 && d.productsRemoved > 0 && <span className="text-muted-foreground"> · </span>}
+                                {d.productsRemoved > 0 && <span className="text-destructive">-{d.productsRemoved}</span>}
+                                {d.newProductsAdded === 0 && d.productsRemoved === 0 && <span className="text-muted-foreground">=</span>}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+                <div className="flex gap-3 text-xs text-muted-foreground bg-muted/40 rounded-md p-2">
+                  <span><strong>Reemplazar:</strong> los datos antiguos de esos meses se borran y quedan los nuevos.</span>
                 </div>
-                <p className="text-muted-foreground">
-                  ¿Querés reemplazar los datos de esos períodos con los del nuevo archivo, o mantener ambos?
-                </p>
+                <div className="flex gap-3 text-xs text-muted-foreground bg-muted/40 rounded-md p-2">
+                  <span><strong>Mantener ambos:</strong> los archivos coexisten — el dashboard sumará valores de ambos (puede generar duplicados).</span>
+                </div>
               </div>
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -2291,11 +3027,68 @@ export default function CargaDatos() {
               Mantener ambos
             </AlertDialogCancel>
             <AlertDialogAction onClick={handleOverlapReplace} className="bg-warning text-warning-foreground hover:bg-warning/90">
-              Reemplazar
+              Reemplazar versiones antiguas
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Ola 12: Multi-hoja picker — antes de procesar Excel con varias hojas válidas */}
+      <MultiSheetPickerDialog
+        open={!!pendingSheets}
+        fileName={pendingSheets?.fileName ?? ''}
+        sheets={pendingSheets?.sheets ?? []}
+        onConfirm={handleSheetsConfirm}
+        onCancel={handleSheetsCancel}
+      />
+
+      {/* Ola 17: dialog de solicitud de borrado (solo employees) */}
+      <AlertDialog open={!!pendingDeleteRequest} onOpenChange={(open) => { if (!open) setPendingDeleteRequest(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5 text-warning" />
+              Solicitar borrado de archivo
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              Solo el admin puede borrar archivos. Tu solicitud se enviará para revisión con el motivo que escribas.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          {pendingDeleteRequest && (
+            <div className="space-y-2 py-2">
+              <p className="text-sm font-medium">Archivo: <span className="font-mono text-xs">{pendingDeleteRequest.file.file_name}</span></p>
+              <div className="space-y-1">
+                <Label htmlFor="delete-reason" className="text-sm">¿Por qué querés borrarlo?</Label>
+                <Textarea
+                  id="delete-reason"
+                  value={pendingDeleteRequest.reason}
+                  onChange={(e) => setPendingDeleteRequest(prev => prev ? { ...prev, reason: e.target.value } : prev)}
+                  rows={3}
+                  placeholder="Ej: archivo duplicado, datos incorrectos, etc."
+                  disabled={submittingDeleteRequest}
+                />
+              </div>
+            </div>
+          )}
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={submittingDeleteRequest}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction onClick={(e) => { e.preventDefault(); handleSubmitDeleteRequest(); }} disabled={submittingDeleteRequest}>
+              {submittingDeleteRequest ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Enviar solicitud'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* 5.1: Schema Preview & Confirmation dialog */}
+      <SchemaPreviewDialog
+        open={!!pendingPreview}
+        payload={pendingPreview?.payload ?? null}
+        selectedCategory={pendingPreview?.category ?? 'otro'}
+        onCategoryChange={(cat) => setPendingPreview(prev => prev ? { ...prev, category: cat } : prev)}
+        onConfirm={handlePreviewConfirm}
+        onCancel={handlePreviewCancel}
+        categoryLabels={categoryLabels}
+      />
 
       {/* 2.4: Reclassify confirmation dialog */}
       <AlertDialog open={!!pendingReclassify} onOpenChange={(open) => { if (!open) { setPendingReclassify(null); setReclassifyingId(null); } }}>

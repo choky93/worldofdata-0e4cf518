@@ -8,7 +8,7 @@ import type { ColumnMapping } from '@/lib/field-utils';
 import { parseDate, filterByPeriod, extractAvailableMonths } from '@/lib/data-cleaning';
 import { useExtractedData } from '@/hooks/useExtractedData';
 import { usePeriod } from '@/contexts/PeriodContext';
-import { PeriodPills } from '@/components/ui/PeriodPills';
+import { PeriodSelector } from '@/components/PeriodSelector';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { FileBox, Upload, Loader2, Database, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Link } from 'react-router-dom';
@@ -141,7 +141,7 @@ export default function Operaciones() {
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold">Operaciones</h1>
         <div className="flex items-center gap-3">
-          <PeriodPills value={period} onChange={setPeriod} availableMonths={availableMonths} />
+          <PeriodSelector value={period} onChange={setPeriod} availableMonths={availableMonths} />
           <div className="flex items-center gap-1.5 text-xs alert-success rounded-lg px-3 py-1.5">
             <Database className="h-3.5 w-3.5" />
             {filtered.length} operaciones

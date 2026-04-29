@@ -294,9 +294,26 @@ export const FIELD_AMOUNT = [
   'precio_de_venta', 'precio de venta', 'precio_venta',
   // Ventas como columna de ingreso (e.g. archivo mensual con columna "Ventas")
   'ventas', 'valor_venta', 'ingresos', 'facturacion', 'facturación',
+  // Ola 21: CRM (Salesforce, HubSpot, Pipedrive, Zoho, Dynamics)
+  'deal_value', 'deal_amount', 'opportunity_value', 'opportunity_amount',
+  'expected_revenue', 'annual_revenue', 'expected_amount',
+  'pipeline_value', 'close_value', 'closed_amount', 'won_amount',
+  'deal_size', 'estimated_value', 'forecast_amount',
+  'arr', 'mrr', 'recurring_revenue', 'revenue',
 ];
 // Claves semánticas normalizadas primero, luego aliases históricos para datos ya cargados.
-export const FIELD_DATE = ['fecha', 'date', 'periodo', 'mes', 'month', 'dia', 'day', 'fecha_operacion', 'fecha_venta', 'fecha_compra', '__EMPTY', '__empty', 'unnamed:_0', 'unnamed_0', 'unnamed', 'col_0', 'column_0'];
+export const FIELD_DATE = [
+  'fecha', 'date', 'periodo', 'mes', 'month', 'dia', 'day',
+  'fecha_operacion', 'fecha_venta', 'fecha_compra',
+  // Ola 21: fechas típicas de CRM
+  'close_date', 'closing_date', 'expected_close', 'expected_close_date',
+  'created_date', 'create_date', 'created_at', 'createdate',
+  'last_activity', 'last_activity_date', 'last_contact', 'last_modified',
+  'next_activity_date', 'next_step_date', 'modified', 'updated_at',
+  'fecha_cierre', 'fecha_creacion', 'fecha_ultima_actividad',
+  // Aliases históricos (datos ya cargados con headers genéricos)
+  '__EMPTY', '__empty', 'unnamed:_0', 'unnamed_0', 'unnamed', 'col_0', 'column_0',
+];
 
 /**
  * Detección robusta de la fecha real de una fila.
@@ -324,12 +341,37 @@ export function findDateRaw(row: Record<string, unknown>, mappedDate?: string | 
   }
   return '';
 }
-export const FIELD_CLIENT = ['cliente', 'client', 'razon_social', 'empresa', 'comprador', 'nombre_cliente'];
+export const FIELD_CLIENT = ['cliente', 'client', 'razon_social', 'empresa', 'comprador', 'nombre_cliente', 'account_name', 'account', 'company_name', 'customer_name', 'customer'];
 export const FIELD_CATEGORY = ['categoria', 'category', 'tipo', 'rubro', 'segmento', 'clase'];
+
+// Ola 21: CRM (oportunidades / pipeline / cuentas)
+export const FIELD_DEAL_STAGE = [
+  'stage', 'pipeline_stage', 'deal_stage', 'opportunity_stage',
+  'etapa', 'estado', 'status', 'sales_stage', 'phase', 'fase',
+];
+export const FIELD_DEAL_NAME = [
+  'deal_name', 'deal', 'opportunity_name', 'opportunity',
+  'nombre_oportunidad', 'oportunidad', 'titulo_negocio',
+];
+export const FIELD_DEAL_OWNER = [
+  'owner', 'deal_owner', 'opportunity_owner', 'sales_rep', 'vendedor',
+  'asignado', 'asigned_to', 'assigned_to', 'responsable', 'rep',
+];
+export const FIELD_PROBABILITY = [
+  'probability', 'probabilidad', 'win_probability', 'forecast_category',
+  'likelihood', 'confidence',
+];
+export const FIELD_LEAD_SOURCE = [
+  'lead_source', 'source', 'origen', 'fuente', 'channel', 'canal',
+  'utm_source', 'referral_source',
+];
 
 // Marketing-specific
 export const FIELD_CAMPAIGN_NAME = ['campana', 'campaña', 'nombre_campana', 'nombre_de_la_campana', 'campaign', 'nombre', 'name'];
-export const FIELD_OBJECTIVE = ['objetivo', 'objective', 'campaign_objective', 'tipo_campana', 'tipo_de_campana', 'tipo', 'campaign_type', 'buying_type', 'bid_strategy'];
+// Sólo objetivo de campaña (qué busca lograr la campaña).
+// IMPORTANTE: NO incluir 'tipo' (genérico, captura "tipo de presupuesto"=diario/vitalicio),
+// ni 'buying_type'/'bid_strategy' (ésos son método de compra, no objetivo).
+export const FIELD_OBJECTIVE = ['objetivo', 'objective', 'campaign_objective', 'tipo_campana', 'tipo_de_campana', 'campaign_type', 'campaign_objective_type', 'goal'];
 export const FIELD_SPEND = ['gasto', 'inversion', 'spend', 'costo', 'importe', 'importe_gastado', 'importe_gastado_ars', 'presupuesto', 'budget', 'cost'];
 export const FIELD_REVENUE = ['ingresos', 'revenue', 'ventas', 'retorno', 'ingreso', 'valor_conversion'];
 export const FIELD_ROAS = ['roas', 'roas_de_resultados', 'retorno_inversion', 'roi'];

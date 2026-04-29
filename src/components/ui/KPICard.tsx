@@ -2,6 +2,7 @@
 // Light pastel theme — drop-in replacement, misma API de props
 import React from 'react';
 import { cn } from '@/lib/utils';
+import { HelpTooltip } from '@/components/HelpTooltip';
 
 interface KPICardProps {
   label: string;
@@ -12,6 +13,8 @@ interface KPICardProps {
   icon?: React.ReactNode;
   onClick?: () => void;
   className?: string;
+  /** Ola 18: explicación para tooltip al lado del label. */
+  help?: React.ReactNode;
 }
 
 function TrendBadge({ value }: { value: number }) {
@@ -37,6 +40,7 @@ export function KPICard({
   icon,
   onClick,
   className = '',
+  help,
 }: KPICardProps) {
   return (
     <div
@@ -57,11 +61,12 @@ export function KPICard({
       <div className="flex items-center justify-between mb-2.5">
         <span
           className={cn(
-            'text-[11px] font-medium uppercase tracking-widest',
+            'text-[11px] font-medium uppercase tracking-widest flex items-center gap-1',
             accent ? 'text-accent-foreground/60' : 'text-muted-foreground',
           )}
         >
           {label}
+          {help && <HelpTooltip content={help} size="xs" />}
         </span>
         {icon && (
           <span className={cn('text-sm', accent ? 'opacity-50' : 'text-muted-foreground/60')}>
