@@ -408,7 +408,15 @@ function ContextualAssistant({
 
   // 2.11 helper: returns a status pill for a category based on last upload
   const statusFor = (cat?: string) => {
-    if (!cat || !lastUploadDates[cat]) return null;
+    // Si la categoría no fue cargada aún, mostramos un badge "Falta cargar"
+    // (Ola 9 — Lucas pidió que se vea como alerta visual, no que quede vacío).
+    if (!cat || !lastUploadDates[cat]) {
+      return (
+        <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-warning/15 text-warning shrink-0 whitespace-nowrap">
+          ⚠ Falta cargar
+        </span>
+      );
+    }
     const days = Math.max(0, Math.floor((Date.now() - new Date(lastUploadDates[cat]).getTime()) / 86400000));
     const threshold = getStaleThresholdDays();
     const fresh = days <= Math.max(1, Math.floor(threshold / 3));
@@ -2194,21 +2202,35 @@ export default function CargaDatos() {
             />
           </div>
 
-          {/* 5.12: Downloadable templates */}
-          <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
-            <span className="text-muted-foreground">¿No tenés un archivo? Bajá una plantilla:</span>
-            {TEMPLATES.map(t => (
-              <button
-                key={t.id}
-                type="button"
-                onClick={() => { downloadTemplate(t); toast.success(`Plantilla "${t.label}" descargada`); }}
-                className="inline-flex items-center gap-1 px-2 py-1 rounded-md border bg-background hover:bg-muted transition-colors"
-                title={t.description}
-              >
-                <span>{t.emoji}</span>
-                <span>{t.label}</span>
-              </button>
-            ))}
+          {/* 5.12 + Ola 9: Downloadable templates — más visibles, con descripción y CTA claro */}
+          <div className="mt-4 rounded-xl border border-dashed border-primary/30 bg-primary/5 p-4">
+            <div className="flex items-start gap-3 mb-3">
+              <span className="text-2xl" aria-hidden>📋</span>
+              <div className="flex-1 min-w-0">
+                <h3 className="text-sm font-semibold">¿No tenés un archivo todavía? Bajá una plantilla</h3>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Cada plantilla viene con las columnas exactas que el sistema reconoce. Llenala con tus datos y subila acá.
+                </p>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
+              {TEMPLATES.map(t => (
+                <button
+                  key={t.id}
+                  type="button"
+                  onClick={() => { downloadTemplate(t); toast.success(`Plantilla "${t.label}" descargada`); }}
+                  className="group flex flex-col items-start gap-1 px-3 py-2.5 rounded-lg border bg-background hover:bg-muted hover:border-primary/40 transition-colors text-left"
+                  title={t.description}
+                >
+                  <div className="flex items-center gap-1.5 w-full">
+                    <span className="text-base" aria-hidden>{t.emoji}</span>
+                    <span className="text-xs font-semibold truncate flex-1">{t.label}</span>
+                    <span className="text-[10px] text-muted-foreground group-hover:text-primary transition-colors shrink-0">↓</span>
+                  </div>
+                  <span className="text-[10px] text-muted-foreground line-clamp-2 leading-snug">{t.description}</span>
+                </button>
+              ))}
+            </div>
           </div>
 
           {/* Upload Queue */}

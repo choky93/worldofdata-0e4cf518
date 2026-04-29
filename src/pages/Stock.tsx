@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { formatCurrency, formatPercent } from '@/lib/formatters';
@@ -24,7 +24,7 @@ import { useExtractedData } from '@/hooks/useExtractedData';
 import { parseDate } from '@/lib/data-cleaning';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip';
-import { AlertTriangle, Package, ShoppingCart, Database, DollarSign, TrendingUp, Wallet } from 'lucide-react';
+import { AlertTriangle, Package, ShoppingCart, Database, DollarSign, TrendingUp, Wallet, ChevronUp, ChevronDown, ChevronsUpDown } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { KPICard } from '@/components/ui/KPICard';
 
@@ -172,6 +172,39 @@ export default function Stock() {
     [useReal, dedupedStock, mS, avgMonthlyByProduct],
   );
 
+  // ── Orden de la tabla por columna (Ola 9) ───────────────────
+  type StockSortKey = 'name' | 'stock' | 'coverage' | 'avgMonthly' | 'price' | 'cost' | 'margin';
+  type StockSortDir = 'asc' | 'desc';
+  const [sortConfig, setSortConfig] = useState<{ key: StockSortKey; dir: StockSortDir } | null>(null);
+  const toggleSort = (key: StockSortKey) => {
+    setSortConfig(prev => prev?.key === key ? { key, dir: prev.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: 'desc' });
+  };
+  const SortIcon = ({ col }: { col: StockSortKey }) => {
+    if (!sortConfig || sortConfig.key !== col) return <ChevronsUpDown className="inline h-3 w-3 ml-1 opacity-40" />;
+    return sortConfig.dir === 'asc' ? <ChevronUp className="inline h-3 w-3 ml-1" /> : <ChevronDown className="inline h-3 w-3 ml-1" />;
+  };
+  const sortedProducts = useMemo(() => {
+    if (!sortConfig) return products;
+    const { key, dir } = sortConfig;
+    return [...products].sort((a, b) => {
+      let cmp = 0;
+      if (key === 'name') {
+        cmp = a.name.localeCompare(b.name, 'es', { sensitivity: 'base' });
+      } else if (key === 'coverage') {
+        cmp = a.coverageDays - b.coverageDays;
+      } else if (key === 'avgMonthly') {
+        cmp = a.avgMonthlyUnits - b.avgMonthlyUnits;
+      } else if (key === 'margin') {
+        const ma = a.price > 0 ? ((a.price - a.cost) / a.price) * 100 : 0;
+        const mb = b.price > 0 ? ((b.price - b.cost) / b.price) * 100 : 0;
+        cmp = ma - mb;
+      } else {
+        cmp = (a[key] as number) - (b[key] as number);
+      }
+      return dir === 'asc' ? cmp : -cmp;
+    });
+  }, [products, sortConfig]);
+
   if (!useReal) {
     return (
       <div className="flex flex-col items-center justify-center py-20 text-center space-y-4">
@@ -302,17 +335,31 @@ export default function Stock() {
           <CardContent className="overflow-x-auto">
             <Table>
               <TableHeader><TableRow>
-                <TableHead>Producto</TableHead>
-                <TableHead className="text-right">Stock</TableHead>
-                <TableHead className="text-right">Cobertura</TableHead>
-                <TableHead className="text-right">Venta/mes</TableHead>
-                <TableHead className="text-right">Precio</TableHead>
-                <TableHead className="text-right">Costo</TableHead>
-                <TableHead className="text-right">Margen</TableHead>
+                <TableHead className="cursor-pointer select-none hover:text-foreground transition-colors" onClick={() => toggleSort('name')}>
+                  Producto <SortIcon col="name" />
+                </TableHead>
+                <TableHead className="text-right cursor-pointer select-none hover:text-foreground transition-colors" onClick={() => toggleSort('stock')}>
+                  Stock <SortIcon col="stock" />
+                </TableHead>
+                <TableHead className="text-right cursor-pointer select-none hover:text-foreground transition-colors" onClick={() => toggleSort('coverage')}>
+                  Cobertura <SortIcon col="coverage" />
+                </TableHead>
+                <TableHead className="text-right cursor-pointer select-none hover:text-foreground transition-colors" onClick={() => toggleSort('avgMonthly')}>
+                  Venta/mes <SortIcon col="avgMonthly" />
+                </TableHead>
+                <TableHead className="text-right cursor-pointer select-none hover:text-foreground transition-colors" onClick={() => toggleSort('price')}>
+                  Precio <SortIcon col="price" />
+                </TableHead>
+                <TableHead className="text-right cursor-pointer select-none hover:text-foreground transition-colors" onClick={() => toggleSort('cost')}>
+                  Costo <SortIcon col="cost" />
+                </TableHead>
+                <TableHead className="text-right cursor-pointer select-none hover:text-foreground transition-colors" onClick={() => toggleSort('margin')}>
+                  Margen <SortIcon col="margin" />
+                </TableHead>
                 <TableHead>Estado</TableHead>
               </TableRow></TableHeader>
               <TableBody>
-                {products.map(p => {
+                {sortedProducts.map(p => {
                   const margin = p.price > 0 ? ((p.price - p.cost) / p.price) * 100 : 0;
                   return (
                     <TableRow key={p.id}>

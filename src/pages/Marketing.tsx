@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { usePeriod } from '@/contexts/PeriodContext';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { formatCurrency, formatPercent, formatNumber, safeDiv } from '@/lib/formatters';
@@ -8,7 +8,7 @@ import { findNumber, findString, findField, findDateRaw, FIELD_CAMPAIGN_NAME, FI
 import { filterByPeriod, parseDate, type PeriodKey } from '@/lib/data-cleaning';
 import { PeriodPills } from '@/components/ui/PeriodPills';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { TrendingUp, Upload, Database, Loader2, Megaphone } from 'lucide-react';
+import { TrendingUp, Upload, Database, Loader2, Megaphone, ChevronUp, ChevronDown, ChevronsUpDown } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { BarChart, Bar, XAxis, YAxis, Tooltip as RTooltip, ResponsiveContainer, CartesianGrid, Legend } from 'recharts';
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip';
@@ -46,8 +46,51 @@ function formatDateShort(raw: string): string {
   return d.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' });
 }
 
-/** Translate/normalize campaign objective strings from any platform */
-function normalizeObjective(raw: string): string {
+/**
+ * Normaliza el objetivo de una campaña.
+ * 1) Si la celda contiene basura (presupuesto "diario", "vitalicio", "manual", etc.) la descartamos.
+ * 2) Buscamos keywords de objetivo en el valor crudo.
+ * 3) Si no hay match, intentamos inferir desde el NOMBRE de la campaña.
+ */
+const NON_OBJECTIVE_VALUES = [
+  'diario', 'daily', 'vitalicio', 'lifetime', 'manual', 'automatico', 'automatic', 'auto',
+  'cbo', 'abo', 'budget', 'presupuesto', 'low', 'medio', 'medium', 'high', 'desconocido',
+];
+
+function classifyObjective(text: string | null | undefined): string {
+  if (!text) return '';
+  const raw = String(text).toLowerCase();
+  // Sacar tildes sin tocar símbolos
+  const n = raw.normalize('NFD').replace(/[̀-ͯ]/g, '');
+  if (n.includes('whatsapp') || n.includes('wsp') || n.includes('mensaj') || n.includes('message') || n.includes('chat')) return 'Mensajes';
+  if (n.includes('conversion') || n.includes('purchase') || n.includes('compra') || n.includes('venta') || n.includes('checkout')) return 'Conversiones';
+  if (n.includes('traffic') || n.includes('trafico') || n.includes('click') || n.includes('link') || n.includes(' web') || n.includes('sitio')) return 'Tráfico';
+  if (n.includes('lead') || n.includes('prospecto') || n.includes('formulario') || n.includes('registro') || n.includes('signup')) return 'Leads';
+  if (n.includes('awareness') || n.includes('conciencia') || n.includes('reconoc') || n.includes('alcance') || n.includes('reach') || n.includes('brand')) return 'Alcance/Branding';
+  if (n.includes('engagement') || n.includes('interaccion') || n.includes('like') || n.includes('seguidor') || n.includes('follower')) return 'Interacción';
+  if (n.includes('video') || n.includes('view') || n.includes('reproducci')) return 'Reproducciones';
+  if (n.includes('catalog') || n.includes('shopping') || n.includes('producto')) return 'Catálogo';
+  return '';
+}
+
+function normalizeObjective(raw: string, campaignName?: string): string {
+  const lowered = (raw || '').toLowerCase().trim();
+  const isJunk = !lowered || NON_OBJECTIVE_VALUES.some(j => lowered === j || lowered.startsWith(j + ' '));
+
+  if (!isJunk) {
+    const fromCell = classifyObjective(raw);
+    if (fromCell) return fromCell;
+    return raw.charAt(0).toUpperCase() + raw.slice(1);
+  }
+
+  // Si la celda es basura, intentamos inferir desde el nombre de la campaña
+  const fromName = classifyObjective(campaignName);
+  if (fromName) return fromName;
+  return '';
+}
+
+/** @deprecated kept for compatibility, replaced by classifyObjective + normalizeObjective above */
+function _legacyNormalizeObjective(raw: string): string {
   if (!raw) return '';
   const n = raw.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]/g, '');
   if (n.includes('conversion') || n.includes('purchase') || n.includes('compra') || n.includes('venta')) return 'Conversiones';
@@ -68,9 +111,10 @@ function normalizeMarketing(rows: any[], m?: any): CampaignRow[] {
     const rawDate = findDateRaw(r, m?.date);
     const d = parseDate(rawDate);
     const rawObjective = findString(r, FIELD_OBJECTIVE, m?.objective);
+    const campaignName = findString(r, FIELD_CAMPAIGN_NAME, m?.campaign_name) || (d ? d.toLocaleDateString('es-AR', { day: '2-digit', month: 'short', year: 'numeric' }) : 'Sin nombre');
     return {
-      name: findString(r, FIELD_CAMPAIGN_NAME, m?.campaign_name) || (d ? d.toLocaleDateString('es-AR', { day: '2-digit', month: 'short', year: 'numeric' }) : 'Sin nombre'),
-      objective: normalizeObjective(rawObjective),
+      name: campaignName,
+      objective: normalizeObjective(rawObjective, campaignName),
       spend,
       revenue,
       roas: parseFloat(roas.toFixed(2)),
@@ -91,6 +135,17 @@ export default function Marketing() {
   const m = mappings.marketing;
   const { period, setPeriod } = usePeriod();
   const [showInactive, setShowInactive] = useState(false);
+  type CampaignSortKey = 'name' | 'objective' | 'spend' | 'revenue' | 'roas' | 'conversions' | 'reach' | 'impressions' | 'clicks';
+  type SortDir = 'asc' | 'desc';
+  const [sortConfig, setSortConfig] = useState<{ key: CampaignSortKey; dir: SortDir } | null>(null);
+  const toggleSort = (key: CampaignSortKey) => {
+    setSortConfig(prev => prev?.key === key ? { key, dir: prev.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: 'desc' });
+  };
+  const SortIcon = ({ col }: { col: CampaignSortKey }) => {
+    if (!sortConfig || sortConfig.key !== col) return <ChevronsUpDown className="inline h-3 w-3 ml-1 opacity-40" />;
+    return sortConfig.dir === 'asc' ? <ChevronUp className="inline h-3 w-3 ml-1" /> : <ChevronDown className="inline h-3 w-3 ml-1" />;
+  };
+
   const allMarketing = extractedData?.marketing || [];
   const filteredMarketing = period === 'all' ? allMarketing : filterByPeriod(allMarketing, FIELD_DATE, period, (row) => findDateRaw(row, m?.date));
   const useReal = hasData && allMarketing.length > 0;
@@ -149,7 +204,20 @@ export default function Marketing() {
   const isInactive = (c: CampaignRow) => c.spend === 0 && c.conversions === 0 && c.impressions === 0;
   const activeCampaigns = realCampaigns.filter(c => !isInactive(c));
   const inactiveCount = realCampaigns.length - activeCampaigns.length;
-  const displayedCampaigns = showInactive ? realCampaigns : activeCampaigns;
+  const baseCampaigns = showInactive ? realCampaigns : activeCampaigns;
+  const displayedCampaigns = useMemo(() => {
+    if (!sortConfig) return baseCampaigns;
+    const { key, dir } = sortConfig;
+    return [...baseCampaigns].sort((a, b) => {
+      let cmp = 0;
+      if (key === 'name' || key === 'objective') {
+        cmp = (a[key] || '').localeCompare(b[key] || '', 'es', { sensitivity: 'base' });
+      } else {
+        cmp = (a[key] as number) - (b[key] as number);
+      }
+      return dir === 'asc' ? cmp : -cmp;
+    });
+  }, [baseCampaigns, sortConfig]);
 
   const totalSpend = realCampaigns.reduce((s, c) => s + c.spend, 0);
   const totalRevenue = realCampaigns.reduce((s, c) => s + c.revenue, 0);
@@ -253,22 +321,57 @@ export default function Marketing() {
           <CardContent className="overflow-x-auto">
             <Table>
               <TableHeader><TableRow>
-                <TableHead>{hasCampaignNames ? 'Campaña' : 'Período'}</TableHead>
-                {hasObjectiveField && <TableHead>Objetivo</TableHead>}
+                <TableHead
+                  className="min-w-[220px] cursor-pointer select-none hover:text-foreground transition-colors"
+                  onClick={() => toggleSort('name')}
+                >
+                  {hasCampaignNames ? 'Campaña' : 'Período'} <SortIcon col="name" />
+                </TableHead>
+                {hasObjectiveField && (
+                  <TableHead className="cursor-pointer select-none hover:text-foreground transition-colors" onClick={() => toggleSort('objective')}>
+                    Objetivo <SortIcon col="objective" />
+                  </TableHead>
+                )}
                 {hasDateRange && <TableHead>Desde</TableHead>}
                 {hasDateRange && <TableHead>Hasta</TableHead>}
-                <TableHead className="text-right">Gasto</TableHead>
-                {totalRevenue > 0 && <TableHead className="text-right">Ingresos</TableHead>}
-                {globalRoas > 0 && <TableHead className="text-right">ROAS</TableHead>}
-                {hasConversionsField && <TableHead className="text-right">Conversiones</TableHead>}
-                {hasReachField && <TableHead className="text-right">Alcance</TableHead>}
-                {hasImpressionsField && <TableHead className="text-right">Impresiones</TableHead>}
-                {totalClicks > 0 && <TableHead className="text-right">Clicks</TableHead>}
+                <TableHead className="text-right cursor-pointer select-none hover:text-foreground transition-colors" onClick={() => toggleSort('spend')}>
+                  Gasto <SortIcon col="spend" />
+                </TableHead>
+                {totalRevenue > 0 && (
+                  <TableHead className="text-right cursor-pointer select-none hover:text-foreground transition-colors" onClick={() => toggleSort('revenue')}>
+                    Ingresos <SortIcon col="revenue" />
+                  </TableHead>
+                )}
+                {globalRoas > 0 && (
+                  <TableHead className="text-right cursor-pointer select-none hover:text-foreground transition-colors" onClick={() => toggleSort('roas')}>
+                    ROAS <SortIcon col="roas" />
+                  </TableHead>
+                )}
+                {hasConversionsField && (
+                  <TableHead className="text-right cursor-pointer select-none hover:text-foreground transition-colors" onClick={() => toggleSort('conversions')}>
+                    Conversiones <SortIcon col="conversions" />
+                  </TableHead>
+                )}
+                {hasReachField && (
+                  <TableHead className="text-right cursor-pointer select-none hover:text-foreground transition-colors" onClick={() => toggleSort('reach')}>
+                    Alcance <SortIcon col="reach" />
+                  </TableHead>
+                )}
+                {hasImpressionsField && (
+                  <TableHead className="text-right cursor-pointer select-none hover:text-foreground transition-colors" onClick={() => toggleSort('impressions')}>
+                    Impresiones <SortIcon col="impressions" />
+                  </TableHead>
+                )}
+                {totalClicks > 0 && (
+                  <TableHead className="text-right cursor-pointer select-none hover:text-foreground transition-colors" onClick={() => toggleSort('clicks')}>
+                    Clicks <SortIcon col="clicks" />
+                  </TableHead>
+                )}
               </TableRow></TableHeader>
               <TableBody>
                 {displayedCampaigns.map((c, i) => (
                   <TableRow key={i}>
-                    <TableCell className="font-medium">{c.name}</TableCell>
+                    <TableCell className="font-medium min-w-[220px] max-w-[360px] whitespace-normal break-words">{c.name}</TableCell>
                     {hasObjectiveField && (
                       <TableCell>
                         {c.objective ? (

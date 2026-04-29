@@ -329,7 +329,10 @@ export const FIELD_CATEGORY = ['categoria', 'category', 'tipo', 'rubro', 'segmen
 
 // Marketing-specific
 export const FIELD_CAMPAIGN_NAME = ['campana', 'campaña', 'nombre_campana', 'nombre_de_la_campana', 'campaign', 'nombre', 'name'];
-export const FIELD_OBJECTIVE = ['objetivo', 'objective', 'campaign_objective', 'tipo_campana', 'tipo_de_campana', 'tipo', 'campaign_type', 'buying_type', 'bid_strategy'];
+// Sólo objetivo de campaña (qué busca lograr la campaña).
+// IMPORTANTE: NO incluir 'tipo' (genérico, captura "tipo de presupuesto"=diario/vitalicio),
+// ni 'buying_type'/'bid_strategy' (ésos son método de compra, no objetivo).
+export const FIELD_OBJECTIVE = ['objetivo', 'objective', 'campaign_objective', 'tipo_campana', 'tipo_de_campana', 'campaign_type', 'campaign_objective_type', 'goal'];
 export const FIELD_SPEND = ['gasto', 'inversion', 'spend', 'costo', 'importe', 'importe_gastado', 'importe_gastado_ars', 'presupuesto', 'budget', 'cost'];
 export const FIELD_REVENUE = ['ingresos', 'revenue', 'ventas', 'retorno', 'ingreso', 'valor_conversion'];
 export const FIELD_ROAS = ['roas', 'roas_de_resultados', 'retorno_inversion', 'roi'];

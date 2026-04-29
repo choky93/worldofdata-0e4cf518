@@ -390,7 +390,7 @@ export default function Ventas() {
                   className="text-right cursor-pointer select-none hover:text-foreground transition-colors"
                   onClick={() => toggleSort('amount')}
                 >
-                  Monto <SortIcon col="amount" sortConfig={sortConfig} />
+                  Precio de venta <SortIcon col="amount" sortConfig={sortConfig} />
                 </TableHead>
                 {hasCostData && <TableHead className="text-right">Costo</TableHead>}
                 {(hasCostData || hasProfitData) && (
