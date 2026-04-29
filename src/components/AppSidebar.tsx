@@ -1,7 +1,7 @@
 import {
   LayoutDashboard, ShoppingCart, Wallet, Package, Users, TrendingUp,
   Bell, BarChart3, Megaphone, FileBox, Upload, UserCog, Settings, LogOut,
-  PanelLeftClose, PanelLeftOpen, Truck,
+  PanelLeftClose, PanelLeftOpen, Truck, Sparkles,
 } from 'lucide-react';
 import { NavLink } from '@/components/NavLink';
 import { useAuth } from '@/contexts/AuthContext';
@@ -23,6 +23,7 @@ const adminItems = [
   { title: 'Marketing', url: '/marketing', icon: Megaphone, conditional: 'has_ads' },
   { title: 'Operaciones', url: '/operaciones', icon: FileBox },
   { title: 'Carga de datos', url: '/carga-datos', icon: Upload },
+  { title: 'Uso de IA', url: '/uso-ia', icon: Sparkles },
   { title: 'Equipo', url: '/equipo', icon: UserCog },
   { title: 'Configuración', url: '/configuracion', icon: Settings },
 ];

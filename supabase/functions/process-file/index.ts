@@ -28,7 +28,51 @@ class RateLimitError extends Error {
   }
 }
 
-async function fetchAnthropicWithRetry(body: object): Promise<Record<string, unknown>> {
+// Ola 20: pricing snapshot + log helper para tracking de costos
+const ANTHROPIC_PRICING: Record<string, { input: number; inputCached: number; output: number }> = {
+  "claude-sonnet-4-5": { input: 3.00, inputCached: 0.30, output: 15.00 },
+};
+
+async function logAnthropicUsage(
+  body: { model?: string; usage?: { input_tokens?: number; output_tokens?: number; cache_creation_input_tokens?: number; cache_read_input_tokens?: number } },
+  ctx?: { companyId?: string; userId?: string | null; feature?: string; metadata?: Record<string, unknown> },
+) {
+  if (!ctx?.companyId || !body?.usage) return;
+  try {
+    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+    const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    const sb = createClient(supabaseUrl, serviceKey);
+
+    const model = body.model || "claude-sonnet-4-5";
+    const p = ANTHROPIC_PRICING[model];
+    const u = body.usage;
+    const inputTokens = u.input_tokens || 0;
+    const cachedTokens = u.cache_read_input_tokens || 0;
+    const outputTokens = u.output_tokens || 0;
+    const cost = p
+      ? ((cachedTokens / 1_000_000) * p.inputCached) +
+        ((Math.max(0, inputTokens - cachedTokens) / 1_000_000) * p.input) +
+        ((outputTokens / 1_000_000) * p.output)
+      : 0;
+
+    await sb.from("api_usage_logs").insert({
+      company_id: ctx.companyId,
+      user_id: ctx.userId ?? null,
+      provider: "anthropic",
+      model,
+      feature: ctx.feature || "other",
+      input_tokens: inputTokens,
+      input_tokens_cached: cachedTokens || null,
+      output_tokens: outputTokens,
+      cost_usd: cost,
+      metadata: ctx.metadata || {},
+    });
+  } catch (e) {
+    console.error("[logAnthropicUsage] insert failed:", e);
+  }
+}
+
+async function fetchAnthropicWithRetry(body: object, usageCtx?: { companyId?: string; userId?: string | null; feature?: string; metadata?: Record<string, unknown> }): Promise<Record<string, unknown>> {
   for (let attempt = 0; attempt <= RETRY_DELAYS.length; attempt++) {
     const resp = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
@@ -39,7 +83,12 @@ async function fetchAnthropicWithRetry(body: object): Promise<Record<string, unk
       },
       body: JSON.stringify(body),
     });
-    if (resp.ok) return resp.json();
+    if (resp.ok) {
+      const data = await resp.json();
+      // Ola 20: log usage si tenemos context
+      logAnthropicUsage(data, usageCtx);
+      return data;
+    }
     if ((resp.status === 429 || resp.status === 529 || resp.status === 503) && attempt < RETRY_DELAYS.length) {
       const delay = RETRY_DELAYS[attempt];
       console.warn(`[process-file] Anthropic ${resp.status}, retrying in ${delay / 1000}s (attempt ${attempt + 1}/${RETRY_DELAYS.length})`);
@@ -339,6 +388,7 @@ async function classifyWithAI(
   sampleRows: Record<string, unknown>[],
   fileName: string,
   sheetName?: string,
+  usageCtx?: { companyId?: string; userId?: string | null; fileUploadId?: string },
 ): Promise<{ category: string; summary: string; column_mapping: Record<string, string | null> }> {
   console.log(`[process-file] AI classification for "${fileName}"${sheetName ? ` (hoja: "${sheetName}")` : ''} (${headers.length} cols, ${sampleRows.length} sample rows)`);
 
@@ -449,7 +499,7 @@ ${JSON.stringify(sampleRows.slice(0, 10), null, 2)}`;
     ],
     temperature: 0.1,
     max_tokens: 1024,
-  });
+  }, usageCtx ? { ...usageCtx, feature: "file_classification", metadata: { file_name: fileName, file_upload_id: usageCtx.fileUploadId } } : undefined);
 
   const raw = (data.content as any)?.[0]?.text || '{}';
   try {
@@ -472,6 +522,7 @@ async function reAnalyzeMapping(
   sampleRows: Record<string, unknown>[],
   fileName: string,
   originalCategory: string,
+  usageCtx?: { companyId?: string; userId?: string | null; fileUploadId?: string },
 ): Promise<Record<string, string | null>> {
   console.log(`[process-file] ⚠️ Quarantine re-analysis for "${fileName}" (category: ${originalCategory})`);
 
@@ -572,7 +623,7 @@ ${JSON.stringify(sampleRows.slice(0, 20), null, 2)}`;
     ],
     temperature: 0.05,
     max_tokens: 512,
-  });
+  }, usageCtx ? { ...usageCtx, feature: "category_detection", metadata: { file_name: fileName, file_upload_id: usageCtx.fileUploadId } } : undefined);
 
   const raw = (data.content as any)?.[0]?.text || '{}';
   try {
@@ -602,7 +653,8 @@ async function extractWithAI(
   fileName: string,
   imageBase64?: string,
   imageMime?: string,
-  metadata?: Record<string, unknown>
+  metadata?: Record<string, unknown>,
+  usageCtx?: { companyId?: string; userId?: string | null; fileUploadId?: string },
 ): Promise<{ category: string; data: unknown; summary: string; rowCount: number }> {
   console.log(`[process-file] Calling AI extraction for "${fileName}"`);
 
@@ -777,7 +829,7 @@ FORMATO DE RESPUESTA — SOLO JSON:
     messages: [userMessage],
     temperature: 0.1,
     max_tokens: 4096,
-  });
+  }, usageCtx ? { ...usageCtx, feature: "file_extraction", metadata: { file_name: fileName, file_upload_id: usageCtx.fileUploadId } } : undefined);
 
   const raw = (data.content as any)?.[0]?.text || '{}';
   let parsed: Record<string, unknown>;
@@ -1066,6 +1118,10 @@ serve(async (req) => {
       });
     }
 
+    // Ola 20: contexto reutilizado en todas las llamadas a Claude
+    // para registrar consumo en api_usage_logs.
+    const globalUsageCtx = { companyId, userId: null as string | null, fileUploadId };
+
     const { data: fileRecord, error: fetchErr } = await sb
       .from("file_uploads").select("*").eq("id", fileUploadId).single();
     if (fetchErr || !fileRecord) throw new Error(`File not found: ${fetchErr?.message}`);
@@ -1081,7 +1137,9 @@ serve(async (req) => {
     if (rowBatch && headers && batchIndex !== undefined && totalBatches !== undefined) {
       if (batchIndex === 0) {
         // First batch: classify with AI
-        let { category, summary, column_mapping, confidence } = await classifyWithAI(headers, rowBatch.slice(0, 10), file_name, sheetName);
+        // Ola 20: pasamos usageCtx para registrar consumo de Anthropic en api_usage_logs
+        const usageCtx = { companyId, userId: null, fileUploadId };
+        let { category, summary, column_mapping, confidence } = await classifyWithAI(headers, rowBatch.slice(0, 10), file_name, sheetName, usageCtx);
 
         // 5.1: if the user confirmed an explicit category in the Schema
         // Preview dialog, honor it — keep the AI's column_mapping but
@@ -1109,7 +1167,7 @@ serve(async (req) => {
         // Quarantine check
         if (!isMappingAcceptable(column_mapping, category)) {
           console.log(`[process-file] ⚠️ Mapping insufficient for "${file_name}". Triggering re-analysis...`);
-          const reMapping = await reAnalyzeMapping(headers, cleanedBatch.slice(0, 20), file_name, category);
+          const reMapping = await reAnalyzeMapping(headers, cleanedBatch.slice(0, 20), file_name, category, usageCtx);
           if (isMappingAcceptable(reMapping, category)) {
             console.log(`[process-file] ✅ Re-analysis succeeded for "${file_name}"`);
             column_mapping = reMapping;
@@ -1279,7 +1337,7 @@ serve(async (req) => {
         resultInfo = await processTabularData(sb, rows, parsedHeaders, file_name, fileUploadId, companyId);
       } else {
         console.log(`[process-file] Legacy preParsed → could not parse rows, using AI extraction`);
-        const result = await extractWithAI(content.substring(0, MAX_CONTENT_CHARS), file_name);
+        const result = await extractWithAI(content.substring(0, MAX_CONTENT_CHARS), file_name, undefined, undefined, undefined, globalUsageCtx);
         { const { error: d } = await sb.from("file_extracted_data").delete().eq("file_upload_id", fileUploadId);
           if (d) console.error('[process-file] DELETE error:', d.message);
           const { error: e } = await sb.from("file_extracted_data").insert({
@@ -1319,7 +1377,7 @@ serve(async (req) => {
         const parsedHeaders = fixed.headers.length > 0 ? fixed.headers : Object.keys(allRows[0]);
         resultInfo = await processTabularData(sb, allRows, parsedHeaders, file_name, fileUploadId, companyId);
       } else {
-        const result = await extractWithAI(text.substring(0, MAX_CONTENT_CHARS), file_name);
+        const result = await extractWithAI(text.substring(0, MAX_CONTENT_CHARS), file_name, undefined, undefined, undefined, globalUsageCtx);
         { const { error: d } = await sb.from("file_extracted_data").delete().eq("file_upload_id", fileUploadId);
           if (d) console.error('[process-file] DELETE error:', d.message);
           const { error: e } = await sb.from("file_extracted_data").insert({
@@ -1406,7 +1464,7 @@ serve(async (req) => {
           } else {
             const wb = XLSX.read(bytes, { type: 'array' });
             const csv = XLSX.utils.sheet_to_csv(wb.Sheets[wb.SheetNames[0]], { FS: ',', RS: '\n' });
-            const result = await extractWithAI(csv.substring(0, MAX_CONTENT_CHARS), file_name);
+            const result = await extractWithAI(csv.substring(0, MAX_CONTENT_CHARS), file_name, undefined, undefined, undefined, globalUsageCtx);
             { const { error: d } = await sb.from("file_extracted_data").delete().eq("file_upload_id", fileUploadId);
               if (d) console.error('[process-file] DELETE error:', d.message);
               const { error: e } = await sb.from("file_extracted_data").insert({
@@ -1438,7 +1496,7 @@ serve(async (req) => {
         imageMime = getMimeType(file_name);
       }
 
-      const result = await extractWithAI(content, file_name, imageBase64, imageMime, processingMetadata);
+      const result = await extractWithAI(content, file_name, imageBase64, imageMime, processingMetadata, globalUsageCtx);
       { const { error: d } = await sb.from("file_extracted_data").delete().eq("file_upload_id", fileUploadId);
         if (d) console.error('[process-file] DELETE error:', d.message);
         const { error: e } = await sb.from("file_extracted_data").insert({
@@ -1478,7 +1536,7 @@ serve(async (req) => {
           resultInfo = { category: r.category, summary: r.summary, totalRows: r.totalRows };
         } else {
           const content = `[PDF con ${pdfResult.pages} páginas]\n\n${pdfResult.text}`;
-          const result = await extractWithAI(content, file_name, undefined, undefined, processingMetadata);
+          const result = await extractWithAI(content, file_name, undefined, undefined, processingMetadata, globalUsageCtx);
           { const { error: d } = await sb.from("file_extracted_data").delete().eq("file_upload_id", fileUploadId);
             if (d) console.error('[process-file] DELETE error:', d.message);
             const { error: e } = await sb.from("file_extracted_data").insert({
@@ -1497,7 +1555,7 @@ serve(async (req) => {
         } else {
           content = `[PDF muy grande (${(buffer.byteLength / 1024 / 1024).toFixed(1)} MB). Texto parcial: "${pdfResult.text.substring(0, 1000)}". Nombre: "${file_name}".]`;
         }
-        const result = await extractWithAI(content, file_name, undefined, undefined, processingMetadata);
+        const result = await extractWithAI(content, file_name, undefined, undefined, processingMetadata, globalUsageCtx);
         { const { error: d } = await sb.from("file_extracted_data").delete().eq("file_upload_id", fileUploadId);
           if (d) console.error('[process-file] DELETE error:', d.message);
           const { error: e } = await sb.from("file_extracted_data").insert({
@@ -1524,7 +1582,7 @@ serve(async (req) => {
       } else {
         content = `[Archivo desconocido: ${ext}. Nombre: "${file_name}". ${(buffer.byteLength / 1024).toFixed(0)} KB]`;
       }
-      const result = await extractWithAI(content, file_name);
+      const result = await extractWithAI(content, file_name, undefined, undefined, undefined, globalUsageCtx);
       { const { error: d } = await sb.from("file_extracted_data").delete().eq("file_upload_id", fileUploadId);
         if (d) console.error('[process-file] DELETE error:', d.message);
         const { error: e } = await sb.from("file_extracted_data").insert({

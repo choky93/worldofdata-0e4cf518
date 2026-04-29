@@ -17,6 +17,7 @@ import Ventas from "./pages/Ventas";
 import Finanzas from "./pages/Finanzas";
 import Stock from "./pages/Stock";
 import Proveedores from "./pages/Proveedores";
+import UsoIA from "./pages/UsoIA";
 import Clientes from "./pages/Clientes";
 import Forecast from "./pages/Forecast";
 import Alertas from "./pages/Alertas";
@@ -73,6 +74,7 @@ const App = () => (
             <Route path="/finanzas" element={<ProtectedRoute><Finanzas /></ProtectedRoute>} />
             <Route path="/stock" element={<ProtectedRoute><Stock /></ProtectedRoute>} />
             <Route path="/proveedores" element={<ProtectedRoute><Proveedores /></ProtectedRoute>} />
+            <Route path="/uso-ia" element={<ProtectedRoute><UsoIA /></ProtectedRoute>} />
             <Route path="/clientes" element={<ProtectedRoute><Clientes /></ProtectedRoute>} />
             <Route path="/forecast" element={<ProtectedRoute><Forecast /></ProtectedRoute>} />
             <Route path="/alertas" element={<ProtectedRoute><Alertas /></ProtectedRoute>} />
