@@ -8,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Progress } from '@/components/ui/progress';
 import { Upload, FileText, Image, FileSpreadsheet, Trash2, Lightbulb, Loader2, RefreshCw, CheckCircle2, Search, ChevronLeft, ChevronRight, Filter, XCircle, BarChart3, Clock, AlertTriangle, Layers, Link2, ArrowUp, Globe, Package, Pencil, X as XIcon, Download, Archive, RotateCcw, History } from 'lucide-react';
 import { Textarea } from '@/components/ui/textarea';
+import { Label } from '@/components/ui/label';
 import { formatDate } from '@/lib/formatters';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
@@ -19,7 +20,6 @@ import { findString, FIELD_DATE, FIELD_NAME } from '@/lib/field-utils';
 import { SchemaPreviewDialog, type SchemaPreviewPayload } from '@/components/SchemaPreviewDialog';
 import { MultiSheetPickerDialog, type SheetInfo } from '@/components/MultiSheetPickerDialog';
 import { useDeleteRequests } from '@/hooks/useDeleteRequests';
-import { Textarea } from '@/components/ui/textarea';
 import { suggestCategory } from '@/lib/schema-preview';
 import { DataQualityBadge } from '@/components/DataQualityBadge';
 import { computeDataQuality, detectAnomalies, type DataQualityScore } from '@/lib/data-quality';

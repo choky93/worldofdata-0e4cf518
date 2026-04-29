@@ -105,9 +105,16 @@ export function useSuppliers() {
         sb.from('supplier_deliveries').select('*').eq('company_id', companyId).order('ordered_at', { ascending: false }),
         sb.from('supplier_products').select('*').eq('company_id', companyId),
       ]);
-      if (sErr) throw sErr;
-      if (dErr) throw dErr;
-      if (pErr) throw pErr;
+      // Si la migración aún no se aplicó (table missing), degradamos a vacío
+      // sin tirar — así Stock.tsx sigue funcionando con el lead time default.
+      const isMissingTableErr = (e: { code?: string; message?: string } | null) =>
+        !!e && (e.code === '42P01' || (e.message ?? '').includes('does not exist'));
+      if (sErr && !isMissingTableErr(sErr)) throw sErr;
+      if (dErr && !isMissingTableErr(dErr)) throw dErr;
+      if (pErr && !isMissingTableErr(pErr)) throw pErr;
+      if (sErr || dErr || pErr) {
+        console.warn('[useSuppliers] suppliers tables not ready yet (migration pending). Continuing with empty data.');
+      }
       setSuppliers((sData as Supplier[]) || []);
       setDeliveries((dData as SupplierDelivery[]) || []);
       setProducts((pData as SupplierProduct[]) || []);

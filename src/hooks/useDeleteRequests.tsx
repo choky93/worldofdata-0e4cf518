@@ -51,7 +51,17 @@ export function useDeleteRequests() {
         .select('*')
         .eq('company_id', companyId)
         .order('created_at', { ascending: false });
-      if (e) throw e;
+      // Si la migración aún no se aplicó, degradamos a vacío sin romper.
+      if (e) {
+        const errCode = (e as { code?: string }).code;
+        const errMsg = (e as { message?: string }).message ?? '';
+        if (errCode === '42P01' || errMsg.includes('does not exist')) {
+          console.warn('[useDeleteRequests] table not ready yet (migration pending).');
+          setRequests([]);
+          return;
+        }
+        throw e;
+      }
 
       const items = (reqs as DeleteRequest[]) || [];
 
