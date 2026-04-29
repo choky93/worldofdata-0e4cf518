@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { formatCurrency, formatPercent } from '@/lib/formatters';
@@ -205,7 +205,9 @@ export default function Stock() {
 
   // Ola 14: re-render cuando cambian los overrides manuales (markAsExcluded, etc.)
   const [exclusionsTick, setExclusionsTick] = useState(0);
-  useMemo(() => subscribeStockExclusions(() => setExclusionsTick(t => t + 1)), []);
+  useEffect(() => {
+    return subscribeStockExclusions(() => setExclusionsTick(t => t + 1));
+  }, []);
   const [showExcluded, setShowExcluded] = useState(false);
 
   const products = useMemo(
