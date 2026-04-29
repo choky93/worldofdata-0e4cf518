@@ -25,14 +25,19 @@ interface Props {
   lastUpload: string | null | undefined;
   /** Override the user setting (mostly for testing). */
   warnDays?: number;
+  /** Categoría a la que pertenece la pill — habilita el auto-ajuste por categoría (Ola 10). */
+  category?: string;
+  /** Perfil del negocio para auto-ajuste si el usuario no tiene override manual. */
+  companySettings?: import('@/lib/user-settings').AutoThresholdContext | null;
   onClick?: () => void;
   className?: string;
   /** Compact = no "actualizado" prefix, just the time ago. */
   compact?: boolean;
 }
 
-export function FreshnessPill({ lastUpload, warnDays, onClick, className, compact = false }: Props) {
-  const threshold = warnDays ?? getStaleThresholdDays();
+export function FreshnessPill({ lastUpload, warnDays, category, companySettings, onClick, className, compact = false }: Props) {
+  // Override directo (testing) → user manual → auto por categoría → fallback default
+  const threshold = warnDays ?? getStaleThresholdDays(category, companySettings);
   const days = daysSince(lastUpload);
 
   // A-1: keyboard activation when clickable.

@@ -418,7 +418,8 @@ function ContextualAssistant({
       );
     }
     const days = Math.max(0, Math.floor((Date.now() - new Date(lastUploadDates[cat]).getTime()) / 86400000));
-    const threshold = getStaleThresholdDays();
+    // Ola 10: umbral por categoría (auto-ajuste según perfil del negocio)
+    const threshold = getStaleThresholdDays(cat, companySettings);
     const fresh = days <= Math.max(1, Math.floor(threshold / 3));
     const stale = days > threshold;
     const tone = fresh ? 'bg-success/15 text-success' : stale ? 'bg-destructive/15 text-destructive' : 'bg-warning/15 text-warning';
@@ -431,7 +432,7 @@ function ContextualAssistant({
   const staleHigh = highPriority.filter(s => {
     if (!s.category || !lastUploadDates[s.category]) return false;
     const days = Math.floor((Date.now() - new Date(lastUploadDates[s.category]).getTime()) / 86400000);
-    return days > getStaleThresholdDays();
+    return days > getStaleThresholdDays(s.category, companySettings);
   }).length;
 
   const renderItem = (s: SuggestionItem & { category?: string }, i: number) => {

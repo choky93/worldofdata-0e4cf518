@@ -238,6 +238,8 @@ export default function Dashboard() {
                         <span className="text-[10px] text-foreground/60">{CATEGORY_LABELS[c]}</span>
                         <FreshnessPill
                           lastUpload={lastUploadDates[c]}
+                          category={c}
+                          companySettings={companySettings}
                           onClick={() => navigate(`/carga-datos?category=${c}`)}
                           compact
                         />

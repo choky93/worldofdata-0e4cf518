@@ -8,9 +8,15 @@ import { Input } from '@/components/ui/input';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { Link } from 'react-router-dom';
-import { Settings, ArrowRight, Clock } from 'lucide-react';
+import { Settings, ArrowRight, Clock, Sparkles } from 'lucide-react';
 import { toast } from 'sonner';
-import { getStaleThresholdDays, setUserSettings } from '@/lib/user-settings';
+import {
+  getStaleThresholdDays,
+  setUserSettings,
+  clearManualOverride,
+  computeAutoStaleThreshold,
+  getUserSettings,
+} from '@/lib/user-settings';
 
 interface SectionToggle {
   label: string;
@@ -30,14 +36,32 @@ export default function Configuracion() {
   const completion = companySettings?.onboarding_completion_pct ?? 0;
   const [updating, setUpdating] = useState<string | null>(null);
 
-  // 2.7 Stale threshold preference (localStorage, per browser)
+  // 2.7 / Ola 10 — Umbral de frescura (localStorage, por navegador) con modo Auto/Manual
   const [staleDays, setStaleDays] = useState<number>(() => getStaleThresholdDays());
-  useEffect(() => { setStaleDays(getStaleThresholdDays()); }, []);
+  const [hasManualOverride, setHasManualOverride] = useState<boolean>(() => getUserSettings().hasManualOverride);
+  useEffect(() => {
+    setStaleDays(getStaleThresholdDays());
+    setHasManualOverride(getUserSettings().hasManualOverride);
+  }, []);
+
+  // Valor que el modo "Auto" sugeriría según el perfil del negocio.
+  const autoSuggested = computeAutoStaleThreshold('ventas', companySettings ?? null);
+
   const handleStaleChange = (raw: string) => {
     const n = parseInt(raw, 10);
     if (!Number.isFinite(n) || n <= 0) return;
     setStaleDays(n);
-    setUserSettings({ staleThresholdDays: n });
+    setHasManualOverride(true);
+    setUserSettings({ staleThresholdDays: n, hasManualOverride: true });
+  };
+
+  const handleResetAuto = () => {
+    clearManualOverride();
+    setHasManualOverride(false);
+    setStaleDays(autoSuggested);
+    toast.success('Umbral en modo automático', {
+      description: `Se ajusta solo según tu perfil (sugerido: ${autoSuggested} días para ventas).`,
+    });
   };
 
   const handleToggle = async (section: SectionToggle, checked: boolean) => {
@@ -117,7 +141,7 @@ export default function Configuracion() {
         </CardContent>
       </Card>
 
-      {/* 2.7 Freshness threshold (per-browser preference) */}
+      {/* 2.7 + Ola 10 — Umbral de frescura con modo Auto/Manual */}
       <Card>
         <CardHeader>
           <CardTitle className="text-sm text-muted-foreground flex items-center gap-2">
@@ -128,11 +152,19 @@ export default function Configuracion() {
         <CardContent className="space-y-3">
           <div className="flex items-end justify-between gap-4">
             <div className="space-y-1 flex-1">
-              <Label htmlFor="stale-threshold" className="text-sm font-medium">
+              <Label htmlFor="stale-threshold" className="text-sm font-medium flex items-center gap-2">
                 Días para considerar datos desactualizados
+                {!hasManualOverride && (
+                  <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-success/15 text-success">
+                    <Sparkles className="h-3 w-3" /> Auto
+                  </span>
+                )}
               </Label>
               <p className="text-xs text-muted-foreground">
                 Las pills de frescura del Dashboard se ponen en rojo cuando la última carga supera este umbral.
+                {!hasManualOverride && (
+                  <span> El sistema lo ajusta solo según el tipo de negocio (sugerido para ventas: <strong>{autoSuggested} días</strong>).</span>
+                )}
               </p>
             </div>
             <Input
@@ -145,8 +177,19 @@ export default function Configuracion() {
               className="w-24 text-right"
             />
           </div>
+          {hasManualOverride && (
+            <div className="flex items-center justify-between text-xs border-t pt-3">
+              <span className="text-muted-foreground">
+                Estás usando un valor manual. El auto-ajuste sugeriría <strong>{autoSuggested} días</strong> para ventas.
+              </span>
+              <Button variant="outline" size="sm" className="h-7 text-xs" onClick={handleResetAuto}>
+                <Sparkles className="h-3 w-3 mr-1" />
+                Volver a Auto
+              </Button>
+            </div>
+          )}
           <p className="text-[11px] text-muted-foreground">
-            Preferencia local (este navegador). Default: 30 días.
+            Preferencia local (este navegador). En modo Auto, marketing y stock con inventario usan 7 días; servicios con clientes recurrentes 30.
           </p>
         </CardContent>
       </Card>
