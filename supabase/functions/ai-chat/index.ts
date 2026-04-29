@@ -8,7 +8,9 @@ const corsHeaders = {
 };
 
 const OPENAI_URL = "https://api.openai.com/v1/chat/completions";
-const MAX_CONTEXT_CHARS = 4000;
+// Ola 13: subimos el contexto para que el Copilot tenga más datos.
+// 4000 era demasiado angosto y forzaba al modelo a decir "me faltan datos".
+const MAX_CONTEXT_CHARS = 12000;
 
 // ── Helpers ─────────────────────────────────────────────────────
 function fmtARS(n: number): string {
@@ -71,7 +73,14 @@ function summarizeSales(rows: Record<string, unknown>[]): string {
   const noDate = monthly.get("sin-fecha");
 
   let text = `VENTAS: Total histórico ${fmtARS(total)}. Mejor mes: ${shortMonth(best[0])} (${fmtARS(best[1])}). Peor mes: ${shortMonth(worst[0])} (${fmtARS(worst[1])}). Promedio mensual: ${fmtARS(avg)}. Tendencia últimos 3 meses: ${trend}.`;
-  if (last6) text += ` Últimos 6 meses: ${last6}.`;
+  // Ola 13: incluimos la SERIE TEMPORAL COMPLETA mes a mes para que el modelo
+  // pueda responder preguntas como "cuál fue el mejor mes" sin pedir datos extra.
+  if (sorted.length > 0) {
+    const fullSeries = sorted.map(([k, v]) => `${shortMonth(k)}=${fmtARS(v)}`).join(", ");
+    text += ` Serie mensual completa (${sorted.length} meses): ${fullSeries}.`;
+  } else if (last6) {
+    text += ` Últimos 6 meses: ${last6}.`;
+  }
   if (noDate) text += ` Ventas sin fecha asignada: ${fmtARS(noDate)}.`;
   return text;
 }
@@ -81,6 +90,7 @@ function summarizeMarketing(rows: Record<string, unknown>[]): string {
   let totalSpend = 0, totalConv = 0, roasSum = 0, roasCount = 0;
   let bestRoas: { name: string; val: number } | null = null;
   let worstRoas: { name: string; val: number } | null = null;
+  const monthly = new Map<string, { spend: number; conv: number }>();
 
   for (const r of rows) {
     const spend = findNumber(r, ["gasto", "spend", "inversion", "inversión", "costo", "cost"]);
@@ -96,6 +106,15 @@ function summarizeMarketing(rows: Record<string, unknown>[]): string {
       if (!bestRoas || roas > bestRoas.val) bestRoas = { name: name || "sin nombre", val: roas };
       if (!worstRoas || roas < worstRoas.val) worstRoas = { name: name || "sin nombre", val: roas };
     }
+    // Ola 13: serie mensual de inversión publicitaria
+    const date = findDate(r);
+    if (date && spend != null) {
+      const key = date.slice(0, 7);
+      const m = monthly.get(key) || { spend: 0, conv: 0 };
+      m.spend += spend;
+      if (conv != null) m.conv += conv;
+      monthly.set(key, m);
+    }
   }
   if (totalSpend === 0 && totalConv === 0 && roasCount === 0) return "MARKETING: Sin datos de campañas.";
 
@@ -104,6 +123,10 @@ function summarizeMarketing(rows: Record<string, unknown>[]): string {
   if (bestRoas) parts.push(`Mejor ROAS: "${bestRoas.name}" (${bestRoas.val.toFixed(2)}).`);
   if (worstRoas && worstRoas.name !== bestRoas?.name) parts.push(`Peor ROAS: "${worstRoas.name}" (${worstRoas.val.toFixed(2)}).`);
   if (totalConv > 0) parts.push(`Total conversiones: ${totalConv.toLocaleString("es-AR")}.`);
+  if (monthly.size > 0) {
+    const sortedMonths = [...monthly.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+    parts.push(`Inversión por mes: ${sortedMonths.map(([k, v]) => `${shortMonth(k)}=${fmtARS(v.spend)}${v.conv ? ` (${v.conv} conv)` : ''}`).join(", ")}.`);
+  }
   return parts.join(" ");
 }
 
@@ -166,13 +189,16 @@ async function fetchCompanyContext(companyId: string): Promise<string> {
     parts.push(`Diagnóstico: madurez ${diag.maturity_classification || "?"}, dolor principal: ${diag.pain_point || "?"}, mejora potencial: ${diag.potential_improvement_pct || 0}%, indicadores prioritarios: ${diag.priority_indicators?.join(", ") || "ninguno"}.`);
   }
 
-  // Extracted data — fetch and summarize
+  // Extracted data — fetch and summarize.
+  // Ola 13: subimos el límite a 200 chunks. Antes (20) si el cliente subía
+  // 30+ archivos mensuales, los más viejos se perdían y el modelo respondía
+  // "no tengo datos suficientes" cuando en realidad sí los tenía cargados.
   const { data: extracted } = await sb
     .from("file_extracted_data")
     .select("data_category, summary, row_count, extracted_json, created_at")
     .eq("company_id", companyId)
     .order("created_at", { ascending: false })
-    .limit(20);
+    .limit(200);
 
   // Failed file uploads
   const { data: failedFiles } = await sb
@@ -334,15 +360,15 @@ function buildSystemPrompt(businessContext: string, marketContext: string, conte
     "- Tenés acceso completo a los datos del negocio (ventas, stock, gastos, clientes, etc.).",
     "- Tu trabajo es ANALIZAR y DAR RESPUESTAS, no decirle al usuario qué debería analizar.",
     "",
-    "## REGLAS ESTRICTAS",
-    "1. **NUNCA** hagas listas de pasos o cosas para revisar. Vos ya las revisaste. Dá la conclusión.",
-    "2. **SIEMPRE** usá números concretos de los datos que tenés: cifras, porcentajes, nombres de productos, montos.",
-    "3. **EMPEZÁ** con la respuesta/conclusión directa. Después explicá brevemente por qué.",
-    "4. **SUGERÍ** acciones concretas y específicas, no genéricas.",
-    "5. Si no tenés datos suficientes, decilo honestamente pero dá tu mejor hipótesis con lo que sí tenés.",
-    "6. **MÁXIMO** 3-4 párrafos por respuesta. Sé conciso.",
+    "## REGLAS ESTRICTAS (en orden de importancia)",
+    "1. **JAMÁS empieces pidiendo datos.** Tenés DATOS DEL NEGOCIO inyectados en este prompt. Usalos. Está prohibido empezar con 'me faltan datos', 'necesito X', 'no puedo responder sin Y' o similares. Si la pregunta requiere datos que no están, RESPONDÉ CON LO QUE SÍ TENÉS y al final mencioná en una línea qué ayudaría a refinar la respuesta.",
+    "2. **EMPEZÁ con la respuesta/conclusión directa.** Después explicá brevemente por qué. Nunca devuelvas una checklist de pasos a seguir antes de dar tu hipótesis.",
+    "3. **SIEMPRE usá números concretos** de los datos que tenés: cifras, porcentajes, nombres de productos/campañas, montos, meses específicos. Si tenés 'mejor mes Mar 25 ($X)', citalo textual.",
+    "4. **NUNCA hagas listas de pasos** o cosas para revisar. Vos ya las revisaste. Dá la conclusión.",
+    "5. **SUGERÍ acciones concretas y específicas**, no genéricas. No digas 'revisá el marketing', decí 'probá aumentar un 15% el presupuesto de Meta Ads en la campaña X que tiene mejor ROAS'.",
+    "6. **MÁXIMO 3-4 párrafos** por respuesta. Sé conciso.",
     "7. Usá tono conversacional argentino (vos/tuteo). Hablá como un compañero de trabajo, no como un manual.",
-    "8. Cuando des sugerencias, sé específico: no digas 'revisá el marketing', decí 'probá aumentar un 15% el presupuesto de Meta Ads en la categoría X que tiene mejor ROAS'.",
+    "8. Si literalmente NO hay ningún dato relevante en el contexto (ej: te preguntan por marketing pero la sección MARKETING dice 'Sin datos de campañas'), explicá qué módulo cargar y qué responderías cuando esté. Pero esto es la excepción, no la regla.",
     "",
     "## FORMATO",
     "- Respuestas cortas y directas",
