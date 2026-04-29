@@ -1,7 +1,7 @@
 import {
   LayoutDashboard, ShoppingCart, Wallet, Package, Users, TrendingUp,
   Bell, BarChart3, Megaphone, FileBox, Upload, UserCog, Settings, LogOut,
-  PanelLeftClose, PanelLeftOpen, Truck, Sparkles,
+  PanelLeftClose, PanelLeftOpen, Truck, Sparkles, GitBranch,
 } from 'lucide-react';
 import { NavLink } from '@/components/NavLink';
 import { useAuth } from '@/contexts/AuthContext';
@@ -17,6 +17,7 @@ const adminItems = [
   { title: 'Stock', url: '/stock', icon: Package, conditional: 'has_stock' },
   { title: 'Proveedores', url: '/proveedores', icon: Truck, conditional: 'has_stock' },
   { title: 'Clientes', url: '/clientes', icon: Users },
+  { title: 'Pipeline (CRM)', url: '/pipeline', icon: GitBranch, conditional: 'has_crm' },
   { title: 'Forecast', url: '/forecast', icon: TrendingUp },
   { title: 'Alertas', url: '/alertas', icon: Bell },
   { title: 'Métricas', url: '/metricas', icon: BarChart3 },
@@ -41,12 +42,15 @@ export function AppSidebar() {
 
   const hasMarketingData = (extractedData?.marketing || []).length > 0;
   const hasStockData = (extractedData?.stock || []).length > 0;
+  // Ola 21: el módulo Pipeline solo aparece cuando hay datos de CRM cargados.
+  const hasCrmData = (extractedData?.crm || []).length > 0;
 
   const visibleItems = items.filter((item) => {
     if (!('conditional' in item) || !item.conditional) return true;
     if (!companySettings) return true;
     if (item.conditional === 'has_stock') return companySettings.has_stock || companySettings.sells_products || hasStockData;
     if (item.conditional === 'has_ads') return companySettings.uses_meta_ads || companySettings.uses_google_ads || hasMarketingData;
+    if (item.conditional === 'has_crm') return hasCrmData;
     return true;
   });
 

@@ -19,6 +19,7 @@ export type CategoryKey =
   | 'clientes'
   | 'facturas'
   | 'rrhh'
+  | 'crm'
   | 'otro';
 
 /** Stable identifiers for dashboard modules. */
@@ -33,6 +34,7 @@ export type ModuleKey =
   | 'clientes'
   | 'finanzas'
   | 'rrhh'
+  | 'pipeline'
   | 'otro';
 
 export interface ModuleInfo {
@@ -53,6 +55,7 @@ export const MODULES: Record<ModuleKey, ModuleInfo> = {
   clientes:  { key: 'clientes',  label: 'Clientes',  path: '/clientes' },
   finanzas:  { key: 'finanzas',  label: 'Finanzas',  path: '/finanzas' },
   rrhh:      { key: 'rrhh',      label: 'RRHH',      path: null },
+  pipeline:  { key: 'pipeline',  label: 'Pipeline (CRM)', path: '/pipeline' },
   otro:      { key: 'otro',      label: 'Otro',      path: null },
 };
 
@@ -65,6 +68,7 @@ export const CATEGORY_MODULES: Record<CategoryKey, ModuleKey[]> = {
   clientes:  ['clientes'],
   facturas:  ['finanzas'],
   rrhh:      ['rrhh'],
+  crm:       ['pipeline', 'clientes'],
   otro:      ['otro'],
 };
 
@@ -101,6 +105,7 @@ export const CATEGORY_LABELS: Record<CategoryKey, string> = {
   clientes: 'Clientes',
   facturas: 'Facturas',
   rrhh: 'RRHH',
+  crm: 'CRM / Pipeline',
   otro: 'Otro',
 };
 

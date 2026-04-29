@@ -28,6 +28,9 @@ const SIGNATURES: Record<string, string[]> = {
   clientes: ['cliente', 'razonsocial', 'cuit', 'telefono', 'email', 'contacto', 'empresa'],
   facturas: ['factura', 'cae', 'emisor', 'receptor', 'comprobante', 'tipo', 'punto', 'numero'],
   rrhh: ['empleado', 'sueldo', 'salario', 'haber', 'legajo', 'cuil', 'puesto', 'nomina'],
+  // Ola 21: CRM (Salesforce/HubSpot/Pipedrive/Zoho/Dynamics exports).
+  // Tokens muy fuertes para distinguir de "ventas" tradicional.
+  crm: ['stage', 'pipeline', 'opportunity', 'deal', 'account', 'owner', 'lead', 'probability', 'closedate', 'expectedclose', 'forecast', 'lifecycle', 'salesrep'],
 };
 
 export interface SchemaCategorySuggestion {

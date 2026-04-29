@@ -404,7 +404,7 @@ TAREA: Dado un archivo con sus columnas y filas de ejemplo, determiná:
 
 CATEGORÍAS DISPONIBLES:
 
-- "ventas": registros de ventas, facturación, ingresos, pedidos, transacciones
+- "ventas": registros de ventas YA CONCRETADAS, facturación, ingresos, pedidos cerrados, transacciones reales
 
 - "gastos": egresos, costos, pagos realizados, facturas de proveedores, gastos operativos
 
@@ -414,7 +414,9 @@ CATEGORÍAS DISPONIBLES:
 
 - "marketing": inversión publicitaria, Meta Ads, Google Ads, campañas, métricas de performance
 
-- "clientes": base de clientes, compradores, deudores, cuentas corrientes
+- "clientes": base de clientes/contactos plana (lista de quién compra), compradores, deudores, cuentas corrientes. SIN etapas ni pipeline.
+
+- "crm": exportaciones de un CRM (Salesforce, HubSpot, Pipedrive, Zoho, Microsoft Dynamics) — oportunidades de venta en distintas ETAPAS del pipeline (Prospecting/Qualification/Proposal/Negotiation/Closed Won/Closed Lost). DIFERENCIA CLAVE con "ventas": acá las ventas son POTENCIALES (deals abiertos), no transacciones cerradas. Señales fuertes: columnas "Stage", "Pipeline", "Opportunity", "Deal", "Owner", "Probability", "Close Date", "Expected Close", "Account Name", "Lead Source", "Forecast Category". También aplica a archivos de "accounts" (cuentas/empresas en el CRM) o "contacts" (contactos individuales).
 
 - "rrhh": empleados, sueldos, liquidaciones, personal
 
@@ -423,6 +425,8 @@ CATEGORÍAS DISPONIBLES:
 - "finanzas": flujo de caja, movimientos bancarios, extractos, presupuesto financiero
 
 - "otro": no encaja claramente en ninguna categoría anterior
+
+REGLA CRÍTICA: si el archivo tiene una columna "Stage" / "Pipeline" / "Deal Stage" / "Opportunity Stage" CON valores como "Prospecting", "Qualification", "Proposal", "Negotiation", "Closed Won", "Closed Lost" → ES "crm", NUNCA "ventas". Las ventas tradicionales son cerradas; el pipeline tiene oportunidades en distintos estados.
 
 CAMPOS SEMÁNTICOS POR CATEGORÍA:
 
@@ -437,6 +441,8 @@ CAMPOS SEMÁNTICOS POR CATEGORÍA:
 - facturas: {"amount":"monto total","date":"fecha de emisión","name":"descripción","client":"cliente o proveedor","number":"número de factura","tax":"IVA","net_amount":"monto neto","due_date":"fecha de vencimiento","type":"tipo A/B/C/X"}
 
 - clientes: {"name":"nombre del cliente","total_purchases":"total comprado","debt":"deuda pendiente","last_purchase":"última compra","purchase_count":"cantidad de compras","email":"email","phone":"teléfono","category":"segmento o tipo de cliente"}
+
+- crm: {"deal_name":"nombre de la oportunidad/deal","amount":"valor del deal en USD/ARS","stage":"etapa del pipeline (Prospecting, Qualification, Proposal, Negotiation, Closed Won, Closed Lost)","close_date":"fecha estimada o real de cierre","created_date":"fecha de creación del deal","owner":"vendedor o sales rep asignado","account":"cuenta/empresa cliente","probability":"probabilidad de cierre (%)","lead_source":"origen del lead","contact_email":"email del contacto","contact_phone":"teléfono del contacto"}
 
 - rrhh: {"name":"nombre del empleado","salary":"sueldo","date":"período o fecha","position":"cargo","hours":"horas trabajadas","department":"área"}
 

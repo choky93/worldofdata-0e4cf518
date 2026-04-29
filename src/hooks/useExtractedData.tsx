@@ -23,6 +23,8 @@ interface AggregatedData {
   marketing: any[];
   facturas: any[];
   rrhh: any[];
+  // Ola 21: oportunidades del CRM (Salesforce / HubSpot / Pipedrive / etc.)
+  crm: any[];
   otro: any[];
 }
 
@@ -35,6 +37,7 @@ export interface CategoryMappings {
   marketing: ColumnMapping;
   facturas: ColumnMapping;
   rrhh: ColumnMapping;
+  crm: ColumnMapping;
   otro: ColumnMapping;
 }
 
@@ -62,7 +65,7 @@ interface ExtractedDataContextValue {
 
 const defaultMappings: CategoryMappings = {
   ventas: {}, gastos: {}, stock: {}, clientes: {},
-  marketing: {}, facturas: {}, rrhh: {}, otro: {},
+  marketing: {}, facturas: {}, rrhh: {}, crm: {}, otro: {},
 };
 
 const ExtractedDataContext = createContext<ExtractedDataContextValue | undefined>(undefined);
@@ -115,7 +118,7 @@ export function ExtractedDataProvider({ children }: { children: ReactNode }) {
 
       const agg: AggregatedData = {
         ventas: [], gastos: [], stock: [], clientes: [],
-        marketing: [], facturas: [], rrhh: [], otro: [],
+        marketing: [], facturas: [], rrhh: [], crm: [], otro: [],
       };
 
       // Track rows with their source file for overlap detection
@@ -125,7 +128,7 @@ export function ExtractedDataProvider({ children }: { children: ReactNode }) {
 
       const mergedMappings: CategoryMappings = {
         ventas: {}, gastos: {}, stock: {}, clientes: {},
-        marketing: {}, facturas: {}, rrhh: {}, otro: {},
+        marketing: {}, facturas: {}, rrhh: {}, crm: {}, otro: {},
       };
 
       // Redirect legacy/orphaned categories to their correct buckets.

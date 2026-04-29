@@ -1331,6 +1331,20 @@ export default function CargaDatos() {
           }
         }
 
+        // Ola 21: si el parse client-side dejó parsedRows EXISTENTE pero VACÍO
+        // (ej: el cleanup filtró todas las filas como "totales" o el archivo
+        // tenía solo headers), antes esto provocaba que el upload quedara en
+        // 'queued' indefinidamente. Ahora lo marcamos como error explícito.
+        if (parsedRows && parsedRows.length === 0) {
+          updateItem({ status: 'error', error: 'El archivo no contiene filas válidas para procesar (¿solo headers? ¿totales?). Verificá el contenido y volvé a subirlo.' });
+          toast.error(`"${item.file.name}": no se encontraron filas válidas`, {
+            description: 'El archivo se parseó pero quedó vacío después de la limpieza. Capaz tiene solo headers o líneas de totales.',
+            duration: 10000,
+          });
+          await processNext();
+          return;
+        }
+
         // 5.1: Schema Preview & Confirmation. Only ask when client-side
         // parsing succeeded — server-side fallback has nothing to preview.
         let categoryOverride: string | undefined;
