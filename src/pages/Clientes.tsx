@@ -7,7 +7,7 @@ import { findNumber, findString, findDateRaw, FIELD_CLIENT, FIELD_TOTAL_PURCHASE
 import { parseDate, filterByPeriod, extractAvailableMonths } from '@/lib/data-cleaning';
 import { useExtractedData } from '@/hooks/useExtractedData';
 import { usePeriod } from '@/contexts/PeriodContext';
-import { PeriodPills } from '@/components/ui/PeriodPills';
+import { PeriodSelector } from '@/components/PeriodSelector';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip';
 import { AlertTriangle, Users, Crown, Award, Star, Upload, Loader2, Database, Info } from 'lucide-react';
@@ -165,7 +165,7 @@ export default function Clientes() {
           <h1 className="text-2xl font-bold">Clientes</h1>
           <div className="flex items-center gap-3">
             {useClientesDesdeVentas && (
-              <PeriodPills value={period} onChange={setPeriod} availableMonths={availableMonths} />
+              <PeriodSelector value={period} onChange={setPeriod} availableMonths={availableMonths} />
             )}
             <div className="flex items-center gap-1.5 text-xs alert-success rounded-lg px-3 py-1.5">
               <Database className="h-3.5 w-3.5" />

@@ -240,8 +240,17 @@ export function parseDate(raw: string): Date | null {
 
 /**
  * Filter rows by date period.
+ *
+ * Formats supported (Ola 11 — selector global de período):
+ *   'all'                              → todo el historial
+ *   'this_month' | 'last_month' | 'last_3_months'  (legacy presets)
+ *   'last_N_days' (e.g. 'last_7_days', 'last_30_days', 'last_90_days', 'last_365_days')
+ *   'YYYY'                             → año
+ *   'YYYY-Q1' .. 'YYYY-Q4'             → trimestre
+ *   'YYYY-MM'                          → mes
+ *   'custom:YYYY-MM-DD:YYYY-MM-DD'     → rango libre [from, to] inclusivo
  */
-export type PeriodKey = 'all' | 'this_month' | 'last_month' | 'last_3_months' | string; // string = "YYYY-MM", "YYYY-QN", "YYYY"
+export type PeriodKey = 'all' | 'this_month' | 'last_month' | 'last_3_months' | string;
 
 export function filterByPeriod(
   rows: any[],
@@ -253,9 +262,26 @@ export function filterByPeriod(
 
   let from: Date, to: Date;
 
+  // Custom range: "custom:YYYY-MM-DD:YYYY-MM-DD" (Ola 11)
+  const customMatch = period.match(/^custom:(\d{4}-\d{2}-\d{2}):(\d{4}-\d{2}-\d{2})$/);
+  if (customMatch) {
+    const [, fromStr, toStr] = customMatch;
+    from = new Date(fromStr + 'T00:00:00');
+    // 'to' es inclusivo: sumamos 1 día al límite superior
+    const toDate = new Date(toStr + 'T00:00:00');
+    to = new Date(toDate.getFullYear(), toDate.getMonth(), toDate.getDate() + 1);
+  }
+  // Last N days: "last_7_days", "last_30_days", etc. (Ola 11)
+  else if (/^last_(\d+)_days$/.test(period)) {
+    const m = period.match(/^last_(\d+)_days$/)!;
+    const n = parseInt(m[1], 10);
+    const now = new Date();
+    to = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+    from = new Date(now.getFullYear(), now.getMonth(), now.getDate() - n + 1);
+  }
   // Absolute month: "2023-11"
-  const monthMatch = period.match(/^(\d{4})-(\d{2})$/);
-  if (monthMatch) {
+  else if (/^(\d{4})-(\d{2})$/.test(period)) {
+    const monthMatch = period.match(/^(\d{4})-(\d{2})$/)!;
     const y = parseInt(monthMatch[1]);
     const m = parseInt(monthMatch[2]) - 1;
     from = new Date(y, m, 1);
