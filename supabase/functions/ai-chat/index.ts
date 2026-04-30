@@ -271,10 +271,31 @@ async function fetchCompanyContext(companyId: string): Promise<string> {
     // Group rows by category
     const byCategory = new Map<string, { rows: Record<string, unknown>[]; summary: string | null }>();
     for (const e of extracted) {
+      // Hotfix-3: skipear los chunks META (categorías que empiezan con "_"
+      // como _column_mapping, _classification, _raw_cache). Esos no son datos
+      // reales — meterlos hace que el Copilot crea que tiene "facturas" o
+      // "ventas" cuando en realidad es metadata interna.
+      if (typeof e.data_category === "string" && e.data_category.startsWith("_")) continue;
       const cat = e.data_category.toLowerCase();
       const existing = byCategory.get(cat) || { rows: [], summary: null };
       const json = e.extracted_json;
-      const arr = Array.isArray(json) ? json : (json && typeof json === "object" && "rows" in (json as Record<string,unknown>)) ? (json as Record<string,unknown>).rows as Record<string,unknown>[] : [json as Record<string,unknown>];
+      // Hotfix-3: aceptar TANTO `data` (formato correcto del server) COMO
+      // `rows` (formato legacy/alternativo). Antes solo buscaba `rows` →
+      // como guardamos `{ columns, data }`, no encontraba nada y caía al
+      // fallback `[json]` que metía el objeto wrapper como 1 sola fila.
+      // Por eso el Copilot decía "solo dispongo de un mes" — solo veía
+      // 1 fila por archivo en vez de las cientos reales.
+      let arr: Record<string, unknown>[] = [];
+      if (Array.isArray(json)) {
+        arr = json as Record<string, unknown>[];
+      } else if (json && typeof json === "object") {
+        const obj = json as Record<string, unknown>;
+        if (Array.isArray(obj.data)) arr = obj.data as Record<string, unknown>[];
+        else if (Array.isArray(obj.rows)) arr = obj.rows as Record<string, unknown>[];
+        // Si no es ni data ni rows pero es un objeto plano con columnas, lo
+        // tratamos como 1 fila (probablemente extracción AI single-row).
+        else arr = [obj];
+      }
       existing.rows.push(...arr);
       if (!existing.summary && e.summary) existing.summary = e.summary;
       byCategory.set(cat, existing);

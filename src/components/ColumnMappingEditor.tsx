@@ -138,9 +138,12 @@ const FIELDS_BY_CATEGORY: Record<string, SemanticField[]> = {
     { key: 'hours', label: 'Horas', description: 'Horas trabajadas' },
   ],
   otro: [
-    { key: 'date', label: 'Fecha', description: 'Si hay alguna fecha en el archivo' },
-    { key: 'amount', label: 'Monto / Valor', description: 'Si hay algún monto' },
-    { key: 'name', label: 'Nombre / Descripción', description: 'Identificador principal' },
+    // Hotfix-3: marcamos los 3 como isKey para que con uno alcance.
+    // Caso "otro" se usa como fallback cuando la categoría real no se puede
+    // determinar — no queremos que el usuario quede bloqueado sin nada que cumplir.
+    { key: 'date', label: 'Fecha', description: 'Si hay alguna fecha en el archivo', isKey: true },
+    { key: 'amount', label: 'Monto / Valor', description: 'Si hay algún monto', isKey: true },
+    { key: 'name', label: 'Nombre / Descripción', description: 'Identificador principal', isKey: true },
   ],
 };
 
@@ -151,31 +154,60 @@ export function ColumnMappingEditor({ open, onOpenChange, fileId, fileName, cate
   const [mapping, setMapping] = React.useState<Record<string, string>>({});
   const [loading, setLoading] = React.useState(false);
   const [saving, setSaving] = React.useState(false);
+  // Hotfix-3: la categoría que llega por prop puede ser "_column_mapping"
+  // (cuando el caller lee data_category del primer chunk meta). Acá leemos
+  // la categoría REAL desde extracted_json.category del row _column_mapping.
+  const [resolvedCategory, setResolvedCategory] = React.useState<string>(category);
 
-  const fields = FIELDS_BY_CATEGORY[category] || FIELDS_BY_CATEGORY.otro;
+  const effectiveCategory = FIELDS_BY_CATEGORY[resolvedCategory] ? resolvedCategory : 'otro';
+  const fields = FIELDS_BY_CATEGORY[effectiveCategory];
   const keyFields = fields.filter(f => f.isKey);
   const optionalFields = fields.filter(f => !f.isKey);
 
   const hasAnyKeyMapped = keyFields.some(f => mapping[f.key] && mapping[f.key] !== NONE);
 
-  // Cargar headers del archivo + mapping actual
+  // Cargar headers del archivo + mapping actual + resolver la categoría real
   React.useEffect(() => {
     if (!open || !fileId) return;
     setLoading(true);
     (async () => {
       try {
-        // Buscar el primer chunk de datos para sacar los headers reales
-        const { data, error } = await supabase
-          .from('file_extracted_data')
-          .select('extracted_json')
-          .eq('file_upload_id', fileId)
-          .gte('chunk_index', 0)
-          .order('chunk_index', { ascending: true })
-          .limit(1);
-        if (error) throw error;
-        const json = data?.[0]?.extracted_json as { columns?: string[] } | undefined;
-        const cols = json?.columns || [];
+        // Pedimos en paralelo: (1) headers de cualquier chunk de datos,
+        // (2) extracted_json del row _column_mapping para sacar la categoría real.
+        const [dataRes, mapRes] = await Promise.all([
+          supabase
+            .from('file_extracted_data')
+            .select('extracted_json')
+            .eq('file_upload_id', fileId)
+            .gte('chunk_index', 0)
+            .order('chunk_index', { ascending: true })
+            .limit(1),
+          supabase
+            .from('file_extracted_data')
+            .select('extracted_json')
+            .eq('file_upload_id', fileId)
+            .eq('data_category', '_column_mapping')
+            .limit(1),
+        ]);
+        if (dataRes.error) throw dataRes.error;
+        if (mapRes.error) throw mapRes.error;
+
+        // Headers — del primer chunk de datos
+        const dataJson = dataRes.data?.[0]?.extracted_json as { columns?: string[] } | undefined;
+        const cols = dataJson?.columns || [];
         setHeaders(cols);
+
+        // Categoría real — del extracted_json del _column_mapping row
+        const mapJson = mapRes.data?.[0]?.extracted_json as { category?: string } | undefined;
+        const realCat = mapJson?.category;
+        if (realCat && FIELDS_BY_CATEGORY[realCat]) {
+          setResolvedCategory(realCat);
+        } else if (FIELDS_BY_CATEGORY[category]) {
+          setResolvedCategory(category);
+        } else {
+          setResolvedCategory('otro');
+        }
+
         setMapping({ ...currentMapping });
       } catch (err) {
         const e = err as { message?: string };
@@ -204,11 +236,11 @@ export function ColumnMappingEditor({ open, onOpenChange, fileId, fileName, cate
     }
     setSaving(true);
     try {
-      // 1) Actualizar el _column_mapping
+      // 1) Actualizar el _column_mapping con la categoría REAL resolvida
       const { error: updErr } = await supabase
         .from('file_extracted_data')
         .update({
-          extracted_json: { category, column_mapping: mapping } as never,
+          extracted_json: { category: effectiveCategory, column_mapping: mapping } as never,
         })
         .eq('file_upload_id', fileId)
         .eq('data_category', '_column_mapping');
@@ -246,7 +278,7 @@ export function ColumnMappingEditor({ open, onOpenChange, fileId, fileName, cate
             Asignar columnas manualmente
           </DialogTitle>
           <DialogDescription>
-            <span className="font-mono text-xs">{fileName}</span> · Categoría: <strong>{category}</strong>
+            <span className="font-mono text-xs">{fileName}</span> · Categoría: <strong>{effectiveCategory}</strong>
             <br />
             Para cada campo, seleccioná qué columna del archivo corresponde. Los marcados con ⭐ son los críticos
             (con asignar al menos uno alcanza para que el archivo se procese).
