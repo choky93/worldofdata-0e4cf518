@@ -19,6 +19,7 @@ import { useExtractedData } from '@/hooks/useExtractedData';
 import { findString, FIELD_DATE, FIELD_NAME } from '@/lib/field-utils';
 import { SchemaPreviewDialog, type SchemaPreviewPayload } from '@/components/SchemaPreviewDialog';
 import { MultiSheetPickerDialog, type SheetInfo } from '@/components/MultiSheetPickerDialog';
+import { ColumnMappingEditor } from '@/components/ColumnMappingEditor';
 import { useDeleteRequests } from '@/hooks/useDeleteRequests';
 import { suggestCategory } from '@/lib/schema-preview';
 import { DataQualityBadge } from '@/components/DataQualityBadge';
@@ -650,6 +651,9 @@ export default function CargaDatos() {
   // category & inspects sample rows. Resolved via a Promise the upload flow awaits.
   const [pendingPreview, setPendingPreview] = useState<{ payload: SchemaPreviewPayload; category: string } | null>(null);
   const previewResolverRef = useRef<((value: { confirmed: boolean; category: string }) => void) | null>(null);
+  // Hotfix-2: editor manual de mapeo de columnas para archivos en "Pendiente de revisión"
+  const [mappingEditorState, setMappingEditorState] = useState<{ fileId: string; fileName: string; category: string; mapping: Record<string, string> } | null>(null);
+
   // Ola 17: delete requests — employees solicitan, admin aprueba
   const { pending: deletePending, requestDelete, approveRequest, rejectRequest } = useDeleteRequests();
   const [pendingDeleteRequest, setPendingDeleteRequest] = useState<{ file: FileRecord; reason: string } | null>(null);
@@ -2757,9 +2761,25 @@ export default function CargaDatos() {
                                 )}
                               </div>
                               {f.status === 'review' && (
-                                <p className="mt-1 text-warning font-medium">
-                                  La IA clasificó este archivo con baja confianza. Verificá que la categoría sea correcta y reclasificá si es necesario.
-                                </p>
+                                <div className="mt-1 space-y-1.5">
+                                  <p className="text-warning font-medium">
+                                    La IA clasificó este archivo con baja confianza. Verificá que la categoría sea correcta y reclasificá si es necesario.
+                                  </p>
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="h-7 text-xs gap-1"
+                                    onClick={() => setMappingEditorState({
+                                      fileId: f.id,
+                                      fileName: f.file_name,
+                                      category: firstExtracted.data_category || 'otro',
+                                      mapping: columnMappingMap[f.id] || {},
+                                    })}
+                                  >
+                                    <Pencil className="h-3 w-3" />
+                                    Asignar columnas manualmente
+                                  </Button>
+                                </div>
                               )}
                               {firstExtracted.summary && (
                                 <p className="mt-0.5 leading-relaxed">{firstExtracted.summary}</p>
@@ -3041,6 +3061,19 @@ export default function CargaDatos() {
         onConfirm={handleSheetsConfirm}
         onCancel={handleSheetsCancel}
       />
+
+      {/* Hotfix-2: Editor manual de mapeo de columnas */}
+      {mappingEditorState && (
+        <ColumnMappingEditor
+          open={!!mappingEditorState}
+          onOpenChange={(o) => { if (!o) setMappingEditorState(null); }}
+          fileId={mappingEditorState.fileId}
+          fileName={mappingEditorState.fileName}
+          category={mappingEditorState.category}
+          currentMapping={mappingEditorState.mapping}
+          onSaved={() => { fetchFiles(); }}
+        />
+      )}
 
       {/* Ola 17: dialog de solicitud de borrado (solo employees) */}
       <AlertDialog open={!!pendingDeleteRequest} onOpenChange={(open) => { if (!open) setPendingDeleteRequest(null); }}>

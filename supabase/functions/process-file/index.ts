@@ -1193,7 +1193,7 @@ serve(async (req) => {
               if (v && !column_mapping[k]) column_mapping[k] = v;
             }
             await sb.from("file_uploads").update({
-              processing_error: "Requiere revisión: no se identificaron columnas clave automáticamente. Los datos se guardaron — abrí el archivo desde el historial para asignar manualmente las columnas si hace falta.",
+              processing_error: "Requiere revisión: no se identificaron columnas clave automáticamente. Los datos se guardaron. Probá: 1) reprocesar (botón ↻); 2) si sigue, click en \"Asignar columnas\" para mapear manualmente.",
             }).eq("id", fileUploadId);
           }
         }
