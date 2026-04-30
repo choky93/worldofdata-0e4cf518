@@ -141,6 +141,45 @@ export default function Ventas() {
   );
   const realVentas = period === 'all' ? allVentas : filterByPeriod(allVentas, FIELD_DATE, period, (row) => findDateRaw(row, m?.date));
 
+  // FIX hotfix: los useMemo de allSalesHistory y sortedHistory estaban
+  // después de los early returns por loading/!hasData. Eso violaba las
+  // reglas de Hooks. Movemos TODO arriba.
+  const hasCostData = !!m?.cost || realVentas.some((r: any) => findNumber(r, FIELD_COST, m?.cost) > 0);
+  const hasProfitData = !!m?.profit || realVentas.some((r: any) => findNumber(r, FIELD_PROFIT, m?.profit) > 0);
+
+  const allSalesHistory = useMemo(() => realVentas.map((r: any) => {
+    const rawDate = findDateRaw(r, m?.date) || '—';
+    const parsedDate = parseDate(rawDate);
+    return {
+      date: rawDate,
+      parsedDate,
+      client: findString(r, FIELD_CLIENT, m?.client) || '',
+      product: findString(r, FIELD_NAME, m?.name) || '',
+      amount: findNumber(r, FIELD_AMOUNT, m?.amount),
+      cost: hasCostData ? findNumber(r, FIELD_COST, m?.cost) : 0,
+      profit: hasProfitData ? findNumber(r, FIELD_PROFIT, m?.profit) : 0,
+    };
+  }), [realVentas, m, hasCostData, hasProfitData]);
+
+  const sortedHistory = useMemo(() => {
+    if (!sortConfig) return allSalesHistory;
+    return [...allSalesHistory].sort((a, b) => {
+      let cmp = 0;
+      if (sortConfig.key === 'date') {
+        const ta = a.parsedDate?.getTime() ?? 0;
+        const tb = b.parsedDate?.getTime() ?? 0;
+        cmp = ta - tb;
+      } else if (sortConfig.key === 'amount') {
+        cmp = a.amount - b.amount;
+      } else if (sortConfig.key === 'profit') {
+        const pa = hasProfitData ? a.profit : (hasCostData ? a.amount - a.cost : 0);
+        const pb = hasProfitData ? b.profit : (hasCostData ? b.amount - b.cost : 0);
+        cmp = pa - pb;
+      }
+      return sortConfig.dir === 'asc' ? cmp : -cmp;
+    });
+  }, [allSalesHistory, sortConfig, hasCostData, hasProfitData]);
+
   if (loading) {
     return (
       <div className="space-y-6 max-w-7xl">
@@ -187,44 +226,6 @@ export default function Ventas() {
   const dailyChart = aggregateByDate(realVentas, m);
   // salesTotal se calcula desde el gráfico para garantizar que card y barras coincidan
   const salesTotal = dailyChart.reduce((sum, d) => sum + d.value, 0);
-
-  // MEJORA 2: detectar si hay datos de costo / ganancia
-  const hasCostData = !!m?.cost || realVentas.some((r: any) => findNumber(r, FIELD_COST, m?.cost) > 0);
-  const hasProfitData = !!m?.profit || realVentas.some((r: any) => findNumber(r, FIELD_PROFIT, m?.profit) > 0);
-
-  // Build full sorted history (all rows, not capped at 50)
-  const allSalesHistory = useMemo(() => realVentas.map((r: any) => {
-    const rawDate = findDateRaw(r, m?.date) || '—';
-    const parsedDate = parseDate(rawDate);
-    return {
-      date: rawDate,
-      parsedDate,
-      client: findString(r, FIELD_CLIENT, m?.client) || '',
-      product: findString(r, FIELD_NAME, m?.name) || '',
-      amount: findNumber(r, FIELD_AMOUNT, m?.amount),
-      cost: hasCostData ? findNumber(r, FIELD_COST, m?.cost) : 0,
-      profit: hasProfitData ? findNumber(r, FIELD_PROFIT, m?.profit) : 0,
-    };
-  }), [realVentas, m, hasCostData, hasProfitData]);
-
-  const sortedHistory = useMemo(() => {
-    if (!sortConfig) return allSalesHistory;
-    return [...allSalesHistory].sort((a, b) => {
-      let cmp = 0;
-      if (sortConfig.key === 'date') {
-        const ta = a.parsedDate?.getTime() ?? 0;
-        const tb = b.parsedDate?.getTime() ?? 0;
-        cmp = ta - tb;
-      } else if (sortConfig.key === 'amount') {
-        cmp = a.amount - b.amount;
-      } else if (sortConfig.key === 'profit') {
-        const pa = hasProfitData ? a.profit : (hasCostData ? a.amount - a.cost : 0);
-        const pb = hasProfitData ? b.profit : (hasCostData ? b.amount - b.cost : 0);
-        cmp = pa - pb;
-      }
-      return sortConfig.dir === 'asc' ? cmp : -cmp;
-    });
-  }, [allSalesHistory, sortConfig, hasCostData, hasProfitData]);
 
   const totalPages = Math.ceil(sortedHistory.length / PAGE_SIZE);
   const salesHistory = sortedHistory.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
