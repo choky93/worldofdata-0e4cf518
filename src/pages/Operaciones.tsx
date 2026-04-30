@@ -80,18 +80,10 @@ export default function Operaciones() {
 
   useEffect(() => { setPage(0); }, [period, filter]);
 
-  if (loading) {
-    return (
-      <div className="space-y-6 max-w-7xl">
-        <h1 className="text-2xl font-bold">Operaciones</h1>
-        <div className="flex items-center justify-center py-20 gap-2 text-muted-foreground">
-          <Loader2 className="h-5 w-5 animate-spin" />
-          <span>Cargando datos...</span>
-        </div>
-      </div>
-    );
-  }
-
+  // ── Cálculos derivados (todos los hooks arriba para respetar reglas de Hooks) ──
+  // FIX hotfix: los useMemo de availableMonths y allOps estaban después de
+  // los early returns por loading/!hasOps. Eso violaba las reglas de Hooks
+  // y podía romper Operaciones en pantalla blanca al hidratar datos.
   const allVentas = extractedData?.ventas || [];
   const allGastos = extractedData?.gastos || [];
   const mV = mappings.ventas;
@@ -105,6 +97,20 @@ export default function Operaciones() {
   const realVentas = period === 'all' ? allVentas : filterByPeriod(allVentas, FIELD_DATE, period, (row) => findDateRaw(row, mV?.date));
   const realGastos = period === 'all' ? allGastos : filterByPeriod(allGastos, FIELD_DATE, period, (row) => findDateRaw(row, mG?.date));
   const hasOps = hasData && (allVentas.length > 0 || allGastos.length > 0);
+
+  const allOps = useMemo(() => normalizeOps(realVentas, realGastos, mappings.ventas, mappings.gastos), [realVentas, realGastos, mappings.ventas, mappings.gastos]);
+
+  if (loading) {
+    return (
+      <div className="space-y-6 max-w-7xl">
+        <h1 className="text-2xl font-bold">Operaciones</h1>
+        <div className="flex items-center justify-center py-20 gap-2 text-muted-foreground">
+          <Loader2 className="h-5 w-5 animate-spin" />
+          <span>Cargando datos...</span>
+        </div>
+      </div>
+    );
+  }
 
   if (!hasOps) {
     return (
@@ -129,7 +135,6 @@ export default function Operaciones() {
     );
   }
 
-  const allOps = useMemo(() => normalizeOps(realVentas, realGastos, mappings.ventas, mappings.gastos), [realVentas, realGastos, mappings.ventas, mappings.gastos]);
   const filtered = filter === 'all' ? allOps : allOps.filter(op => op.type === filter);
   const totalPages = Math.ceil(filtered.length / OP_PAGE_SIZE);
   const pagedOps = filtered.slice(page * OP_PAGE_SIZE, (page + 1) * OP_PAGE_SIZE);

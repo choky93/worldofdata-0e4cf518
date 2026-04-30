@@ -151,6 +151,44 @@ export default function Marketing() {
   const filteredMarketing = period === 'all' ? allMarketing : filterByPeriod(allMarketing, FIELD_DATE, period, (row) => findDateRaw(row, m?.date));
   const useReal = hasData && allMarketing.length > 0;
 
+  // ── Cálculos derivados (movidos arriba para respetar reglas de Hooks) ───
+  // FIX hotfix: el useMemo de displayedCampaigns estaba después de los
+  // early returns por loading/useReal. Eso violaba las reglas de Hooks
+  // (cantidad de hooks distinta entre renders) y rompía Marketing en
+  // pantalla blanca cuando pasaba de loading→loaded. Movemos TODO arriba.
+
+  const campaigns = useMemo(() => normalizeMarketing(filteredMarketing, m), [filteredMarketing, m]);
+
+  // Excluir filas de resumen/totales del CSV para evitar doble conteo
+  const SUMMARY_NAMES = ['total', 'resumen', 'subtotal', 'nan'];
+  const isSummaryRow = (c: CampaignRow) =>
+    !c.name ||
+    typeof c.name !== 'string' ||
+    c.name.trim() === '' ||
+    c.name === 'Sin nombre' ||
+    SUMMARY_NAMES.includes(c.name.toLowerCase().trim());
+
+  const realCampaigns = useMemo(() => campaigns.filter(c => !isSummaryRow(c)), [campaigns]);
+
+  // MEJORA 1: separar campañas inactivas (sin gasto, conversiones ni impresiones)
+  const isInactive = (c: CampaignRow) => c.spend === 0 && c.conversions === 0 && c.impressions === 0;
+  const activeCampaigns = useMemo(() => realCampaigns.filter(c => !isInactive(c)), [realCampaigns]);
+  const inactiveCount = realCampaigns.length - activeCampaigns.length;
+  const baseCampaigns = showInactive ? realCampaigns : activeCampaigns;
+  const displayedCampaigns = useMemo(() => {
+    if (!sortConfig) return baseCampaigns;
+    const { key, dir } = sortConfig;
+    return [...baseCampaigns].sort((a, b) => {
+      let cmp = 0;
+      if (key === 'name' || key === 'objective') {
+        cmp = (a[key] || '').localeCompare(b[key] || '', 'es', { sensitivity: 'base' });
+      } else {
+        cmp = (a[key] as number) - (b[key] as number);
+      }
+      return dir === 'asc' ? cmp : -cmp;
+    });
+  }, [baseCampaigns, sortConfig]);
+
   if (loading) {
     return (
       <div className="space-y-6 max-w-7xl">
@@ -187,38 +225,6 @@ export default function Marketing() {
       </TooltipProvider>
     );
   }
-
-  const campaigns = normalizeMarketing(filteredMarketing, m);
-
-  // Excluir filas de resumen/totales del CSV para evitar doble conteo
-  const SUMMARY_NAMES = ['total', 'resumen', 'subtotal', 'nan'];
-  const isSummaryRow = (c: CampaignRow) =>
-    !c.name ||
-    typeof c.name !== 'string' ||
-    c.name.trim() === '' ||
-    c.name === 'Sin nombre' ||
-    SUMMARY_NAMES.includes(c.name.toLowerCase().trim());
-
-  const realCampaigns = campaigns.filter(c => !isSummaryRow(c));
-
-  // MEJORA 1: separar campañas inactivas (sin gasto, conversiones ni impresiones)
-  const isInactive = (c: CampaignRow) => c.spend === 0 && c.conversions === 0 && c.impressions === 0;
-  const activeCampaigns = realCampaigns.filter(c => !isInactive(c));
-  const inactiveCount = realCampaigns.length - activeCampaigns.length;
-  const baseCampaigns = showInactive ? realCampaigns : activeCampaigns;
-  const displayedCampaigns = useMemo(() => {
-    if (!sortConfig) return baseCampaigns;
-    const { key, dir } = sortConfig;
-    return [...baseCampaigns].sort((a, b) => {
-      let cmp = 0;
-      if (key === 'name' || key === 'objective') {
-        cmp = (a[key] || '').localeCompare(b[key] || '', 'es', { sensitivity: 'base' });
-      } else {
-        cmp = (a[key] as number) - (b[key] as number);
-      }
-      return dir === 'asc' ? cmp : -cmp;
-    });
-  }, [baseCampaigns, sortConfig]);
 
   const totalSpend = realCampaigns.reduce((s, c) => s + c.spend, 0);
   const totalRevenue = realCampaigns.reduce((s, c) => s + c.revenue, 0);

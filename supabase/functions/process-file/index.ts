@@ -641,14 +641,24 @@ ${JSON.stringify(sampleRows.slice(0, 20), null, 2)}`;
 }
 
 function isMappingAcceptable(mapping: Record<string, string | null>, category: string): boolean {
-  const amountKeys = ['amount', 'spend', 'salary', 'quantity', 'total_purchases', 'price'];
-  const dateKeys = ['date', 'last_purchase'];
+  // Hotfix: ampliamos las claves aceptadas. Antes Meta Ads quedaba como
+  // "Pendiente de revisión" porque exporta con "Inicio del informe" / "Fin
+  // del informe" → la IA los mapeaba a start_date/end_date, pero la
+  // validación solo buscaba 'date' y rechazaba el archivo. Análogo para
+  // CRM (close_date, created_date) y operaciones (delivery_date).
+  const amountKeys = ['amount', 'spend', 'salary', 'quantity', 'total_purchases', 'price', 'cost', 'revenue', 'debt'];
+  const dateKeys = ['date', 'last_purchase', 'start_date', 'end_date', 'close_date', 'created_date', 'delivery_date', 'due_date'];
 
   const hasAmount = amountKeys.some(k => mapping[k] != null);
   const hasDate = dateKeys.some(k => mapping[k] != null);
 
+  // CRM: deal_name + stage es suficiente aunque no haya amount/date
+  // (puede ser un export de cuentas o contactos sin valores).
+  if (category === 'crm') return hasAmount || hasDate || mapping['stage'] != null || mapping['deal_name'] != null;
   if (category === 'stock') return hasAmount || mapping['name'] != null;
   if (category === 'clientes') return hasAmount || mapping['name'] != null;
+  // Marketing: con tener spend O start_date/end_date alcanza
+  if (category === 'marketing') return hasAmount || hasDate || mapping['campaign_name'] != null;
 
   return hasAmount || hasDate;
 }
@@ -1183,7 +1193,7 @@ serve(async (req) => {
               if (v && !column_mapping[k]) column_mapping[k] = v;
             }
             await sb.from("file_uploads").update({
-              processing_error: "Requiere revisión: no se detectaron campos clave (monto/fecha). Los datos se guardaron pero pueden necesitar ajuste manual.",
+              processing_error: "Requiere revisión: no se identificaron columnas clave automáticamente. Los datos se guardaron — abrí el archivo desde el historial para asignar manualmente las columnas si hace falta.",
             }).eq("id", fileUploadId);
           }
         }
