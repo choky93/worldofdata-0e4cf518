@@ -568,7 +568,7 @@ function UploadQueue({ items, onDismiss }: { items: UploadQueueItem[]; onDismiss
 }
 
 // ─── Status Dashboard ─────────────────────────────────────────
-function StatusDashboard({ files, totalCount, archivedCount = 0 }: { files: FileRecord[]; totalCount: number; archivedCount?: number }) {
+function StatusDashboard({ files, totalCount, archivedCount = 0, onRefresh }: { files: FileRecord[]; totalCount: number; archivedCount?: number; onRefresh?: () => void }) {
   const activeFiles = files.filter(f => f.status !== 'archived');
   const processed = activeFiles.filter(f => f.status === 'processed').length;
   const review = activeFiles.filter(f => f.status === 'review' || f.status === 'processed_with_issues').length;
@@ -592,12 +592,44 @@ function StatusDashboard({ files, totalCount, archivedCount = 0 }: { files: File
   }
 
   type TileColor = 'success' | 'warning' | 'destructive' | 'neutral';
-  type TileDef = { count: number; label: string; icon: typeof CheckCircle2; color: TileColor; always?: boolean; spin?: boolean; };
+  type TileDef = {
+    count: number;
+    label: string;
+    icon: typeof CheckCircle2;
+    color: TileColor;
+    always?: boolean;
+    spin?: boolean;
+    /** Hotfix-3: acción inline opcional (ej. "Procesar ahora" para En cola). */
+    action?: { label: string; run: () => void | Promise<void> };
+  };
 
   const allTiles: TileDef[] = [
     { count: processed, label: 'Procesados', icon: CheckCircle2, color: 'success', always: true },
     { count: review, label: 'A revisar', icon: AlertTriangle, color: 'warning' },
-    { count: queued, label: 'En cola', icon: Clock, color: 'neutral' },
+    {
+      count: queued,
+      label: 'En cola',
+      icon: Clock,
+      color: 'neutral' as const,
+      // Hotfix-3: si hay archivos en cola, ofrecemos disparar el procesamiento
+      // manualmente. Esto invoca process-queue que toma todos los queued
+      // y los procesa server-side desde R2.
+      action: queued > 0 ? {
+        label: 'Procesar ahora',
+        run: async () => {
+          toast.info('Procesando archivos en cola...', { duration: 5000 });
+          const { data, error } = await supabase.functions.invoke('process-queue', { body: {} });
+          if (error) {
+            toast.error('Error al procesar', { description: error.message });
+            return;
+          }
+          const processed = (data as { processed?: number })?.processed ?? 0;
+          if (processed === 0) toast.info('No hay archivos disponibles para procesar ahora');
+          else toast.success(`${processed} archivo(s) procesado(s)`);
+          onRefresh?.();
+        },
+      } : undefined,
+    },
     { count: processing, label: 'Procesando', icon: Loader2, color: 'warning', spin: true },
     { count: errors, label: 'Errores', icon: AlertTriangle, color: 'destructive' },
     { count: archivedCount, label: 'Archivados', icon: Archive, color: 'neutral' },
@@ -613,7 +645,7 @@ function StatusDashboard({ files, totalCount, archivedCount = 0 }: { files: File
 
   return (
     <div className="flex flex-wrap gap-2">
-      {tiles.map(({ count, label, icon: Icon, color, spin }) => {
+      {tiles.map(({ count, label, icon: Icon, color, spin, action }) => {
         const { wrapper, text } = colorMap[color];
         return (
           <div
@@ -621,10 +653,19 @@ function StatusDashboard({ files, totalCount, archivedCount = 0 }: { files: File
             className={`flex items-center gap-3 px-4 py-2.5 rounded-xl border ${wrapper}`}
           >
             <Icon className={`h-4 w-4 shrink-0 ${text} ${spin && count > 0 ? 'animate-spin' : ''}`} />
-            <div>
+            <div className="flex-1">
               <p className={`text-2xl font-bold leading-none ${text}`}>{count}</p>
               <p className="text-[10px] font-medium text-muted-foreground mt-0.5">{label}</p>
             </div>
+            {action && (
+              <button
+                type="button"
+                onClick={() => action.run()}
+                className="text-[10px] font-semibold underline hover:no-underline whitespace-nowrap"
+              >
+                {action.label}
+              </button>
+            )}
           </div>
         );
       })}
@@ -772,6 +813,48 @@ export default function CargaDatos() {
       });
       setColumnMappingMap(prev => ({ ...prev, ...newMappings }));
     }
+
+    // Hotfix-3: Calcular DQ scores para archivos que NO los tengan en sesión.
+    // Antes, dqScoresMap solo se llenaba al subir el archivo en la sesión actual,
+    // así que al refrescar la página el badge "Calidad" desaparecía. Ahora
+    // tomamos el primer chunk de datos de cada archivo y computamos DQ on-demand.
+    // Fire-and-forget: no bloquea el render inicial.
+    // Usamos setDqScoresMap functional updater para chequear contra el state
+    // FRESCO sin agregar dqScoresMap a las deps del useCallback (evita loop).
+    setDqScoresMap(currentDq => {
+      const idsToCompute = fileIds.filter(id => !currentDq[id]);
+      if (idsToCompute.length === 0) return currentDq;
+      // Fire async query — devolvemos el state sin modificar acá; el setState
+      // que importa pasa cuando llegue la respuesta.
+      (async () => {
+        try {
+          const { data: chunks } = await supabase
+            .from('file_extracted_data')
+            .select('file_upload_id, data_category, extracted_json')
+            .in('file_upload_id', idsToCompute)
+            .eq('chunk_index', 0);
+          if (!chunks) return;
+          const newDq: Record<string, DataQualityScore> = {};
+          for (const c of chunks) {
+            const json = c.extracted_json as { data?: unknown[]; rows?: unknown[] } | null;
+            const rows = (Array.isArray(json) ? json : json?.data ?? json?.rows) as Record<string, unknown>[] | undefined;
+            if (!rows || rows.length === 0) continue;
+            try {
+              const dq = computeDataQuality(rows, c.data_category);
+              newDq[c.file_upload_id] = dq;
+            } catch {
+              // computeDataQuality puede romper con un dato raro — lo skipeamos
+            }
+          }
+          if (Object.keys(newDq).length > 0) {
+            setDqScoresMap(prev => ({ ...prev, ...newDq }));
+          }
+        } catch (err) {
+          console.warn('[CargaDatos] DQ rehydration failed (non-blocking):', err);
+        }
+      })();
+      return currentDq;
+    });
   }, []);
 
   // C4: Fetch archivados independientemente de los filtros activos
@@ -1492,6 +1575,10 @@ export default function CargaDatos() {
             console.warn('[CargaDatos] Row batch upload failed, queued for server retry:', invokeErr);
             updateItem({ status: 'done', progress: 100 });
             toast.info(`"${item.file.name}" re-encolado para procesar en el servidor`);
+            // Hotfix-3: dispara process-queue así no queda colgado.
+            supabase.functions.invoke('process-queue', { body: {} }).then(({ error }) => {
+              if (error) console.warn('[process-queue trigger] failed (non-blocking):', error.message);
+            });
           }
         } else {
           updateItem({ status: 'done', progress: 100 });
@@ -1506,6 +1593,14 @@ export default function CargaDatos() {
             if (auditErr) console.error('[audit_logs] file_uploaded insert failed:', auditErr.message);
           });
           toast.success(`"${item.file.name}" en cola para procesar`);
+
+          // Hotfix-3: disparar process-queue para que el archivo en cola se procese
+          // ahora mismo en vez de esperar un cron que no existe. Fire-and-forget:
+          // si falla, queda en cola y un próximo upload lo dispara. Pero al menos
+          // PDFs/imágenes/Word ya no quedan colgados indefinidamente.
+          supabase.functions.invoke('process-queue', { body: {} }).then(({ error }) => {
+            if (error) console.warn('[process-queue trigger] failed (non-blocking):', error.message);
+          });
         }
       } catch (err: any) {
         updateItem({ status: 'error', error: err.message });
@@ -2253,7 +2348,7 @@ export default function CargaDatos() {
           )}
 
           {/* Status Dashboard */}
-          <StatusDashboard files={files} totalCount={totalCount} archivedCount={archivedFiles.length} />
+          <StatusDashboard files={files} totalCount={totalCount} archivedCount={archivedFiles.length} onRefresh={fetchFiles} />
           <FreshnessPanel lastUploadDates={lastUploadDates} />
 
           {/* Drop zone */}
@@ -2769,12 +2864,22 @@ export default function CargaDatos() {
                                     variant="outline"
                                     size="sm"
                                     className="h-7 text-xs gap-1"
-                                    onClick={() => setMappingEditorState({
-                                      fileId: f.id,
-                                      fileName: f.file_name,
-                                      category: firstExtracted.data_category || 'otro',
-                                      mapping: columnMappingMap[f.id] || {},
-                                    })}
+                                    onClick={() => {
+                                      // Hotfix-3: la categoría REAL puede vivir en distintos lugares según
+                                      // qué chunks procesó la IA. firstExtracted puede ser '_column_mapping'
+                                      // o '_classification' si nunca llegó a guardar datos. Buscamos la
+                                      // categoría real preferentemente desde un chunk de datos (data_category
+                                      // que NO empieza con '_'); fallback a 'otro' para evitar bloquear al usuario.
+                                      const allChunks = extractedDataMap[f.id] || [];
+                                      const dataChunk = allChunks.find(c => c.data_category && !c.data_category.startsWith('_'));
+                                      const realCategory = dataChunk?.data_category || 'otro';
+                                      setMappingEditorState({
+                                        fileId: f.id,
+                                        fileName: f.file_name,
+                                        category: realCategory,
+                                        mapping: columnMappingMap[f.id] || {},
+                                      });
+                                    }}
                                   >
                                     <Pencil className="h-3 w-3" />
                                     Asignar columnas manualmente
