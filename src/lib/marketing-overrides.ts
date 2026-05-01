@@ -80,6 +80,16 @@ export function subscribeMarketingOverrides(fn: () => void): () => void {
   return () => { subs.delete(fn); };
 }
 
+// AUDIT FIX: multi-tab sync. Si el usuario asigna un objetivo manual a
+// una campaña en otra pestaña, esta refresca solo.
+if (typeof window !== 'undefined') {
+  window.addEventListener('storage', (e) => {
+    if (e.key !== STORAGE_KEY) return;
+    cache = null;
+    for (const fn of subs) fn();
+  });
+}
+
 /** Lista cerrada de objetivos que se pueden asignar manualmente. */
 export const OBJECTIVE_OPTIONS = [
   'Mensajes',

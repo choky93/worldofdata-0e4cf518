@@ -11,6 +11,7 @@ import { PeriodSelector } from '@/components/PeriodSelector';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip';
 import { AlertTriangle, Users, Crown, Award, Star, Upload, Loader2, Database, Info, ChevronUp, ChevronDown, ChevronsUpDown } from 'lucide-react';
+import { HelpTooltip } from '@/components/HelpTooltip';
 import { BarChart, Bar, XAxis, YAxis, Tooltip as RTooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
 import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
@@ -211,17 +212,26 @@ export default function Clientes() {
 
         <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 md:grid-cols-4">
           <Card><CardContent className="pt-6">
-            <p className="text-sm text-muted-foreground">Total clientes</p>
+            <p className="text-sm text-muted-foreground flex items-center gap-1">
+              Total clientes
+              <HelpTooltip content="Cantidad de clientes únicos detectados (cargados manualmente o inferidos del archivo de Ventas)." />
+            </p>
             <p className="text-3xl font-bold">{clients.length}</p>
           </CardContent></Card>
           <Card><CardContent className="pt-6">
-            <p className="text-sm text-muted-foreground">Cobros pendientes</p>
+            <p className="text-sm text-muted-foreground flex items-center gap-1">
+              Cobros pendientes
+              <HelpTooltip content="Suma de la deuda informada por cada cliente. Útil para priorizar la cobranza. Solo aparece si tu archivo tiene una columna de deuda/saldo." />
+            </p>
             <p className={`text-3xl font-bold tabular-nums ${totalPending > 0 ? 'text-destructive' : ''}`}>
               {formatCurrency(totalPending)}
             </p>
           </CardContent></Card>
           <Card><CardContent className="pt-6">
-            <p className="text-sm text-muted-foreground">Concentración top 2</p>
+            <p className="text-sm text-muted-foreground flex items-center gap-1">
+              Concentración top 2
+              <HelpTooltip content="Qué % de las ventas totales hacen los 2 clientes más grandes. Si está cerca del 100%, dependés mucho de pocos clientes (riesgo de pérdida si alguno se va)." />
+            </p>
             <p className="text-3xl font-bold text-warning tabular-nums">{top2Pct}%</p>
             <p className="text-xs text-muted-foreground">de las ventas totales</p>
           </CardContent></Card>

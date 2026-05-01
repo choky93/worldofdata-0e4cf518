@@ -40,6 +40,7 @@ import { toast } from 'sonner';
 import { useSuppliers } from '@/hooks/useSuppliers';
 import { Link as RouterLink } from 'react-router-dom';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { AddToOrderDialog } from '@/components/AddToOrderDialog';
 
 function StatusBadge({ status }: { status: StockStatus }) {
   switch (status) {
@@ -146,7 +147,13 @@ function normalizeProducts(
     const name = getProductName(r, m?.name) || `Producto ${i + 1}`;
 
     const avgMonthly = avgMonthlyByProduct.get(name.trim().toLowerCase()) || 0;
-    const coverageDays = avgMonthly > 0 ? (stock / avgMonthly) * 30 : 0;
+    // AUDIT FIX: cap a 720 días (2 años). Si un producto se vendió 1 vez
+    // en 26 meses, la cobertura sin cap daba 9000+ días que contaminaba
+    // los KPIs agregados (ej: "Cobertura promedio" del dashboard).
+    // Capeado a 720 → todo > 120 sigue siendo overstock (status no
+    // cambia), pero el cálculo de avgCoverage queda razonable.
+    const rawCoverage = avgMonthly > 0 ? (stock / avgMonthly) * 30 : 0;
+    const coverageDays = Math.min(rawCoverage, 720);
     const excluded = isExcludedFromStock(name);
     const classification = classifyProduct(name);
 
@@ -210,6 +217,18 @@ export default function Stock() {
     return subscribeStockExclusions(() => setExclusionsTick(t => t + 1));
   }, []);
   const [showExcluded, setShowExcluded] = useState(false);
+
+  // Ola 23: dialog "Agregar a pedido" desde una tarjeta de alerta
+  const [orderDialogProduct, setOrderDialogProduct] = useState<{
+    name: string;
+    stock: number;
+    avgMonthlyUnits: number;
+    coverageDays: number;
+    supplierLeadDays: number;
+    cost: number;
+    supplierId?: string;
+    supplierName?: string;
+  } | null>(null);
 
   const products = useMemo(
     () => (useReal ? normalizeProducts(dedupedStock, mS, avgMonthlyByProduct, leadTimeDays, getEffectiveLeadTimeForProduct) : []),
@@ -464,6 +483,27 @@ export default function Stock() {
                           <span className="text-muted-foreground"> para mejorar las alertas.</span>
                         </p>
                       )}
+
+                      {/* Ola 23: agregar a pedido */}
+                      <Button
+                        variant="default"
+                        size="sm"
+                        className="h-7 text-xs gap-1 w-full"
+                        onClick={() => setOrderDialogProduct({
+                          name: p.name,
+                          stock: p.stock,
+                          avgMonthlyUnits: p.avgMonthlyUnits,
+                          coverageDays: p.coverageDays,
+                          supplierLeadDays: p.supplierLeadDays,
+                          cost: p.cost,
+                          supplierId: p.supplierId,
+                          supplierName: p.supplierName,
+                        })}
+                        disabled={!hasSuppliers}
+                      >
+                        <ShoppingCart className="h-3 w-3" />
+                        Agregar a pedido
+                      </Button>
                     </CardContent>
                   </Card>
                 );
@@ -661,6 +701,23 @@ export default function Stock() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Ola 23: dialog para agregar producto a pedido */}
+      {orderDialogProduct && (
+        <AddToOrderDialog
+          open={!!orderDialogProduct}
+          onOpenChange={(o) => { if (!o) setOrderDialogProduct(null); }}
+          productName={orderDialogProduct.name}
+          currentStock={orderDialogProduct.stock}
+          avgMonthlyUnits={orderDialogProduct.avgMonthlyUnits}
+          coverageDays={orderDialogProduct.coverageDays}
+          supplierLeadDays={orderDialogProduct.supplierLeadDays}
+          unitCost={orderDialogProduct.cost}
+          preAssignedSupplierId={orderDialogProduct.supplierId}
+          preAssignedSupplierName={orderDialogProduct.supplierName}
+          suppliers={suppliers}
+        />
+      )}
     </TooltipProvider>
   );
 }

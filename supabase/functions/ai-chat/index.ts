@@ -296,6 +296,12 @@ async function fetchCompanyContext(companyId: string): Promise<string> {
         // tratamos como 1 fila (probablemente extracción AI single-row).
         else arr = [obj];
       }
+      // AUDIT FIX: filtrar null/undefined/no-objetos. Antes, un null en el
+      // array (caso edge real con extractor AI) causaba TypeError en
+      // findNumber/Object.entries y rompía TODO el fetchCompanyContext en
+      // silencio (el catch arriba lo tragaba) → el Copilot perdía contexto
+      // entero por una sola fila corrupta.
+      arr = arr.filter(r => r != null && typeof r === "object" && !Array.isArray(r));
       existing.rows.push(...arr);
       if (!existing.summary && e.summary) existing.summary = e.summary;
       byCategory.set(cat, existing);

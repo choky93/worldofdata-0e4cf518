@@ -281,12 +281,12 @@ export default function Ventas() {
         </div>
 
         <div className={`grid gap-4 ${hasCostData ? 'md:grid-cols-3 lg:grid-cols-6' : 'md:grid-cols-4'}`}>
-          <KPICard label="Total cargado" value={formatCurrencyCompact(salesTotal)} accent />
-          {hasCostData && <KPICard label="Costo total" value={formatCurrencyCompact(totalCost)} />}
-          {(hasCostData || hasProfitData) && <KPICard label="Ganancia bruta" value={formatCurrencyCompact(totalProfit)} />}
-          <KPICard label="Promedio mensual" value={formatCurrencyCompact(promedioMensual)} />
-          <KPICard label="Registros" value={realVentas.length} />
-          <KPICard label="Ticket promedio" value={realVentas.length > 0 ? formatCurrencyCompact(salesTotal / realVentas.length) : '—'} />
+          <KPICard label="Total cargado" value={formatCurrencyCompact(salesTotal)} accent help="Suma del total de ventas en el período seleccionado. Es la facturación bruta — incluye IVA y cualquier impuesto que esté en la columna." />
+          {hasCostData && <KPICard label="Costo total" value={formatCurrencyCompact(totalCost)} help="Suma de los costos de los productos vendidos. Sirve para calcular ganancia bruta y margen." />}
+          {(hasCostData || hasProfitData) && <KPICard label="Ganancia bruta" value={formatCurrencyCompact(totalProfit)} help="Ventas totales menos costo total. NO incluye gastos operativos (alquiler, sueldos, etc.). Para resultado neto, mirá Finanzas." />}
+          <KPICard label="Promedio mensual" value={formatCurrencyCompact(promedioMensual)} help="Total de ventas dividido por la cantidad de meses con datos cargados." />
+          <KPICard label="Registros" value={realVentas.length} help="Cantidad de filas/transacciones cargadas en el período." />
+          <KPICard label="Ticket promedio" value={realVentas.length > 0 ? formatCurrencyCompact(salesTotal / realVentas.length) : '—'} help="Cuánto factura cada transacción en promedio. Útil para detectar si el negocio depende de pocas ventas grandes o muchas chicas." />
         </div>
 
         <div className="grid gap-4 lg:grid-cols-2">
