@@ -94,6 +94,21 @@ export function useDeleteRequests() {
     if (!companyId || !userId) throw new Error('Sin sesión válida');
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const sb = supabase as any;
+
+    // AUDIT FIX: chequear si ya existe una request pending del mismo archivo
+    // antes de insertar. Sin esto, un doble-click del usuario creaba 2
+    // requests duplicadas que el admin veía como entradas separadas.
+    const { data: existing } = await sb
+      .from('delete_requests')
+      .select('id')
+      .eq('company_id', companyId)
+      .eq('file_upload_id', file.id)
+      .eq('status', 'pending')
+      .limit(1);
+    if (existing && existing.length > 0) {
+      throw new Error('Ya existe una solicitud pendiente para este archivo. El admin la verá en su panel.');
+    }
+
     const { error: e } = await sb.from('delete_requests').insert({
       company_id: companyId,
       file_upload_id: file.id,

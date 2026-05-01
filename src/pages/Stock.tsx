@@ -147,7 +147,13 @@ function normalizeProducts(
     const name = getProductName(r, m?.name) || `Producto ${i + 1}`;
 
     const avgMonthly = avgMonthlyByProduct.get(name.trim().toLowerCase()) || 0;
-    const coverageDays = avgMonthly > 0 ? (stock / avgMonthly) * 30 : 0;
+    // AUDIT FIX: cap a 720 días (2 años). Si un producto se vendió 1 vez
+    // en 26 meses, la cobertura sin cap daba 9000+ días que contaminaba
+    // los KPIs agregados (ej: "Cobertura promedio" del dashboard).
+    // Capeado a 720 → todo > 120 sigue siendo overstock (status no
+    // cambia), pero el cálculo de avgCoverage queda razonable.
+    const rawCoverage = avgMonthly > 0 ? (stock / avgMonthly) * 30 : 0;
+    const coverageDays = Math.min(rawCoverage, 720);
     const excluded = isExcludedFromStock(name);
     const classification = classifyProduct(name);
 

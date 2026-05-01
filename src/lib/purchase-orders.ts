@@ -171,6 +171,17 @@ export function subscribePurchaseOrders(fn: () => void): () => void {
   return () => { subs.delete(fn); };
 }
 
+// AUDIT FIX: multi-tab sync. Si el usuario agrega un producto al pedido
+// en otra pestaña, esta refresca solo. Crítico porque la lista de
+// pedido es lo que después se convierte en una entrega real.
+if (typeof window !== 'undefined') {
+  window.addEventListener('storage', (e) => {
+    if (e.key !== STORAGE_KEY) return;
+    cache = null;
+    for (const fn of subs) fn();
+  });
+}
+
 /** Cuántos productos hay en pedidos en total. */
 export function getTotalPendingItems(): number {
   const cur = read();

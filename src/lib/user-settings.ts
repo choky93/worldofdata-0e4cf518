@@ -163,3 +163,15 @@ export function subscribeUserSettings(fn: (s: UserSettings) => void): () => void
   subs.add(fn);
   return () => { subs.delete(fn); };
 }
+
+// AUDIT FIX: sync entre pestañas. Si el usuario tiene la app abierta en
+// 2 pestañas y modifica el umbral en una, la otra recibe el evento
+// 'storage' y refresca su cache + notifica a subscribers.
+if (typeof window !== 'undefined') {
+  window.addEventListener('storage', (e) => {
+    if (e.key !== STORAGE_KEY) return;
+    cache = null; // invalida el cache para que la próxima read() agarre fresco
+    const fresh = read();
+    for (const fn of subs) fn(fresh);
+  });
+}

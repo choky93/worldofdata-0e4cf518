@@ -180,3 +180,13 @@ export function subscribeStockExclusions(fn: () => void): () => void {
   subs.add(fn);
   return () => { subs.delete(fn); };
 }
+
+// AUDIT FIX: multi-tab sync. Si el usuario marca un producto como
+// excluido en otra pestaña, esta refresca solo.
+if (typeof window !== 'undefined') {
+  window.addEventListener('storage', (e) => {
+    if (e.key !== STORAGE_KEY) return;
+    cache = null;
+    for (const fn of subs) fn();
+  });
+}
