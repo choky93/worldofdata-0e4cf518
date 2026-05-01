@@ -155,6 +155,56 @@ export function useSuppliers() {
     await fetchAll();
   };
 
+  // Ola 22: vincular un producto a un proveedor.
+  // Si ya existe la combinación supplier+name, hace upsert (actualiza override
+  // de lead time o SKU). Si pasamos supplierId=null, des-asigna (DELETE).
+  const assignProductToSupplier = async (
+    productName: string,
+    supplierId: string | null,
+    opts?: { leadTimeOverrideDays?: number | null; supplierSku?: string | null },
+  ) => {
+    if (!companyId) throw new Error('Sin company_id');
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const sb = supabase as any;
+    const trimmed = productName.trim();
+    if (!trimmed) throw new Error('Nombre de producto vacío');
+
+    // Si supplierId es null, eliminamos cualquier vínculo previo del producto
+    if (supplierId === null) {
+      const { error: delErr } = await sb
+        .from('supplier_products')
+        .delete()
+        .eq('company_id', companyId)
+        .ilike('product_name', trimmed);
+      if (delErr) throw delErr;
+      await fetchAll();
+      return;
+    }
+
+    // Upsert por (supplier_id, product_name) — la unique constraint garantiza
+    // que no creemos duplicados. PERO, antes de upsert, eliminamos vínculos
+    // del MISMO producto a OTROS proveedores (un producto = un proveedor).
+    const { error: cleanErr } = await sb
+      .from('supplier_products')
+      .delete()
+      .eq('company_id', companyId)
+      .ilike('product_name', trimmed)
+      .neq('supplier_id', supplierId);
+    if (cleanErr) throw cleanErr;
+
+    const { error: upErr } = await sb
+      .from('supplier_products')
+      .upsert({
+        supplier_id: supplierId,
+        company_id: companyId,
+        product_name: trimmed,
+        supplier_sku: opts?.supplierSku ?? null,
+        lead_time_override_days: opts?.leadTimeOverrideDays ?? null,
+      }, { onConflict: 'supplier_id,product_name' });
+    if (upErr) throw upErr;
+    await fetchAll();
+  };
+
   const createDelivery = async (data: Omit<SupplierDelivery, 'id' | 'company_id' | 'created_at'>) => {
     if (!companyId) throw new Error('Sin company_id');
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -216,5 +266,6 @@ export function useSuppliers() {
     deliveriesBySupplier,
     productsBySupplier,
     getEffectiveLeadTimeForProduct,
+    assignProductToSupplier,
   };
 }

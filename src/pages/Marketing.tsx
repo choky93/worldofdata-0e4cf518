@@ -13,6 +13,10 @@ import { Badge } from '@/components/ui/badge';
 import { BarChart, Bar, XAxis, YAxis, Tooltip as RTooltip, ResponsiveContainer, CartesianGrid, Legend } from 'recharts';
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip';
 import { HelpTooltip } from '@/components/HelpTooltip';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { getObjectiveOverride, setObjectiveOverride, subscribeMarketingOverrides, OBJECTIVE_OPTIONS } from '@/lib/marketing-overrides';
+import { useEffect } from 'react';
+import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Link } from 'react-router-dom';
 
@@ -113,9 +117,12 @@ function normalizeMarketing(rows: any[], m?: any): CampaignRow[] {
     const d = parseDate(rawDate);
     const rawObjective = findString(r, FIELD_OBJECTIVE, m?.objective);
     const campaignName = findString(r, FIELD_CAMPAIGN_NAME, m?.campaign_name) || (d ? d.toLocaleDateString('es-AR', { day: '2-digit', month: 'short', year: 'numeric' }) : 'Sin nombre');
+    // Ola 22: override manual del objetivo gana sobre detección automática.
+    const override = getObjectiveOverride(campaignName);
+    const detected = normalizeObjective(rawObjective, campaignName);
     return {
       name: campaignName,
-      objective: normalizeObjective(rawObjective, campaignName),
+      objective: override || detected,
       spend,
       revenue,
       roas: parseFloat(roas.toFixed(2)),
@@ -136,6 +143,11 @@ export default function Marketing() {
   const m = mappings.marketing;
   const { period, setPeriod } = usePeriod();
   const [showInactive, setShowInactive] = useState(false);
+
+  // Ola 22: re-render cuando cambian overrides manuales de objetivo
+  const [overridesTick, setOverridesTick] = useState(0);
+  useEffect(() => subscribeMarketingOverrides(() => setOverridesTick(t => t + 1)), []);
+
   type CampaignSortKey = 'name' | 'objective' | 'spend' | 'revenue' | 'roas' | 'conversions' | 'reach' | 'impressions' | 'clicks';
   type SortDir = 'asc' | 'desc';
   const [sortConfig, setSortConfig] = useState<{ key: CampaignSortKey; dir: SortDir } | null>(null);
@@ -157,7 +169,9 @@ export default function Marketing() {
   // (cantidad de hooks distinta entre renders) y rompía Marketing en
   // pantalla blanca cuando pasaba de loading→loaded. Movemos TODO arriba.
 
-  const campaigns = useMemo(() => normalizeMarketing(filteredMarketing, m), [filteredMarketing, m]);
+  // overridesTick fuerza re-cómputo cuando el usuario cambia un objetivo manual
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const campaigns = useMemo(() => normalizeMarketing(filteredMarketing, m), [filteredMarketing, m, overridesTick]);
 
   // Excluir filas de resumen/totales del CSV para evitar doble conteo
   const SUMMARY_NAMES = ['total', 'resumen', 'subtotal', 'nan'];
@@ -241,7 +255,10 @@ export default function Marketing() {
   const hasStartDateField = fieldExists(filteredMarketing, FIELD_START_DATE, m?.start_date);
   const hasEndDateField = fieldExists(filteredMarketing, FIELD_END_DATE, m?.end_date);
   const hasDateRange = hasStartDateField || hasEndDateField;
-  const hasObjectiveField = realCampaigns.some(c => c.objective && c.objective.length > 0);
+  // Ola 22: SIEMPRE mostramos la columna de objetivo si hay campañas con
+  // nombre real (no fechas). Antes la ocultábamos cuando ninguna tenía
+  // objetivo, lo que impedía al usuario asignarlos manualmente.
+  const hasObjectiveField = realCampaigns.length > 0;
 
   // Check if we have campaign names or just date-based rows
   const hasCampaignNames = realCampaigns.some(c => {
@@ -390,11 +407,37 @@ export default function Marketing() {
                     <TableCell className="font-medium min-w-[220px] max-w-[360px] whitespace-normal break-words">{c.name}</TableCell>
                     {hasObjectiveField && (
                       <TableCell>
-                        {c.objective ? (
-                          <Badge variant="outline" className="text-[10px] whitespace-nowrap">
-                            {c.objective}
-                          </Badge>
-                        ) : '—'}
+                        {/* Ola 22: editor inline del objetivo. Permite override
+                            manual cuando la IA no detectó (Lucas pidió poder
+                            agregarlo a campañas con nombres genéricos). */}
+                        <Select
+                          value={c.objective || '__none__'}
+                          onValueChange={(v) => {
+                            try {
+                              setObjectiveOverride(c.name, v === '__none__' ? null : v);
+                              if (v === '__none__') {
+                                toast.success(`Override de objetivo eliminado para "${c.name}"`);
+                              } else {
+                                toast.success(`Objetivo de "${c.name}" → ${v}`);
+                              }
+                            } catch (err) {
+                              const e = err as { message?: string };
+                              toast.error('No se pudo guardar', { description: e.message });
+                            }
+                          }}
+                        >
+                          <SelectTrigger className="h-7 text-[10px] min-w-[130px]">
+                            <SelectValue placeholder="— Sin objetivo —" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="__none__" className="text-xs italic text-muted-foreground">
+                              — Sin asignar —
+                            </SelectItem>
+                            {OBJECTIVE_OPTIONS.map(o => (
+                              <SelectItem key={o} value={o} className="text-xs">{o}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
                       </TableCell>
                     )}
                     {hasDateRange && <TableCell className="tabular-nums text-muted-foreground">{formatDateShort(c.startDate)}</TableCell>}
