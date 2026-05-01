@@ -38,11 +38,25 @@ const SERVICE_KEYWORDS = [
   'mano de obra', 'reparacion', 'reparación', 'arreglo', 'service tecnico', 'service técnico',
 ];
 
-/** Detecta si un nombre de producto es probablemente un servicio o no-stock. */
+/** Detecta si un nombre de producto es probablemente un servicio o no-stock.
+ *  AUDIT FIX: usaba `.includes(kw)` que generaba falsos positivos:
+ *    - "Servicio de mesa" (mantel) → matcheaba "servicio"
+ *    - "Plan mensual de yerba" → matcheaba "plan mensual"
+ *    - "Cargo de mate" → matcheaba "cargo"
+ *  Ahora exigimos que el keyword aparezca como PALABRA ENTERA (con
+ *  bordes de palabra), no como substring de otra palabra.
+ */
 export function looksLikeService(name: string): boolean {
   if (!name) return false;
   const n = name.toLowerCase().trim();
-  return SERVICE_KEYWORDS.some(kw => n.includes(kw));
+  return SERVICE_KEYWORDS.some(kw => {
+    // Construimos un regex con \b a ambos lados. Escapamos caracteres
+    // especiales del kw (ninguno tiene hoy, pero por las dudas) y
+    // permitimos espacio interno como separador genérico.
+    const escaped = kw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const re = new RegExp(`\\b${escaped}\\b`, 'i');
+    return re.test(n);
+  });
 }
 
 // ── Overrides manuales (localStorage) ───────────────────────────

@@ -246,12 +246,16 @@ export function ColumnMappingEditor({ open, onOpenChange, fileId, fileName, cate
         .eq('data_category', '_column_mapping');
       if (updErr) throw updErr;
 
-      // 2) Limpiar processing_error y poner status 'completed' si ahora tiene los keys necesarios
+      // 2) Limpiar processing_error y marcar el archivo como procesado.
+      //    AUDIT FIX: antes usábamos status='completed' que NO existe en el
+      //    resto del sistema (los filtros buscan 'processed'/'review'/etc).
+      //    Eso hacía desaparecer el archivo de la UI tras guardar el mapeo
+      //    porque ningún tile/filtro lo reconocía.
       const { error: fileErr } = await supabase
         .from('file_uploads')
         .update({
           processing_error: null,
-          status: 'completed',
+          status: 'processed',
         })
         .eq('id', fileId);
       if (fileErr) throw fileErr;

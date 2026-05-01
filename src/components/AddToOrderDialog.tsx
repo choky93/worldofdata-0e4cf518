@@ -18,7 +18,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { ShoppingCart, Truck, AlertTriangle } from 'lucide-react';
-import { addOrderItem } from '@/lib/purchase-orders';
+import { addOrderItem, hasOrderItem } from '@/lib/purchase-orders';
 import type { Supplier } from '@/hooks/useSuppliers';
 import { toast } from 'sonner';
 
@@ -90,8 +90,11 @@ export function AddToOrderDialog({
 
   const selectedSupplier = suppliers.find(s => s.id === supplierId);
   const totalCost = quantity * (unitCost || 0);
+  // AUDIT FIX: detectar si el producto ya está en la lista para mostrar
+  // el modo "reemplazar vs sumar" en lugar de sumar siempre en silencio.
+  const alreadyInOrder = !!supplierId && hasOrderItem(supplierId, productName);
 
-  const handleSave = () => {
+  const handleSave = (mode: 'replace' | 'add' = 'replace') => {
     if (!supplierId) {
       toast.error('Elegí un proveedor');
       return;
@@ -109,10 +112,15 @@ export function AddToOrderDialog({
       avgMonthlyUnits,
       notes: notes.trim() || undefined,
       addedAt: new Date().toISOString(),
-    });
-    toast.success(`"${productName}" agregado al pedido de ${selectedSupplier?.name}`, {
-      description: `${quantity} unidades — vas a Proveedores para cargar el pedido cuando esté completo.`,
-    });
+    }, mode);
+    toast.success(
+      mode === 'add'
+        ? `Se sumaron ${quantity} unidades de "${productName}"`
+        : `"${productName}" agregado al pedido de ${selectedSupplier?.name}`,
+      {
+        description: `Total: ${quantity} unidades — vas a Proveedores para cargar el pedido cuando esté completo.`,
+      },
+    );
     onOpenChange(false);
   };
 
@@ -223,11 +231,23 @@ export function AddToOrderDialog({
           </div>
         </div>
 
-        <DialogFooter>
+        {alreadyInOrder && (
+          <div className="rounded-md bg-warning/10 border border-warning/30 px-3 py-2 text-xs text-warning-foreground">
+            ⚠ Este producto ya está en la lista de pedido del proveedor.
+            "Reemplazar" pisa la cantidad anterior. "Sumar" la agrega a la existente.
+          </div>
+        )}
+
+        <DialogFooter className="gap-2">
           <Button variant="outline" onClick={() => onOpenChange(false)}>Cancelar</Button>
-          <Button onClick={handleSave} disabled={!supplierId || quantity <= 0} className="gap-1">
+          {alreadyInOrder && (
+            <Button variant="outline" onClick={() => handleSave('add')} disabled={!supplierId || quantity <= 0} className="gap-1">
+              + Sumar
+            </Button>
+          )}
+          <Button onClick={() => handleSave('replace')} disabled={!supplierId || quantity <= 0} className="gap-1">
             <ShoppingCart className="h-4 w-4" />
-            Agregar al pedido
+            {alreadyInOrder ? 'Reemplazar' : 'Agregar al pedido'}
           </Button>
         </DialogFooter>
       </DialogContent>

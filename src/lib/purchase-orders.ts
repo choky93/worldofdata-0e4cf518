@@ -81,8 +81,29 @@ export function getAllOrders(): Store['bySupplier'] {
   return { ...read().bySupplier };
 }
 
-/** Agrega un item al pedido del proveedor. Si ya existe el mismo producto, suma la cantidad. */
-export function addOrderItem(supplierId: string, item: PurchaseOrderItem) {
+/** Saber si un producto ya está en la lista del proveedor (para que el caller decida sumar o reemplazar). */
+export function hasOrderItem(supplierId: string, productName: string): boolean {
+  if (!supplierId) return false;
+  const list = read().bySupplier[supplierId] || [];
+  const norm = productName.trim().toLowerCase();
+  return list.some(i => i.productName.trim().toLowerCase() === norm);
+}
+
+/**
+ * Agrega un item al pedido del proveedor.
+ *  - mode='replace' (default): si el producto ya estaba, REEMPLAZA la cantidad.
+ *  - mode='add': SUMA la cantidad nueva a la existente.
+ *
+ * AUDIT FIX: antes siempre sumaba. Si el usuario abría el dialog 2 veces
+ * sin querer, terminaba con cantidad inflada x2. Ahora replace es el
+ * default; el dialog ofrece "+ Sumar" como modo explícito cuando detecta
+ * que ya existe.
+ */
+export function addOrderItem(
+  supplierId: string,
+  item: PurchaseOrderItem,
+  mode: 'replace' | 'add' = 'replace',
+) {
   if (!supplierId || !item.productName.trim()) return;
   const cur = read();
   const existing = cur.bySupplier[supplierId] || [];
@@ -90,11 +111,10 @@ export function addOrderItem(supplierId: string, item: PurchaseOrderItem) {
   const idx = existing.findIndex(i => i.productName.trim().toLowerCase() === norm);
   let nextList: PurchaseOrderItem[];
   if (idx >= 0) {
-    // Sumamos cantidad y refrescamos snapshot
+    const newQty = mode === 'add' ? existing[idx].quantity + item.quantity : item.quantity;
     const merged: PurchaseOrderItem = {
       ...existing[idx],
-      quantity: existing[idx].quantity + item.quantity,
-      // Refrescar metadata si vino actualizada
+      quantity: newQty,
       unitCost: item.unitCost ?? existing[idx].unitCost,
       currentStock: item.currentStock ?? existing[idx].currentStock,
       coverageDays: item.coverageDays ?? existing[idx].coverageDays,

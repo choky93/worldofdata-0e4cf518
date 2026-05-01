@@ -152,6 +152,16 @@ export function useSuppliers() {
     const sb = supabase as any;
     const { error: e } = await sb.from('suppliers').delete().eq('id', id);
     if (e) throw e;
+    // AUDIT FIX: limpiar también la lista de pedido en localStorage del
+    // proveedor borrado. Si no, los items quedaban huérfanos en
+    // bySupplier[id-borrado], invisibles pero contados por
+    // getTotalPendingItems.
+    try {
+      const mod = await import('@/lib/purchase-orders');
+      mod.clearOrder(id);
+    } catch (cleanupErr) {
+      console.warn('[deleteSupplier] cleanup of orders failed (non-blocking):', cleanupErr);
+    }
     await fetchAll();
   };
 
@@ -220,10 +230,16 @@ export function useSuppliers() {
     // Solo incluimos supplier_sku / lead_time_override_days si vinieron
     // explícitos en opts. Si no, el upsert no toca esos campos en el
     // row existente (preserva la metadata).
+    //
+    // AUDIT FIX: persistimos product_name normalizado (lowercase) para
+    // que la UNIQUE constraint case-sensitive de Postgres no permita
+    // duplicados con casing distinto ("Leche" vs "leche"). El nombre
+    // "display" original se preserva para la UI a partir del archivo
+    // de stock (que SI mantiene el casing).
     const upsertPayload: Record<string, unknown> = {
       supplier_id: supplierId,
       company_id: companyId,
-      product_name: trimmed,
+      product_name: normalizedTarget, // siempre lowercase
     };
     if (opts && Object.prototype.hasOwnProperty.call(opts, 'supplierSku')) {
       upsertPayload.supplier_sku = opts.supplierSku;

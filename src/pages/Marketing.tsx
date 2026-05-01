@@ -174,13 +174,20 @@ export default function Marketing() {
   const campaigns = useMemo(() => normalizeMarketing(filteredMarketing, m), [filteredMarketing, m, overridesTick]);
 
   // Excluir filas de resumen/totales del CSV para evitar doble conteo
-  const SUMMARY_NAMES = ['total', 'resumen', 'subtotal', 'nan'];
-  const isSummaryRow = (c: CampaignRow) =>
-    !c.name ||
-    typeof c.name !== 'string' ||
-    c.name.trim() === '' ||
-    c.name === 'Sin nombre' ||
-    SUMMARY_NAMES.includes(c.name.toLowerCase().trim());
+  // AUDIT FIX (Lucas $18.000 bug): la lista anterior solo matcheaba exacto
+  // → "Total de la cuenta", "Resultados totales", "Total general" se colaban
+  // como campañas reales y inflaban totalSpend. Ahora chequeamos prefijos +
+  // contains para cubrir todas las variantes que exporta Meta/Google Ads.
+  const SUMMARY_PREFIXES = ['total', 'totales', 'resumen', 'resultados', 'subtotal'];
+  const SUMMARY_CONTAINS = ['total general', 'total de la cuenta', 'total cuenta', 'all campaigns'];
+  const isSummaryRow = (c: CampaignRow) => {
+    if (!c.name || typeof c.name !== 'string') return true;
+    const n = c.name.trim().toLowerCase();
+    if (n === '' || n === 'nan' || n === 'sin nombre' || n === '---' || n === '—') return true;
+    if (SUMMARY_PREFIXES.some(p => n === p || n.startsWith(p + ' ') || n.startsWith(p + ':'))) return true;
+    if (SUMMARY_CONTAINS.some(k => n.includes(k))) return true;
+    return false;
+  };
 
   const realCampaigns = useMemo(() => campaigns.filter(c => !isSummaryRow(c)), [campaigns]);
 
