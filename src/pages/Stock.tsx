@@ -39,6 +39,7 @@ import {
 import { toast } from 'sonner';
 import { useSuppliers } from '@/hooks/useSuppliers';
 import { Link as RouterLink } from 'react-router-dom';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
 function StatusBadge({ status }: { status: StockStatus }) {
   switch (status) {
@@ -189,7 +190,7 @@ export default function Stock() {
   // Ola 16: si hay proveedor para el producto, getEffectiveLeadTimeForProduct
   // devuelve un valor más preciso (override > real avg > prometido).
   const leadTimeDays = 20;
-  const { suppliers, getEffectiveLeadTimeForProduct } = useSuppliers();
+  const { suppliers, getEffectiveLeadTimeForProduct, assignProductToSupplier } = useSuppliers();
   const hasSuppliers = suppliers.length > 0;
 
   // Dedupe stock rows by product (most recent file → fallback to higher stock)
@@ -452,7 +453,7 @@ export default function Stock() {
 
                       {!p.supplierName && hasSuppliers && (
                         <p className="text-[11px] text-muted-foreground italic">
-                          💡 Asigná un proveedor en la página de Proveedores para que el lead time sea más preciso.
+                          💡 Asigná un proveedor en la columna "Proveedor" del inventario abajo para que el lead time sea más preciso.
                         </p>
                       )}
                       {!hasSuppliers && (
@@ -542,6 +543,14 @@ export default function Stock() {
                   Margen <SortIcon col="margin" />
                 </TableHead>
                 <TableHead>Estado</TableHead>
+                <TableHead className="min-w-[160px]">
+                  <Tooltip>
+                    <TooltipTrigger asChild><span className="cursor-help">Proveedor</span></TooltipTrigger>
+                    <TooltipContent>
+                      <p className="text-xs max-w-xs">Asignar el proveedor que provee cada producto. El sistema usa el lead time real de ese proveedor para calcular las alertas de reposición.</p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TableHead>
                 <TableHead className="w-12"></TableHead>
               </TableRow></TableHeader>
               <TableBody>
@@ -583,6 +592,47 @@ export default function Stock() {
                       <TableCell className="text-right tabular-nums">{formatCurrency(p.cost)}</TableCell>
                       <TableCell className="text-right tabular-nums">{formatPercent(margin)}</TableCell>
                       <TableCell>{p.excluded ? <span className="text-[10px] text-muted-foreground">N/A</span> : <StatusBadge status={p.status} />}</TableCell>
+                      <TableCell>
+                        {p.excluded ? (
+                          <span className="text-[10px] text-muted-foreground">—</span>
+                        ) : !hasSuppliers ? (
+                          <RouterLink to="/proveedores" className="text-[10px] text-primary underline">
+                            Cargar proveedores
+                          </RouterLink>
+                        ) : (
+                          <Select
+                            value={p.supplierId ?? '__none__'}
+                            onValueChange={async (v) => {
+                              try {
+                                await assignProductToSupplier(p.name, v === '__none__' ? null : v);
+                                toast.success(v === '__none__'
+                                  ? `"${p.name}" sin proveedor asignado`
+                                  : `"${p.name}" asignado a "${suppliers.find(s => s.id === v)?.name}"`);
+                              } catch (err) {
+                                const e = err as { message?: string };
+                                toast.error('Error al asignar', { description: e.message });
+                              }
+                            }}
+                          >
+                            <SelectTrigger className="h-7 text-xs">
+                              <SelectValue placeholder="Sin asignar" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="__none__" className="text-xs italic text-muted-foreground">
+                                — Sin asignar —
+                              </SelectItem>
+                              {suppliers.map(s => (
+                                <SelectItem key={s.id} value={s.id} className="text-xs">
+                                  {s.name}
+                                  {s.lead_time_promised_days != null && (
+                                    <span className="text-muted-foreground ml-1">({s.lead_time_promised_days}d)</span>
+                                  )}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        )}
+                      </TableCell>
                       <TableCell>
                         <Tooltip>
                           <TooltipTrigger asChild>

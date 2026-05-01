@@ -10,7 +10,7 @@ import { useExtractedData } from '@/hooks/useExtractedData';
 import { usePeriod } from '@/contexts/PeriodContext';
 import { PeriodSelector } from '@/components/PeriodSelector';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { FileBox, Upload, Loader2, Database, ChevronLeft, ChevronRight } from 'lucide-react';
+import { FileBox, Upload, Loader2, Database, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, ChevronsUpDown } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
 type FilterType = 'all' | 'sale' | 'purchase';
@@ -77,6 +77,18 @@ export default function Operaciones() {
   const { period, setPeriod } = usePeriod();
   const [filter, setFilter] = useState<FilterType>('all');
   const [page, setPage] = useState(0);
+  // Ola 22: sort por columna
+  type OpSortKey = 'date' | 'type' | 'category' | 'description' | 'counterpart' | 'amount';
+  type OpSortDir = 'asc' | 'desc';
+  const [sortConfig, setSortConfig] = useState<{ key: OpSortKey; dir: OpSortDir } | null>(null);
+  const toggleSort = (key: OpSortKey) => {
+    setSortConfig(prev => prev?.key === key ? { key, dir: prev.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: 'desc' });
+    setPage(0);
+  };
+  const SortIcon = ({ col }: { col: OpSortKey }) => {
+    if (!sortConfig || sortConfig.key !== col) return <ChevronsUpDown className="inline h-3 w-3 ml-1 opacity-40" />;
+    return sortConfig.dir === 'asc' ? <ChevronUp className="inline h-3 w-3 ml-1" /> : <ChevronDown className="inline h-3 w-3 ml-1" />;
+  };
 
   useEffect(() => { setPage(0); }, [period, filter]);
 
@@ -136,8 +148,23 @@ export default function Operaciones() {
   }
 
   const filtered = filter === 'all' ? allOps : allOps.filter(op => op.type === filter);
-  const totalPages = Math.ceil(filtered.length / OP_PAGE_SIZE);
-  const pagedOps = filtered.slice(page * OP_PAGE_SIZE, (page + 1) * OP_PAGE_SIZE);
+  const sortedOps = useMemo(() => {
+    if (!sortConfig) return filtered;
+    const { key, dir } = sortConfig;
+    return [...filtered].sort((a, b) => {
+      let cmp = 0;
+      if (key === 'amount') cmp = a.amount - b.amount;
+      else if (key === 'date') {
+        const da = parseDate(a.date)?.getTime() ?? 0;
+        const db = parseDate(b.date)?.getTime() ?? 0;
+        cmp = da - db;
+      } else cmp = String(a[key] || '').localeCompare(String(b[key] || ''), 'es', { sensitivity: 'base' });
+      return dir === 'asc' ? cmp : -cmp;
+    });
+  }, [filtered, sortConfig]);
+
+  const totalPages = Math.ceil(sortedOps.length / OP_PAGE_SIZE);
+  const pagedOps = sortedOps.slice(page * OP_PAGE_SIZE, (page + 1) * OP_PAGE_SIZE);
   const totalSales = allOps.filter(op => op.type === 'sale').reduce((s, op) => s + op.amount, 0);
   const totalPurchases = allOps.filter(op => op.type === 'purchase').reduce((s, op) => s + op.amount, 0);
 
@@ -200,12 +227,24 @@ export default function Operaciones() {
         <CardContent className="overflow-x-auto">
           <Table>
             <TableHeader><TableRow>
-              <TableHead>Fecha</TableHead>
-              <TableHead>Tipo</TableHead>
-              <TableHead>Categoría</TableHead>
-              <TableHead>Descripción</TableHead>
-              <TableHead>Contraparte</TableHead>
-              <TableHead className="text-right">Monto</TableHead>
+              <TableHead className="cursor-pointer select-none hover:text-foreground" onClick={() => toggleSort('date')}>
+                Fecha <SortIcon col="date" />
+              </TableHead>
+              <TableHead className="cursor-pointer select-none hover:text-foreground" onClick={() => toggleSort('type')}>
+                Tipo <SortIcon col="type" />
+              </TableHead>
+              <TableHead className="cursor-pointer select-none hover:text-foreground" onClick={() => toggleSort('category')}>
+                Categoría <SortIcon col="category" />
+              </TableHead>
+              <TableHead className="cursor-pointer select-none hover:text-foreground" onClick={() => toggleSort('description')}>
+                Descripción <SortIcon col="description" />
+              </TableHead>
+              <TableHead className="cursor-pointer select-none hover:text-foreground" onClick={() => toggleSort('counterpart')}>
+                Contraparte <SortIcon col="counterpart" />
+              </TableHead>
+              <TableHead className="text-right cursor-pointer select-none hover:text-foreground" onClick={() => toggleSort('amount')}>
+                Monto <SortIcon col="amount" />
+              </TableHead>
             </TableRow></TableHeader>
             <TableBody>
               {pagedOps.map(op => (

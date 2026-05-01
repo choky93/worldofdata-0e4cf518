@@ -177,17 +177,27 @@ export default function Configuracion() {
               className="w-24 text-right"
             />
           </div>
-          {hasManualOverride && (
-            <div className="flex items-center justify-between text-xs border-t pt-3">
-              <span className="text-muted-foreground">
-                Estás usando un valor manual. El auto-ajuste sugeriría <strong>{autoSuggested} días</strong> para ventas.
-              </span>
-              <Button variant="outline" size="sm" className="h-7 text-xs" onClick={handleResetAuto}>
-                <Sparkles className="h-3 w-3 mr-1" />
+          {/* Ola 22: el botón de modo siempre visible (no solo cuando hay override).
+              Lucas reportó que no encontraba "Volver a Auto" — la causa era que
+              el botón aparecía SOLO si ya tenía un override manual. Ahora siempre
+              hay un botón que indica el modo actual y permite cambiarlo. */}
+          <div className="flex items-center justify-between text-xs border-t pt-3 gap-3">
+            <span className="text-muted-foreground">
+              {hasManualOverride
+                ? <>Estás usando un valor <strong>manual</strong>. El auto-ajuste sugeriría <strong>{autoSuggested} días</strong> para ventas.</>
+                : <>Modo <strong>automático</strong>: el sistema ajusta el umbral según tu tipo de negocio. Sugerido para ventas: <strong>{autoSuggested} días</strong>.</>}
+            </span>
+            {hasManualOverride ? (
+              <Button variant="outline" size="sm" className="h-7 text-xs gap-1 shrink-0" onClick={handleResetAuto}>
+                <Sparkles className="h-3 w-3" />
                 Volver a Auto
               </Button>
-            </div>
-          )}
+            ) : (
+              <span className="text-[10px] text-muted-foreground italic shrink-0">
+                Cambiá el número para forzar un valor manual →
+              </span>
+            )}
+          </div>
           <p className="text-[11px] text-muted-foreground">
             Preferencia local (este navegador). En modo Auto, marketing y stock con inventario usan 7 días; servicios con clientes recurrentes 30.
           </p>

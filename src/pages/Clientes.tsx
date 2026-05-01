@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { formatCurrency, formatDate } from '@/lib/formatters';
@@ -10,7 +10,7 @@ import { usePeriod } from '@/contexts/PeriodContext';
 import { PeriodSelector } from '@/components/PeriodSelector';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip';
-import { AlertTriangle, Users, Crown, Award, Star, Upload, Loader2, Database, Info } from 'lucide-react';
+import { AlertTriangle, Users, Crown, Award, Star, Upload, Loader2, Database, Info, ChevronUp, ChevronDown, ChevronsUpDown } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip as RTooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
 import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
@@ -139,6 +139,32 @@ export default function Clientes() {
   const totalPending = clients.reduce((s, c) => s + c.pendingPayment, 0);
   const totalSales = clients.reduce((s, c) => s + c.totalPurchases, 0);
   const sorted = [...clients].sort((a, b) => b.totalPurchases - a.totalPurchases);
+
+  // Ola 22: ordenamiento de la cartera de clientes
+  type ClientSortKey = 'name' | 'totalPurchases' | 'avgTicket' | 'purchaseCount' | 'pendingPayment' | 'lastPurchase';
+  type ClientSortDir = 'asc' | 'desc';
+  const [sortConfig, setSortConfig] = useState<{ key: ClientSortKey; dir: ClientSortDir } | null>(null);
+  const toggleSort = (key: ClientSortKey) => {
+    setSortConfig(prev => prev?.key === key ? { key, dir: prev.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: 'desc' });
+  };
+  const SortIcon = ({ col }: { col: ClientSortKey }) => {
+    if (!sortConfig || sortConfig.key !== col) return <ChevronsUpDown className="inline h-3 w-3 ml-1 opacity-40" />;
+    return sortConfig.dir === 'asc' ? <ChevronUp className="inline h-3 w-3 ml-1" /> : <ChevronDown className="inline h-3 w-3 ml-1" />;
+  };
+  const sortedClientList = useMemo(() => {
+    if (!sortConfig) return clients;
+    const { key, dir } = sortConfig;
+    return [...clients].sort((a, b) => {
+      let cmp = 0;
+      if (key === 'name') cmp = a.name.localeCompare(b.name, 'es', { sensitivity: 'base' });
+      else if (key === 'lastPurchase') {
+        const da = parseDate(a.lastPurchase)?.getTime() ?? 0;
+        const db = parseDate(b.lastPurchase)?.getTime() ?? 0;
+        cmp = da - db;
+      } else cmp = (a[key] as number) - (b[key] as number);
+      return dir === 'asc' ? cmp : -cmp;
+    });
+  }, [clients, sortConfig]);
   const top2Pct = sorted.length >= 2 && totalSales > 0
     ? ((sorted[0].totalPurchases + sorted[1].totalPurchases) / totalSales * 100).toFixed(0)
     : '0';
@@ -254,15 +280,27 @@ export default function Clientes() {
           <CardContent className="overflow-x-auto">
             <Table>
               <TableHeader><TableRow>
-                <TableHead>Cliente</TableHead>
-                <TableHead className="text-right">Compras totales</TableHead>
-                <TableHead className="text-right">Ticket promedio</TableHead>
-                <TableHead className="text-right">Pedidos</TableHead>
-                <TableHead className="text-right">Deuda</TableHead>
-                <TableHead>Última compra</TableHead>
+                <TableHead className="cursor-pointer select-none hover:text-foreground" onClick={() => toggleSort('name')}>
+                  Cliente <SortIcon col="name" />
+                </TableHead>
+                <TableHead className="text-right cursor-pointer select-none hover:text-foreground" onClick={() => toggleSort('totalPurchases')}>
+                  Compras totales <SortIcon col="totalPurchases" />
+                </TableHead>
+                <TableHead className="text-right cursor-pointer select-none hover:text-foreground" onClick={() => toggleSort('avgTicket')}>
+                  Ticket promedio <SortIcon col="avgTicket" />
+                </TableHead>
+                <TableHead className="text-right cursor-pointer select-none hover:text-foreground" onClick={() => toggleSort('purchaseCount')}>
+                  Pedidos <SortIcon col="purchaseCount" />
+                </TableHead>
+                <TableHead className="text-right cursor-pointer select-none hover:text-foreground" onClick={() => toggleSort('pendingPayment')}>
+                  Deuda <SortIcon col="pendingPayment" />
+                </TableHead>
+                <TableHead className="cursor-pointer select-none hover:text-foreground" onClick={() => toggleSort('lastPurchase')}>
+                  Última compra <SortIcon col="lastPurchase" />
+                </TableHead>
               </TableRow></TableHeader>
               <TableBody>
-                {clients.map(c => (
+                {sortedClientList.map(c => (
                   <TableRow key={c.id}>
                     <TableCell className="font-medium">{c.name}</TableCell>
                     <TableCell className="text-right tabular-nums">{formatCurrency(c.totalPurchases)}</TableCell>
