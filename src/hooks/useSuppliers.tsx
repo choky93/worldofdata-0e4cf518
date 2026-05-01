@@ -155,9 +155,19 @@ export function useSuppliers() {
     await fetchAll();
   };
 
-  // Ola 22: vincular un producto a un proveedor.
-  // Si ya existe la combinación supplier+name, hace upsert (actualiza override
-  // de lead time o SKU). Si pasamos supplierId=null, des-asigna (DELETE).
+  // Ola 22 + Codex P1/P2 fix: vincular un producto a un proveedor.
+  // Si ya existe la combinación supplier+name, hace upsert. Si pasamos
+  // supplierId=null, des-asigna (DELETE).
+  //
+  // CODEX P1: usábamos `ilike('product_name', trimmed)` que interpreta
+  //   `%` y `_` como comodines SQL. Un producto "Alcohol 70%" hubiera
+  //   borrado/matcheado otros productos al hacer delete. Cambiado a
+  //   match exacto case-insensitive en TypeScript: traemos los rows del
+  //   producto y filtramos en JS por nombre normalizado, después
+  //   borramos por id (sin riesgo de wildcards).
+  // CODEX P2: el upsert seteaba supplier_sku y lead_time_override_days
+  //   a null cuando opts no los traía → pisaba metadata existente.
+  //   Ahora solo incluimos esos campos si vienen explícitos en opts.
   const assignProductToSupplier = async (
     productName: string,
     supplierId: string | null,
@@ -168,39 +178,63 @@ export function useSuppliers() {
     const sb = supabase as any;
     const trimmed = productName.trim();
     if (!trimmed) throw new Error('Nombre de producto vacío');
+    const normalizedTarget = trimmed.toLowerCase();
 
-    // Si supplierId es null, eliminamos cualquier vínculo previo del producto
+    // Codex P1: en vez de DELETE...ILIKE (riesgo de wildcards), traemos
+    // todos los supplier_products de la company y filtramos en JS por
+    // match exacto case-insensitive. Después borramos por id.
+    const { data: allLinks, error: fetchErr } = await sb
+      .from('supplier_products')
+      .select('id, product_name, supplier_id')
+      .eq('company_id', companyId);
+    if (fetchErr) throw fetchErr;
+    const matchingIds = ((allLinks || []) as { id: string; product_name: string; supplier_id: string }[])
+      .filter(r => (r.product_name || '').trim().toLowerCase() === normalizedTarget)
+      .map(r => ({ id: r.id, supplier_id: r.supplier_id }));
+
+    // Si supplierId es null, des-asignar todos los vínculos del producto
     if (supplierId === null) {
+      if (matchingIds.length === 0) { await fetchAll(); return; }
       const { error: delErr } = await sb
         .from('supplier_products')
         .delete()
-        .eq('company_id', companyId)
-        .ilike('product_name', trimmed);
+        .in('id', matchingIds.map(m => m.id));
       if (delErr) throw delErr;
       await fetchAll();
       return;
     }
 
-    // Upsert por (supplier_id, product_name) — la unique constraint garantiza
-    // que no creemos duplicados. PERO, antes de upsert, eliminamos vínculos
-    // del MISMO producto a OTROS proveedores (un producto = un proveedor).
-    const { error: cleanErr } = await sb
-      .from('supplier_products')
-      .delete()
-      .eq('company_id', companyId)
-      .ilike('product_name', trimmed)
-      .neq('supplier_id', supplierId);
-    if (cleanErr) throw cleanErr;
+    // Eliminar vínculos del MISMO producto a OTROS proveedores (regla:
+    // un producto = un proveedor). Conservamos el match con supplierId
+    // si ya existe, para que el upsert posterior preserve metadata.
+    const idsToDelete = matchingIds.filter(m => m.supplier_id !== supplierId).map(m => m.id);
+    if (idsToDelete.length > 0) {
+      const { error: cleanErr } = await sb
+        .from('supplier_products')
+        .delete()
+        .in('id', idsToDelete);
+      if (cleanErr) throw cleanErr;
+    }
+
+    // Codex P2: construir el payload del upsert sin campos undefined.
+    // Solo incluimos supplier_sku / lead_time_override_days si vinieron
+    // explícitos en opts. Si no, el upsert no toca esos campos en el
+    // row existente (preserva la metadata).
+    const upsertPayload: Record<string, unknown> = {
+      supplier_id: supplierId,
+      company_id: companyId,
+      product_name: trimmed,
+    };
+    if (opts && Object.prototype.hasOwnProperty.call(opts, 'supplierSku')) {
+      upsertPayload.supplier_sku = opts.supplierSku;
+    }
+    if (opts && Object.prototype.hasOwnProperty.call(opts, 'leadTimeOverrideDays')) {
+      upsertPayload.lead_time_override_days = opts.leadTimeOverrideDays;
+    }
 
     const { error: upErr } = await sb
       .from('supplier_products')
-      .upsert({
-        supplier_id: supplierId,
-        company_id: companyId,
-        product_name: trimmed,
-        supplier_sku: opts?.supplierSku ?? null,
-        lead_time_override_days: opts?.leadTimeOverrideDays ?? null,
-      }, { onConflict: 'supplier_id,product_name' });
+      .upsert(upsertPayload, { onConflict: 'supplier_id,product_name' });
     if (upErr) throw upErr;
     await fetchAll();
   };
