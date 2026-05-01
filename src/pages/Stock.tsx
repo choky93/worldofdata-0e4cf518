@@ -40,6 +40,7 @@ import { toast } from 'sonner';
 import { useSuppliers } from '@/hooks/useSuppliers';
 import { Link as RouterLink } from 'react-router-dom';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { AddToOrderDialog } from '@/components/AddToOrderDialog';
 
 function StatusBadge({ status }: { status: StockStatus }) {
   switch (status) {
@@ -210,6 +211,18 @@ export default function Stock() {
     return subscribeStockExclusions(() => setExclusionsTick(t => t + 1));
   }, []);
   const [showExcluded, setShowExcluded] = useState(false);
+
+  // Ola 23: dialog "Agregar a pedido" desde una tarjeta de alerta
+  const [orderDialogProduct, setOrderDialogProduct] = useState<{
+    name: string;
+    stock: number;
+    avgMonthlyUnits: number;
+    coverageDays: number;
+    supplierLeadDays: number;
+    cost: number;
+    supplierId?: string;
+    supplierName?: string;
+  } | null>(null);
 
   const products = useMemo(
     () => (useReal ? normalizeProducts(dedupedStock, mS, avgMonthlyByProduct, leadTimeDays, getEffectiveLeadTimeForProduct) : []),
@@ -464,6 +477,27 @@ export default function Stock() {
                           <span className="text-muted-foreground"> para mejorar las alertas.</span>
                         </p>
                       )}
+
+                      {/* Ola 23: agregar a pedido */}
+                      <Button
+                        variant="default"
+                        size="sm"
+                        className="h-7 text-xs gap-1 w-full"
+                        onClick={() => setOrderDialogProduct({
+                          name: p.name,
+                          stock: p.stock,
+                          avgMonthlyUnits: p.avgMonthlyUnits,
+                          coverageDays: p.coverageDays,
+                          supplierLeadDays: p.supplierLeadDays,
+                          cost: p.cost,
+                          supplierId: p.supplierId,
+                          supplierName: p.supplierName,
+                        })}
+                        disabled={!hasSuppliers}
+                      >
+                        <ShoppingCart className="h-3 w-3" />
+                        Agregar a pedido
+                      </Button>
                     </CardContent>
                   </Card>
                 );
@@ -661,6 +695,23 @@ export default function Stock() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Ola 23: dialog para agregar producto a pedido */}
+      {orderDialogProduct && (
+        <AddToOrderDialog
+          open={!!orderDialogProduct}
+          onOpenChange={(o) => { if (!o) setOrderDialogProduct(null); }}
+          productName={orderDialogProduct.name}
+          currentStock={orderDialogProduct.stock}
+          avgMonthlyUnits={orderDialogProduct.avgMonthlyUnits}
+          coverageDays={orderDialogProduct.coverageDays}
+          supplierLeadDays={orderDialogProduct.supplierLeadDays}
+          unitCost={orderDialogProduct.cost}
+          preAssignedSupplierId={orderDialogProduct.supplierId}
+          preAssignedSupplierName={orderDialogProduct.supplierName}
+          suppliers={suppliers}
+        />
+      )}
     </TooltipProvider>
   );
 }

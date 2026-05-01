@@ -2388,9 +2388,19 @@ export default function CargaDatos() {
             ) : (
               <Upload className="h-10 w-10 mx-auto text-muted-foreground mb-3" />
             )}
-            <p className={`font-medium ${dragInvalidMsg ? 'text-destructive' : ''}`}>
-              {isUploading ? 'Subiendo archivos...' : dragInvalidMsg ?? 'Arrastrá archivos acá o hacé click para seleccionar'}
+            <p className={`font-medium text-base ${dragInvalidMsg ? 'text-destructive' : ''}`}>
+              {isUploading
+                ? 'Subiendo archivos...'
+                : dragInvalidMsg
+                ?? (dragging ? '↓ Soltá los archivos acá ↓' : 'Arrastrá tus archivos a este recuadro')}
             </p>
+            {/* Ola 23: instrucción más explícita — Lucas reportó que algunos
+                clientes no se daban cuenta de que tenían que arrastrar al recuadro. */}
+            {!isUploading && !dragInvalidMsg && !dragging && (
+              <p className="text-xs text-muted-foreground mt-1">
+                ...o <span className="text-primary font-medium underline">hacé click acá</span> para elegirlos desde tu computadora
+              </p>
+            )}
             <p className="text-sm text-muted-foreground mt-1">Podés seleccionar muchos a la vez.</p>
             <p className="text-xs text-muted-foreground mt-2">Formatos aceptados: Excel (.xlsx, .xls), CSV (.csv), PDF (.pdf), Imágenes (.png, .jpg, .webp, .gif, .bmp), Word (.doc, .docx), XML (.xml) — Máx. 50MB por archivo. Sin límite de filas (se procesan automáticamente en bloques).</p>
             <input

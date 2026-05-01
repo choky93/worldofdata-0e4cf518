@@ -11,6 +11,7 @@ import { usePeriod } from '@/contexts/PeriodContext';
 import { PeriodSelector } from '@/components/PeriodSelector';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { FileBox, Upload, Loader2, Database, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, ChevronsUpDown } from 'lucide-react';
+import { HelpTooltip } from '@/components/HelpTooltip';
 import { Link } from 'react-router-dom';
 
 type FilterType = 'all' | 'sale' | 'purchase';
@@ -183,15 +184,24 @@ export default function Operaciones() {
 
       <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 md:grid-cols-3">
         <Card><CardContent className="pt-6">
-          <p className="text-sm text-muted-foreground">Total ventas</p>
+          <p className="text-sm text-muted-foreground flex items-center gap-1">
+            Total ventas
+            <HelpTooltip content="Suma de los registros del archivo de Ventas filtrados por el período activo." />
+          </p>
           <p className="text-3xl font-bold text-success tabular-nums">{formatCurrency(totalSales)}</p>
         </CardContent></Card>
         <Card><CardContent className="pt-6">
-          <p className="text-sm text-muted-foreground">Total gastos/compras</p>
+          <p className="text-sm text-muted-foreground flex items-center gap-1">
+            Total gastos/compras
+            <HelpTooltip content="Suma de los registros del archivo de Gastos filtrados por el período activo." />
+          </p>
           <p className="text-3xl font-bold text-destructive tabular-nums">{formatCurrency(totalPurchases)}</p>
         </CardContent></Card>
         <Card><CardContent className="pt-6">
-          <p className="text-sm text-muted-foreground">Balance</p>
+          <p className="text-sm text-muted-foreground flex items-center gap-1">
+            Balance
+            <HelpTooltip content="Ventas menos gastos/compras. Es una vista económica simple — para cash flow real, mirá Finanzas." />
+          </p>
           <p className={`text-3xl font-bold tabular-nums ${totalSales - totalPurchases >= 0 ? 'text-success' : 'text-destructive'}`}>
             {formatCurrency(totalSales - totalPurchases)}
           </p>

@@ -11,7 +11,7 @@
  * usa en Stock.tsx (Ola 16) en vez del hardcoded 20 días.
  */
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -19,9 +19,10 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip';
-import { Truck, Plus, Edit, Trash2, Calendar, Package, Loader2, CheckCircle2, XCircle, Clock, Info, AlertTriangle } from 'lucide-react';
+import { Truck, Plus, Edit, Trash2, Calendar, Package, Loader2, CheckCircle2, XCircle, Clock, Info, AlertTriangle, ShoppingCart, Send } from 'lucide-react';
 import { toast } from 'sonner';
 import { useSuppliers, computeRealLeadTime, computeDeliveryAccuracy, type Supplier, type SupplierDelivery } from '@/hooks/useSuppliers';
+import { getOrderItems, removeOrderItem, updateOrderQuantity, clearOrder, subscribePurchaseOrders } from '@/lib/purchase-orders';
 
 interface SupplierFormState {
   name: string;
@@ -55,6 +56,37 @@ export default function Proveedores() {
   const [deliveryForm, setDeliveryForm] = useState({ ordered_at: '', promised_at: '', notes: '' });
 
   const [confirmDelete, setConfirmDelete] = useState<Supplier | null>(null);
+
+  // Ola 23: re-render cuando cambian las listas de pedido (localStorage)
+  const [ordersTick, setOrdersTick] = useState(0);
+  useEffect(() => subscribePurchaseOrders(() => setOrdersTick(t => t + 1)), []);
+
+  // Convertir lista de pedido en una entrega pending (mueve los items
+  // a supplier_deliveries y limpia la lista de localStorage).
+  const handleCreateDelivery = async (supplierId: string) => {
+    const items = getOrderItems(supplierId);
+    if (items.length === 0) return;
+    try {
+      const totalQty = items.reduce((s, i) => s + i.quantity, 0);
+      const itemsList = items.map(i => `${i.productName} x${i.quantity}`).join('; ');
+      await createDelivery({
+        supplier_id: supplierId,
+        ordered_at: new Date().toISOString().slice(0, 10),
+        promised_at: null,
+        received_at: null,
+        status: 'pending',
+        quantity: totalQty,
+        notes: `Pedido auto-generado desde lista: ${itemsList}`,
+      });
+      clearOrder(supplierId);
+      toast.success('Pedido creado', {
+        description: `${items.length} producto${items.length === 1 ? '' : 's'} cargado${items.length === 1 ? '' : 's'} como entrega pendiente.`,
+      });
+    } catch (err) {
+      const e = err as { message?: string };
+      toast.error('Error al crear pedido', { description: e.message });
+    }
+  };
 
   const openCreate = () => {
     setEditingId(null);
@@ -187,6 +219,42 @@ export default function Proveedores() {
     );
   }
 
+  // Ola 23: entregas vencidas — pending con promised_at <= today.
+  // Lucas pidió: "no sé si cuando llega la fecha de entrega me pregunta
+  // si se entregó realmente". Acá las traemos al frente con quick actions.
+  const today = new Date().toISOString().slice(0, 10);
+  const overdueDeliveries = deliveries.filter(d =>
+    d.status === 'pending' && d.promised_at && d.promised_at <= today
+  );
+
+  const handleConfirmReceived = async (d: SupplierDelivery) => {
+    try {
+      await updateDelivery(d.id, { received_at: today, status: 'received' });
+      toast.success('Entrega confirmada como recibida');
+    } catch (err) {
+      const e = err as { message?: string };
+      toast.error('Error', { description: e.message });
+    }
+  };
+
+  const handleMarkNotYetReceived = async (d: SupplierDelivery) => {
+    try {
+      // Ampliar la promesa por 7 días (el usuario después puede ajustar)
+      const newPromised = new Date();
+      newPromised.setDate(newPromised.getDate() + 7);
+      await updateDelivery(d.id, {
+        promised_at: newPromised.toISOString().slice(0, 10),
+        notes: ((d.notes || '') + ` · Demorado ${today}`).trim(),
+      });
+      toast.info('Entrega reagendada +7 días', {
+        description: 'Si llegó después, marcala como recibida cuando suceda.',
+      });
+    } catch (err) {
+      const e = err as { message?: string };
+      toast.error('Error', { description: e.message });
+    }
+  };
+
   return (
     <TooltipProvider>
       <div className="space-y-6 max-w-5xl">
@@ -205,6 +273,55 @@ export default function Proveedores() {
             Nuevo proveedor
           </Button>
         </div>
+
+        {/* Ola 23: banner de entregas vencidas con quick-confirm */}
+        {overdueDeliveries.length > 0 && (
+          <Card className="border-warning/40 bg-warning/5">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm flex items-center gap-2">
+                <AlertTriangle className="h-4 w-4 text-warning" />
+                {overdueDeliveries.length} entrega{overdueDeliveries.length === 1 ? '' : 's'} con fecha de promesa vencida — ¿llegaron?
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              {overdueDeliveries.map(d => {
+                const supplier = suppliers.find(s => s.id === d.supplier_id);
+                const daysLate = d.promised_at
+                  ? Math.floor((new Date(today).getTime() - new Date(d.promised_at).getTime()) / 86400000)
+                  : 0;
+                return (
+                  <div key={d.id} className="flex items-start gap-2 p-2 rounded-md bg-background border text-sm">
+                    <div className="flex-1 min-w-0">
+                      <p className="font-medium truncate">{supplier?.name || 'Proveedor'}</p>
+                      <p className="text-xs text-muted-foreground">
+                        Pedido: {new Date(d.ordered_at).toLocaleDateString('es-AR')} ·
+                        Promesa: {d.promised_at ? new Date(d.promised_at).toLocaleDateString('es-AR') : '—'}
+                        {daysLate > 0 && <span className="text-destructive font-semibold ml-1">({daysLate}d de atraso)</span>}
+                      </p>
+                      {d.notes && <p className="text-xs text-muted-foreground italic truncate">"{d.notes}"</p>}
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-7 text-xs gap-1 shrink-0"
+                      onClick={() => handleMarkNotYetReceived(d)}
+                    >
+                      ⚠ No llegó aún
+                    </Button>
+                    <Button
+                      size="sm"
+                      className="h-7 text-xs gap-1 shrink-0"
+                      onClick={() => handleConfirmReceived(d)}
+                    >
+                      <CheckCircle2 className="h-3 w-3" />
+                      Llegó hoy
+                    </Button>
+                  </div>
+                );
+              })}
+            </CardContent>
+          </Card>
+        )}
 
         {suppliers.length === 0 ? (
           <Card>
@@ -304,6 +421,95 @@ export default function Proveedores() {
                     {s.notes && (
                       <p className="text-xs text-muted-foreground italic border-l-2 border-muted pl-2">"{s.notes}"</p>
                     )}
+
+                    {/* Ola 23: Lista de pedido en preparación (productos agregados desde Stock) */}
+                    {(() => {
+                      // ordersTick fuerza re-render cuando se agregan/quitan items
+                      void ordersTick;
+                      const orderItems = getOrderItems(s.id);
+                      if (orderItems.length === 0) return null;
+                      const totalUnits = orderItems.reduce((sum, it) => sum + it.quantity, 0);
+                      const totalCost = orderItems.reduce((sum, it) => sum + it.quantity * (it.unitCost || 0), 0);
+                      return (
+                        <div className="border rounded-lg p-3 bg-primary/5 border-primary/20 space-y-2">
+                          <div className="flex items-center justify-between gap-2">
+                            <p className="text-xs font-semibold flex items-center gap-1.5">
+                              <ShoppingCart className="h-3.5 w-3.5 text-primary" />
+                              Lista de pedido en preparación ({orderItems.length} producto{orderItems.length === 1 ? '' : 's'})
+                            </p>
+                            <div className="flex items-center gap-1">
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-7 text-xs"
+                                onClick={() => {
+                                  if (confirm(`¿Vaciar la lista de pedido de "${s.name}"?`)) {
+                                    clearOrder(s.id);
+                                    toast.success('Lista de pedido vaciada');
+                                  }
+                                }}
+                              >
+                                Vaciar
+                              </Button>
+                              <Button
+                                size="sm"
+                                className="h-7 text-xs gap-1"
+                                onClick={() => handleCreateDelivery(s.id)}
+                              >
+                                <Send className="h-3 w-3" />
+                                Crear pedido
+                              </Button>
+                            </div>
+                          </div>
+                          <ul className="space-y-1">
+                            {orderItems.map((it) => (
+                              <li key={it.productName} className="flex items-center gap-2 text-xs bg-background rounded px-2 py-1.5 border">
+                                <div className="flex-1 min-w-0">
+                                  <p className="font-medium truncate">{it.productName}</p>
+                                  {it.coverageDays != null && it.currentStock != null && (
+                                    <p className="text-[10px] text-muted-foreground">
+                                      Stock {it.currentStock} · cobertura {Math.round(it.coverageDays)}d
+                                    </p>
+                                  )}
+                                  {it.notes && (
+                                    <p className="text-[10px] text-muted-foreground italic truncate">"{it.notes}"</p>
+                                  )}
+                                </div>
+                                <Input
+                                  type="number"
+                                  min={1}
+                                  value={it.quantity}
+                                  onChange={(e) => {
+                                    const v = parseInt(e.target.value, 10);
+                                    if (Number.isFinite(v) && v > 0) updateOrderQuantity(s.id, it.productName, v);
+                                  }}
+                                  className="w-16 h-7 text-right text-xs tabular-nums"
+                                />
+                                <span className="text-[10px] text-muted-foreground shrink-0">uds</span>
+                                {it.unitCost != null && it.unitCost > 0 && (
+                                  <span className="text-[10px] text-muted-foreground tabular-nums shrink-0 min-w-[70px] text-right">
+                                    ${(it.quantity * it.unitCost).toLocaleString('es-AR', { maximumFractionDigits: 0 })}
+                                  </span>
+                                )}
+                                <button
+                                  onClick={() => removeOrderItem(s.id, it.productName)}
+                                  className="text-muted-foreground hover:text-destructive p-1 shrink-0"
+                                  aria-label="Quitar del pedido"
+                                >
+                                  <XCircle className="h-3.5 w-3.5" />
+                                </button>
+                              </li>
+                            ))}
+                          </ul>
+                          <div className="flex items-center justify-between text-[11px] text-muted-foreground border-t pt-1.5">
+                            <span>Total: <strong>{totalUnits} uds</strong></span>
+                            {totalCost > 0 && (
+                              <span>Costo estimado: <strong>${totalCost.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</strong></span>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })()}
 
                     <div className="border-t pt-3">
                       <div className="flex items-center justify-between mb-2">
