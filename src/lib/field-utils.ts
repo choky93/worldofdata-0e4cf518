@@ -303,7 +303,7 @@ export const FIELD_AMOUNT = [
 ];
 // Claves semánticas normalizadas primero, luego aliases históricos para datos ya cargados.
 export const FIELD_DATE = [
-  'fecha', 'date', 'periodo', 'mes', 'month', 'dia', 'day',
+  'fecha', 'date', 'periodo', 'period', 'mes', 'month', 'dia', 'day',
   'fecha_operacion', 'fecha_venta', 'fecha_compra',
   // Ola 21: fechas típicas de CRM
   'close_date', 'closing_date', 'expected_close', 'expected_close_date',
@@ -311,6 +311,15 @@ export const FIELD_DATE = [
   'last_activity', 'last_activity_date', 'last_contact', 'last_modified',
   'next_activity_date', 'next_step_date', 'modified', 'updated_at',
   'fecha_cierre', 'fecha_creacion', 'fecha_ultima_actividad',
+  // FIX feedback Lucas Tanda 8 (2026-05-03): exports de Meta Ads usan
+  // "Inicio del informe" / "Fin del informe" / "Reporting starts" /
+  // "Reporting ends" como columnas de fecha. Sin estos keywords, el
+  // cálculo de DataQuality no encontraba fecha → consistency=0,
+  // completeness baja, DQ ~35%. Ahora se detectan correctamente.
+  'inicio_del_informe', 'fin_del_informe', 'inicio del informe', 'fin del informe',
+  'reporting_starts', 'reporting_ends', 'reporting starts', 'reporting ends',
+  'inicio', 'fin', 'desde', 'hasta', 'start_date', 'end_date',
+  'fecha_inicio', 'fecha_fin',
   // Aliases históricos (datos ya cargados con headers genéricos)
   '__EMPTY', '__empty', 'unnamed:_0', 'unnamed_0', 'unnamed', 'col_0', 'column_0',
 ];
