@@ -99,6 +99,33 @@ export default function Clientes() {
     ? (period === 'all' ? allVentas : filterByPeriod(allVentas, FIELD_DATE, period, (row) => findDateRaw(row, mV?.date)))
     : allVentas;
 
+  // Ola 22: ordenamiento de la cartera de clientes — los hooks deben ir ANTES de cualquier early return
+  type ClientSortKey = 'name' | 'totalPurchases' | 'avgTicket' | 'purchaseCount' | 'pendingPayment' | 'lastPurchase';
+  type ClientSortDir = 'asc' | 'desc';
+  const [sortConfig, setSortConfig] = useState<{ key: ClientSortKey; dir: ClientSortDir } | null>(null);
+
+  const clients = useMemo(() => {
+    if (!useReal) return [] as ReturnType<typeof normalizeClients>;
+    return useClientesDirectos
+      ? normalizeClients(realClientes, mC)
+      : buildClientsFromVentas(realVentas, mV);
+  }, [useReal, useClientesDirectos, realClientes, mC, realVentas, mV]);
+
+  const sortedClientList = useMemo(() => {
+    if (!sortConfig) return clients;
+    const { key, dir } = sortConfig;
+    return [...clients].sort((a, b) => {
+      let cmp = 0;
+      if (key === 'name') cmp = a.name.localeCompare(b.name, 'es', { sensitivity: 'base' });
+      else if (key === 'lastPurchase') {
+        const da = parseDate(a.lastPurchase)?.getTime() ?? 0;
+        const db = parseDate(b.lastPurchase)?.getTime() ?? 0;
+        cmp = da - db;
+      } else cmp = (a[key] as number) - (b[key] as number);
+      return dir === 'asc' ? cmp : -cmp;
+    });
+  }, [clients, sortConfig]);
+
   if (loading) {
     return (
       <div className="space-y-6 max-w-7xl">
@@ -134,17 +161,10 @@ export default function Clientes() {
     );
   }
 
-  const clients = useClientesDirectos
-    ? normalizeClients(realClientes, mC)
-    : buildClientsFromVentas(realVentas, mV);
   const totalPending = clients.reduce((s, c) => s + c.pendingPayment, 0);
   const totalSales = clients.reduce((s, c) => s + c.totalPurchases, 0);
   const sorted = [...clients].sort((a, b) => b.totalPurchases - a.totalPurchases);
 
-  // Ola 22: ordenamiento de la cartera de clientes
-  type ClientSortKey = 'name' | 'totalPurchases' | 'avgTicket' | 'purchaseCount' | 'pendingPayment' | 'lastPurchase';
-  type ClientSortDir = 'asc' | 'desc';
-  const [sortConfig, setSortConfig] = useState<{ key: ClientSortKey; dir: ClientSortDir } | null>(null);
   const toggleSort = (key: ClientSortKey) => {
     setSortConfig(prev => prev?.key === key ? { key, dir: prev.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: 'desc' });
   };
@@ -152,20 +172,6 @@ export default function Clientes() {
     if (!sortConfig || sortConfig.key !== col) return <ChevronsUpDown className="inline h-3 w-3 ml-1 opacity-40" />;
     return sortConfig.dir === 'asc' ? <ChevronUp className="inline h-3 w-3 ml-1" /> : <ChevronDown className="inline h-3 w-3 ml-1" />;
   };
-  const sortedClientList = useMemo(() => {
-    if (!sortConfig) return clients;
-    const { key, dir } = sortConfig;
-    return [...clients].sort((a, b) => {
-      let cmp = 0;
-      if (key === 'name') cmp = a.name.localeCompare(b.name, 'es', { sensitivity: 'base' });
-      else if (key === 'lastPurchase') {
-        const da = parseDate(a.lastPurchase)?.getTime() ?? 0;
-        const db = parseDate(b.lastPurchase)?.getTime() ?? 0;
-        cmp = da - db;
-      } else cmp = (a[key] as number) - (b[key] as number);
-      return dir === 'asc' ? cmp : -cmp;
-    });
-  }, [clients, sortConfig]);
   const top2Pct = sorted.length >= 2 && totalSales > 0
     ? ((sorted[0].totalPurchases + sorted[1].totalPurchases) / totalSales * 100).toFixed(0)
     : '0';

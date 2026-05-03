@@ -23,6 +23,7 @@ import { Truck, Plus, Edit, Trash2, Calendar, Package, Loader2, CheckCircle2, XC
 import { toast } from 'sonner';
 import { useSuppliers, computeRealLeadTime, computeDeliveryAccuracy, type Supplier, type SupplierDelivery } from '@/hooks/useSuppliers';
 import { getOrderItems, removeOrderItem, updateOrderQuantity, clearOrder, subscribePurchaseOrders } from '@/lib/purchase-orders';
+import { pluralES } from '@/lib/formatters';
 
 interface SupplierFormState {
   name: string;
@@ -387,7 +388,7 @@ export default function Proveedores() {
                           <Clock className="h-3 w-3" /> Promete
                         </p>
                         <p className="text-lg font-bold tabular-nums mt-0.5">
-                          {s.lead_time_promised_days != null ? `${s.lead_time_promised_days} días` : '—'}
+                          {s.lead_time_promised_days != null ? pluralES(s.lead_time_promised_days, 'día', 'días') : '—'}
                         </p>
                       </div>
                       <div className="rounded-lg border p-2.5">
@@ -395,7 +396,7 @@ export default function Proveedores() {
                           <CheckCircle2 className="h-3 w-3" /> Real (avg)
                         </p>
                         <p className="text-lg font-bold tabular-nums mt-0.5">
-                          {realLT != null ? `${realLT} días` : '—'}
+                          {realLT != null ? pluralES(realLT, 'día', 'días') : '—'}
                         </p>
                         {realLT != null && supDeliveries.filter(d => d.status === 'received').length > 0 && (
                           <p className="text-[10px] text-muted-foreground mt-0.5">

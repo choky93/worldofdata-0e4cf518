@@ -113,6 +113,26 @@ export default function Operaciones() {
 
   const allOps = useMemo(() => normalizeOps(realVentas, realGastos, mappings.ventas, mappings.gastos), [realVentas, realGastos, mappings.ventas, mappings.gastos]);
 
+  const filtered = useMemo(
+    () => (filter === 'all' ? allOps : allOps.filter(op => op.type === filter)),
+    [allOps, filter]
+  );
+
+  const sortedOps = useMemo(() => {
+    if (!sortConfig) return filtered;
+    const { key, dir } = sortConfig;
+    return [...filtered].sort((a, b) => {
+      let cmp = 0;
+      if (key === 'amount') cmp = a.amount - b.amount;
+      else if (key === 'date') {
+        const da = parseDate(a.date)?.getTime() ?? 0;
+        const db = parseDate(b.date)?.getTime() ?? 0;
+        cmp = da - db;
+      } else cmp = String(a[key] || '').localeCompare(String(b[key] || ''), 'es', { sensitivity: 'base' });
+      return dir === 'asc' ? cmp : -cmp;
+    });
+  }, [filtered, sortConfig]);
+
   if (loading) {
     return (
       <div className="space-y-6 max-w-7xl">
@@ -147,22 +167,6 @@ export default function Operaciones() {
       </div>
     );
   }
-
-  const filtered = filter === 'all' ? allOps : allOps.filter(op => op.type === filter);
-  const sortedOps = useMemo(() => {
-    if (!sortConfig) return filtered;
-    const { key, dir } = sortConfig;
-    return [...filtered].sort((a, b) => {
-      let cmp = 0;
-      if (key === 'amount') cmp = a.amount - b.amount;
-      else if (key === 'date') {
-        const da = parseDate(a.date)?.getTime() ?? 0;
-        const db = parseDate(b.date)?.getTime() ?? 0;
-        cmp = da - db;
-      } else cmp = String(a[key] || '').localeCompare(String(b[key] || ''), 'es', { sensitivity: 'base' });
-      return dir === 'asc' ? cmp : -cmp;
-    });
-  }, [filtered, sortConfig]);
 
   const totalPages = Math.ceil(sortedOps.length / OP_PAGE_SIZE);
   const pagedOps = sortedOps.slice(page * OP_PAGE_SIZE, (page + 1) * OP_PAGE_SIZE);
