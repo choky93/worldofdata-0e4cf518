@@ -78,7 +78,9 @@ const FIELDS_BY_CATEGORY: Record<string, SemanticField[]> = {
     { key: 'date', label: 'Fecha', description: 'Día específico de la métrica', isKey: true },
     { key: 'start_date', label: 'Fecha inicio', description: 'Cuándo empezó la campaña/período', isKey: true },
     { key: 'end_date', label: 'Fecha fin', description: 'Cuándo terminó la campaña/período' },
-    { key: 'platform', label: 'Plataforma', description: 'Meta, Google, TikTok, etc.' },
+    // Plataforma se REMOVIÓ de los campos a mapear (Lucas: "no es una columna,
+    // no la voy a encontrar nunca"). Ahora se detecta del nombre del archivo
+    // (Meta export, Google_Ads_Campaign, etc.) o se asume el valor por defecto.
     { key: 'objective', label: 'Objetivo', description: 'Tráfico, mensajes, conversiones, etc.' },
     { key: 'clicks', label: 'Clicks', description: 'Cantidad de clics' },
     { key: 'impressions', label: 'Impresiones', description: 'Cantidad de veces que se mostró' },
@@ -149,6 +151,77 @@ const FIELDS_BY_CATEGORY: Record<string, SemanticField[]> = {
 
 const NONE = '__none__';
 
+/**
+ * Detecta el campo semántico de un header del archivo basándose en keywords
+ * comunes en español/inglés. Cubre exports típicos de Meta Ads, Google Ads,
+ * Pipedrive, HubSpot, Salesforce, sistemas argentinos (Tango, Bejerman, etc).
+ *
+ * Devuelve el `key` semántico (ej. 'spend', 'campaign_name') o null si no
+ * matchea. Usado como fallback cuando el extractor IA no detectó mappings.
+ */
+function detectSemanticFromHeader(header: string): string | null {
+  if (!header) return null;
+  const h = header.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').trim();
+
+  // ── Marketing (Meta Ads, Google Ads) ──────────────────────
+  if (/^(nombre.*campa[ñn]a|campaign.?name|campa[ñn]a$)/.test(h)) return 'campaign_name';
+  if (/(importe.*gastado|gasto.*publicit|spend|amount.spent|cost\b)/.test(h)) return 'spend';
+  if (/(inicio.*informe|reporting.starts|fecha.*inicio|start.date|desde)/.test(h)) return 'start_date';
+  if (/(fin.*informe|reporting.ends|fecha.*fin|end.date|hasta)/.test(h)) return 'end_date';
+  if (/^(plataforma|platform)$/.test(h)) return 'platform';
+  if (/^(objetivo|objective|tipo.*campa[ñn]a|campaign.objective|indicador.*resultado)$/.test(h)) return 'objective';
+  if (/^(impresiones|impressions|impr\.?)/.test(h)) return 'impressions';
+  if (/^(alcance|reach|personas.*alcanzadas)/.test(h)) return 'reach';
+  if (/^(clicks?|clics?|clic.*enlace)/.test(h)) return 'clicks';
+  if (/(conversion|compras|purchases|leads.*generados)/.test(h)) return 'conversions';
+  if (/^(roas|retorno.*publicidad|roas.*resultados)/.test(h)) return 'roas';
+  if (/^(ctr|tasa.*clicks?)/.test(h)) return 'ctr';
+  if (/(ingresos.*atribuidos|valor.*conversion|revenue|purchase.value)/.test(h)) return 'revenue';
+
+  // ── Ventas / facturas / gastos generales ───────────────────
+  if (/^(monto|total|importe|amount|valor|precio.venta|precio.de.venta)/.test(h)) return 'amount';
+  if (/^(fecha|date|periodo|mes|month|day|dia)/.test(h)) return 'date';
+  if (/^(cliente|client|comprador|customer|raz[oó]n.social|empresa)/.test(h)) return 'client';
+  if (/^(producto|product|articulo|item|sku|descripci[oó]n|detalle|concepto|nombre)/.test(h)) return 'name';
+  if (/^(cantidad|qty|unidades|cant\.?)/.test(h)) return 'quantity';
+  if (/^(costo|cost|precio.costo|cogs)/.test(h)) return 'cost';
+  if (/^(ganancia|profit|margen|margin)/.test(h)) return 'profit';
+  if (/^(iva|impuesto|tax)/.test(h)) return 'tax';
+  if (/(forma.*pago|m[eé]todo.*pago|payment.method|pago)/.test(h)) return 'payment_method';
+  if (/(numero.*factura|nro.*factura|n[°º].*factura|factura.*nro|invoice.number)/.test(h)) return 'invoice_number';
+
+  // ── Stock ──────────────────────────────────────────────────
+  if (/^(stock|existencia|disponible)/.test(h)) return 'quantity';
+  if (/(stock.*minimo|min.*stock|punto.*reposicion)/.test(h)) return 'min_stock';
+  if (/^(proveedor|supplier|vendor)/.test(h)) return 'supplier';
+
+  // ── CRM ────────────────────────────────────────────────────
+  if (/^(deal.name|opportunity.name|nombre.*oportunidad|titulo.*deal)/.test(h)) return 'deal_name';
+  if (/^(stage|etapa|pipeline.stage|deal.stage|fase|status)/.test(h)) return 'stage';
+  if (/(close.date|fecha.*cierre|expected.close|closing.date)/.test(h)) return 'close_date';
+  if (/(created.date|fecha.*creacion|date.created)/.test(h)) return 'created_date';
+  if (/^(owner|deal.owner|vendedor|sales.rep|asignado)/.test(h)) return 'owner';
+  if (/^(account|account.name|cuenta|company.name)/.test(h)) return 'account';
+  if (/(probability|probabilidad|win.probability)/.test(h)) return 'probability';
+  if (/(lead.source|source|origen|fuente|canal|channel)/.test(h)) return 'lead_source';
+
+  // ── Clientes ───────────────────────────────────────────────
+  if (/(total.*compras|total.*comprado|lifetime.value)/.test(h)) return 'total_purchases';
+  if (/(deuda|saldo.*pendiente|debt|amount.due|balance)/.test(h)) return 'debt';
+  if (/(ultima.*compra|last.*purchase|fecha.*ultima)/.test(h)) return 'last_purchase';
+  if (/(cantidad.*compras|num.*compras|purchase.count|frecuencia)/.test(h)) return 'purchase_count';
+  if (/^(email|correo|mail)/.test(h)) return 'email';
+  if (/^(tel[eé]fono|phone|tel\.?|celular|movil)/.test(h)) return 'phone';
+
+  // ── RRHH ───────────────────────────────────────────────────
+  if (/^(sueldo|salario|salary|haber|remuneracion)/.test(h)) return 'salary';
+  if (/(cargo|puesto|position|rol)/.test(h)) return 'position';
+  if (/^(area|departamento|department|sector)/.test(h)) return 'department';
+  if (/^(horas|hours|hs\.?)/.test(h)) return 'hours';
+
+  return null;
+}
+
 export function ColumnMappingEditor({ open, onOpenChange, fileId, fileName, category, currentMapping, onSaved }: Props) {
   const [headers, setHeaders] = React.useState<string[]>([]);
   const [mapping, setMapping] = React.useState<Record<string, string>>({});
@@ -208,7 +281,22 @@ export function ColumnMappingEditor({ open, onOpenChange, fileId, fileName, cate
           setResolvedCategory('otro');
         }
 
-        setMapping({ ...currentMapping });
+        // FIX feedback Lucas (2026-05-03): si el extractor IA no detectó
+        // mappings (currentMapping vacío), aplicamos detección heurística
+        // client-side para pre-llenar campos comunes de Meta/Google/Pipedrive.
+        // Antes el editor abría TODOS los campos en "No mapeado" obligando
+        // al usuario a mapear celda por celda → "Calidad sigue 35%, no
+        // mejora aunque mapee".
+        const initialMapping = { ...currentMapping };
+        if (Object.keys(initialMapping).length === 0 && cols.length > 0) {
+          for (const header of cols) {
+            const detected = detectSemanticFromHeader(header);
+            if (detected && !initialMapping[detected]) {
+              initialMapping[detected] = header;
+            }
+          }
+        }
+        setMapping(initialMapping);
       } catch (err) {
         const e = err as { message?: string };
         toast.error('Error cargando archivo', { description: e.message });
