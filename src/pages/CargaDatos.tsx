@@ -3194,7 +3194,7 @@ export default function CargaDatos() {
           fileName={mappingEditorState.fileName}
           category={mappingEditorState.category}
           currentMapping={mappingEditorState.mapping}
-          onSaved={() => { fetchFiles(); }}
+          onSaved={() => { fetchFiles(); refetchExtractedData(); }}
         />
       )}
 
