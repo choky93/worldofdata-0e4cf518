@@ -169,8 +169,27 @@ export function ExtractedDataProvider({ children }: { children: ReactNode }) {
             freshnessDates[cat] = r.created_at;
           }
           const json = r.extracted_json as any;
-          const rows = json?.data || [];
-          if (!Array.isArray(rows) || rows.length === 0) continue;
+          // FIX feedback Lucas/José: aceptar múltiples formatos. process-file
+          // guarda los datos como `json.data` desde Ola 13, pero hay variantes
+          // legacy (json.rows, json siendo Array directo, json siendo objeto
+          // plano single-row). Sin esto, archivos que se procesaban OK
+          // aparecían como "Sin datos de marketing" en /marketing aunque
+          // tuvieran 18 filas reales en la DB. Equivalente al parser fix
+          // que Lovable aplicó en ai-chat Fase 2 — se replicó acá.
+          let rows: any[] = [];
+          if (Array.isArray(json)) {
+            rows = json;
+          } else if (json && typeof json === 'object') {
+            if (Array.isArray(json.data)) rows = json.data;
+            else if (Array.isArray(json.rows)) rows = json.rows;
+            else if ('columns' in json && Array.isArray(json.data)) rows = json.data;
+            // Si no es ni data ni rows pero es un objeto plano con columnas,
+            // lo tratamos como 1 fila (single-row extraction).
+            else if (Object.keys(json).length > 0 && !('columns' in json)) rows = [json];
+          }
+          // Filtrar nulls/no-objetos defensivamente
+          rows = rows.filter(x => x != null && typeof x === 'object' && !Array.isArray(x));
+          if (rows.length === 0) continue;
           if (agg[cat]) {
             // C3: tag stock rows with the file's upload timestamp so dedupeStockRows
             // can resolve conflicts between multiple stock files correctly.
