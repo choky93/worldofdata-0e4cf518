@@ -2682,9 +2682,17 @@ export default function CargaDatos() {
                     const Icon = fileIcons[f.file_type || ''] || FileText;
                     const isReprocessing = reprocessingId === f.id;
                     const extractedChunks = extractedDataMap[f.id];
-                    const hasChunks = extractedChunks && extractedChunks.length > 1;
-                    const firstExtracted = extractedChunks?.[0];
-                    const totalExtractedRows = extractedChunks?.reduce((sum, c) => sum + (c.row_count || 0), 0) || 0;
+                    // FIX feedback Lucas/José: filtrar meta-chunks (_column_mapping en
+                    // chunk_index=-1, _classification en chunk_index=-2, _raw_cache).
+                    // Antes firstExtracted = extractedChunks[0] tomaba el meta-chunk
+                    // (vienen primero por chunk_index negativo) y la UI mostraba
+                    // "_column_mapping" como categoría visible en vez de la real
+                    // ("marketing", "ventas", etc).
+                    const META_CATEGORIES = new Set(['_column_mapping', '_classification', '_raw_cache']);
+                    const dataChunks = extractedChunks?.filter(c => !META_CATEGORIES.has(c.data_category));
+                    const hasChunks = dataChunks && dataChunks.length > 1;
+                    const firstExtracted = dataChunks?.[0];
+                    const totalExtractedRows = dataChunks?.reduce((sum, c) => sum + (c.row_count || 0), 0) || 0;
 
                     const isBulkable = f.status === 'processed' || f.status === 'review' || f.status === 'processed_with_issues';
                     const isSelected = selectedIds.has(f.id);
