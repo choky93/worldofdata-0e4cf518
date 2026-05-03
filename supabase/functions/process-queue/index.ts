@@ -12,7 +12,6 @@ const HEAVY_FILE_THRESHOLD = 1 * 1024 * 1024;
 const MAX_HEAVY_PARALLEL = 1;
 const STUCK_THRESHOLD_MINUTES = 10;
 const INTER_FILE_DELAY_MS = 2000; // 2s pause between files
-const STUCK_THRESHOLD_MINUTES = 10;
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {

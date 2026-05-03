@@ -21,7 +21,7 @@ import { usePeriod } from '@/contexts/PeriodContext';
 import { PeriodSelector } from '@/components/PeriodSelector';
 import { findNumber, findString, findDateRaw, FIELD_AMOUNT, FIELD_DATE, FIELD_DEAL_STAGE, FIELD_DEAL_NAME, FIELD_DEAL_OWNER, FIELD_PROBABILITY, FIELD_LEAD_SOURCE, FIELD_CLIENT } from '@/lib/field-utils';
 import { filterByPeriod, parseDate } from '@/lib/data-cleaning';
-import { formatCurrency, formatPercent } from '@/lib/formatters';
+import { formatCurrency, formatPercent, pluralES } from '@/lib/formatters';
 import { KPICard } from '@/components/ui/KPICard';
 import { HelpTooltip } from '@/components/HelpTooltip';
 import { GitBranch, TrendingUp, Award, XCircle, Clock, Users, Database, Upload, Loader2, ChevronUp, ChevronDown, ChevronsUpDown } from 'lucide-react';
@@ -273,7 +273,7 @@ export default function Pipeline() {
           />
           <KPICard
             label="Ciclo promedio"
-            value={avgCycleDays > 0 ? `${avgCycleDays} días` : '—'}
+            value={avgCycleDays > 0 ? pluralES(avgCycleDays, 'día', 'días') : '—'}
             subtext="Desde creación hasta cierre"
             icon={<Clock className="h-4 w-4" />}
             help="Cuántos días en promedio toma cerrar un deal exitoso (desde que se creó hasta que se ganó). Útil para forecast."

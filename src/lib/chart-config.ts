@@ -14,10 +14,28 @@ export const CHART_COLORS = {
   axis:      'hsl(var(--muted-foreground))',
 };
 
-export function formatXAxisDate(value: string): string {
-  if (!value) return '';
-  const d = new Date(value);
-  if (isNaN(d.getTime())) return value;
+export function formatXAxisDate(value: string | number | Date): string {
+  if (value === null || value === undefined || value === '') return '';
+  // Si ya viene formateado tipo "Ene 26" / "ene 2026" / cualquier label no-fecha,
+  // devolverlo tal cual (evita "Invalid Date" en el eje).
+  if (typeof value === 'string') {
+    // YYYY-MM o YYYY-MM-DD → parsear como UTC para evitar shift de timezone
+    const ymdMatch = value.match(/^(\d{4})-(\d{2})(?:-(\d{2}))?$/);
+    if (ymdMatch) {
+      const [, y, m, d] = ymdMatch;
+      const dt = new Date(Date.UTC(Number(y), Number(m) - 1, Number(d ?? '01')));
+      return dt.toLocaleDateString('es-AR', { month: 'short', year: '2-digit', timeZone: 'UTC' })
+        .replace(/\./g, '')
+        .replace(/^\w/, c => c.toUpperCase())
+        .trim();
+    }
+    // Si no parece ISO, devolver tal cual (ya viene legible).
+    if (!/^\d{4}-\d{2}/.test(value) && !/^\d{4}\/\d{2}/.test(value)) {
+      return value;
+    }
+  }
+  const d = value instanceof Date ? value : new Date(value);
+  if (isNaN(d.getTime())) return String(value);
   return d.toLocaleDateString('es-AR', { month: 'short', year: '2-digit' })
     .replace(/\./g, '')
     .replace(/^\w/, c => c.toUpperCase())

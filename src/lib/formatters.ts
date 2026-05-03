@@ -38,6 +38,15 @@ export function formatNumber(value: number): string {
 }
 
 /**
+ * Pluralización en español. Si abs(n) === 1 usa singular; si no, plural.
+ * Ej: pluralES(1, 'día', 'días') → '1 día'; pluralES(7, 'día', 'días') → '7 días'.
+ * Ej: pluralES(0, 'producto', 'productos') → '0 productos'.
+ */
+export function pluralES(n: number, singular: string, plural: string): string {
+  return `${n} ${Math.abs(n) === 1 ? singular : plural}`;
+}
+
+/**
  * Parse a number from various locale formats:
  * - "1.717.146,04" (es-AR)
  * - "$ 961.199,79"

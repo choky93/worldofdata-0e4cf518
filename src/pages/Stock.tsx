@@ -1,7 +1,7 @@
 import { useMemo, useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { formatCurrency, formatPercent } from '@/lib/formatters';
+import { formatCurrency, formatPercent, pluralES } from '@/lib/formatters';
 import {
   findNumber,
   findString,
@@ -63,7 +63,9 @@ function CoverageBadge({ days, status }: { days: number; status: StockStatus }) 
     return <span className="text-xs text-muted-foreground">—</span>;
   }
   const critical = status === 'critical' || status === 'low';
-  const label = days >= 60 ? `${Math.round(days / 30)} meses` : `${Math.round(days)} días`;
+  const label = days >= 60
+    ? pluralES(Math.round(days / 30), 'mes', 'meses')
+    : pluralES(Math.round(days), 'día', 'días');
   return (
     <span className={`text-xs font-medium tabular-nums ${critical ? 'text-destructive' : 'text-muted-foreground'}`}>
       {label}
@@ -407,8 +409,8 @@ export default function Stock() {
                 const coverageLabel = p.coverageDays === 0
                   ? 'sin datos de venta'
                   : p.coverageDays >= 60
-                    ? `${Math.round(p.coverageDays / 30)} meses`
-                    : `${coverageRound} días`;
+                    ? pluralES(Math.round(p.coverageDays / 30), 'mes', 'meses')
+                    : pluralES(coverageRound, 'día', 'días');
                 // Ola 16: cuándo pedir = hoy + (cobertura − lead time efectivo)
                 const daysUntilStockout = Math.max(0, coverageRound - p.supplierLeadDays);
                 const orderByDate = new Date();
@@ -448,7 +450,7 @@ export default function Stock() {
                             <p className="text-[10px] text-muted-foreground">
                               Lead time {p.leadSource === 'real' ? '(real)' : p.leadSource === 'promised' ? '(prometido)' : p.leadSource === 'override' ? '(override)' : '(default)'}
                             </p>
-                            <p className="font-medium">{p.supplierLeadDays} días</p>
+                            <p className="font-medium">{pluralES(p.supplierLeadDays, 'día', 'días')}</p>
                           </div>
                         </div>
                       </div>
@@ -516,7 +518,7 @@ export default function Stock() {
                       <div className="min-w-0 flex-1">
                         <p className="font-medium truncate">{p.name}</p>
                         <p className="text-xs text-muted-foreground mt-0.5">
-                          {Math.round(p.coverageDays)} días de cobertura · stock excedente: {Math.max(0, p.stock - p.maxStock)} uds
+                          {pluralES(Math.round(p.coverageDays), 'día', 'días')} de cobertura · stock excedente: {Math.max(0, p.stock - p.maxStock)} uds
                         </p>
                       </div>
                       <span className="text-[10px] font-bold px-2 py-0.5 rounded shrink-0 bg-warning/30 text-warning-foreground border border-warning/40">
