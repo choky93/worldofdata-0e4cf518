@@ -798,8 +798,8 @@ export default function CargaDatos() {
       });
       setExtractedDataMap(prev => ({ ...prev, ...map }));
     }
+    const newMappings: Record<string, Record<string, string>> = {};
     if (mappingData) {
-      const newMappings: Record<string, Record<string, string>> = {};
       mappingData.forEach(m => {
         const json = m.extracted_json as any;
         const colMap = json?.column_mapping;
@@ -840,7 +840,11 @@ export default function CargaDatos() {
             const rows = (Array.isArray(json) ? json : json?.data ?? json?.rows) as Record<string, unknown>[] | undefined;
             if (!rows || rows.length === 0) continue;
             try {
-              const dq = computeDataQuality(rows, c.data_category);
+              // FIX feedback Lucas Tanda 8 (Bug A): pasamos el mapping manual al
+              // computeDataQuality para que reconozca columnas no estándar
+              // (ej. "Inicio del informe" mapeada a start_date en Meta Ads).
+              const fileMapping = newMappings[c.file_upload_id];
+              const dq = computeDataQuality(rows, c.data_category, fileMapping as never);
               newDq[c.file_upload_id] = dq;
             } catch {
               // computeDataQuality puede romper con un dato raro — lo skipeamos
@@ -3194,7 +3198,23 @@ export default function CargaDatos() {
           fileName={mappingEditorState.fileName}
           category={mappingEditorState.category}
           currentMapping={mappingEditorState.mapping}
-          onSaved={() => { fetchFiles(); refetchExtractedData(); }}
+          onSaved={() => {
+            // FIX feedback Lucas Tanda 8 (Bug A): tras guardar el mapeo manual,
+            // invalidamos el DQ cacheado del archivo para forzar el recómputo
+            // con el nuevo mapping. Sin esto, el badge "Calidad" se quedaba
+            // pegado en el valor viejo (ej. 35%) aunque el usuario hubiese
+            // mapeado todas las columnas correctamente.
+            const fid = mappingEditorState?.fileId;
+            if (fid) {
+              setDqScoresMap(prev => {
+                const next = { ...prev };
+                delete next[fid];
+                return next;
+              });
+            }
+            fetchFiles();
+            refetchExtractedData();
+          }}
         />
       )}
 

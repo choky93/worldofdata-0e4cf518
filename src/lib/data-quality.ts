@@ -60,7 +60,13 @@ function findRowKey(row: any, kw: string[], mapped?: string): unknown {
 export function computeDataQuality(
   rows: any[],
   category: string,
-  mapping?: { date?: string; amount?: string; name?: string }
+  // FIX feedback Lucas Tanda 8: agregamos start_date/end_date al tipo del
+  // mapping. Para Marketing (Meta/Google), la fecha viene como rango
+  // (Inicio + Fin del informe), NO como una columna 'date' única. Si
+  // el usuario mapea start_date manualmente, ahora cuenta como fecha
+  // válida para el cálculo de DQ. Antes el editor dejaba "Calidad 35%"
+  // aunque mapeara todo correctamente porque mapping.date seguía undefined.
+  mapping?: { date?: string; amount?: string; name?: string; start_date?: string; end_date?: string }
 ): DataQualityScore {
   const total = rows.length;
   if (total === 0) {
@@ -70,6 +76,11 @@ export function computeDataQuality(
   const needsAmount = ['ventas', 'gastos', 'marketing', 'facturas'].includes(category);
   const needsDate = ['ventas', 'gastos', 'marketing', 'facturas'].includes(category);
   const needsName = ['ventas', 'gastos', 'stock', 'clientes', 'marketing'].includes(category);
+
+  // Para marketing aceptamos start_date o end_date como sustituto de date.
+  // FIELD_DATE ahora también incluye keywords tipo "inicio", "fin",
+  // "reporting_starts", etc., así que findRowKey los detecta automáticamente.
+  const dateMappedColumn = mapping?.date || mapping?.start_date || mapping?.end_date;
 
   let completeRows = 0;
   let validAmountRows = 0;
@@ -97,7 +108,7 @@ export function computeDataQuality(
 
     if (needsDate) {
       dateChecked++;
-      const dt = findRowKey(row, FIELD_DATE, mapping?.date);
+      const dt = findRowKey(row, FIELD_DATE, dateMappedColumn);
       if (dt && parseDate(String(dt))) validDateRows++;
       else complete = false;
     }

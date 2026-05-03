@@ -251,7 +251,32 @@ export default function Marketing() {
   const totalRevenue = realCampaigns.reduce((s, c) => s + c.revenue, 0);
   const globalRoas = safeDiv(totalRevenue, totalSpend);
   const totalClicks = realCampaigns.reduce((s, c) => s + c.clicks, 0);
-  const totalConversions = realCampaigns.reduce((s, c) => s + c.conversions, 0);
+
+  // FIX feedback Lucas (2026-05-03): Meta exporta una columna "Resultados"
+  // que significa COSAS DISTINTAS según el objetivo:
+  //   - Tráfico → clicks
+  //   - Interacciones → engagements (likes, comments, shares)
+  //   - Mensajes → mensajes iniciados
+  //   - Conversiones/Ventas → compras reales
+  // Si sumamos todo como "conversiones", el KPI miente: una campaña de
+  // Interacciones con $2 de gasto reportaba 99.436 "conversiones" (eran
+  // engagements). Lucas: "no son números reales, no está ni cerca".
+  // Filtramos: solo contamos conversiones de campañas cuyo objetivo SÍ
+  // representa una conversión real (Conversiones, Catálogo, Leads).
+  const isRealConversionObjective = (obj: string): boolean => {
+    if (!obj) return false;
+    // FIX Codex review PR#10: normalizar acentos antes de matchear.
+    // Sin esto, "Catálogo" (con tilde) NO matcheaba 'catalog' y la
+    // campaña quedaba excluida del KPI de conversiones aunque tuviera
+    // objetivo real de conversión.
+    const n = obj.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+    return n.includes('conversi') || n.includes('venta') || n.includes('compra')
+      || n.includes('catalog') || n.includes('lead') || n.includes('purchase');
+  };
+  const conversionCampaigns = realCampaigns.filter(c => isRealConversionObjective(c.objective));
+  const totalConversions = conversionCampaigns.reduce((s, c) => s + c.conversions, 0);
+  const conversionsAreFiltered = realCampaigns.length > conversionCampaigns.length;
+
   const totalReach = realCampaigns.reduce((s, c) => s + c.reach, 0);
   const totalImpressions = realCampaigns.reduce((s, c) => s + c.impressions, 0);
 
@@ -313,9 +338,24 @@ export default function Marketing() {
           <Card><CardContent className="pt-6">
             <p className="text-sm text-muted-foreground flex items-center gap-1">
               Conversiones
-              <HelpTooltip content="Cuántas acciones objetivo se completaron (compra, lead, mensaje, etc., según el objetivo de cada campaña)." />
+              <HelpTooltip content={<>
+                Solo contamos conversiones <strong>reales</strong> (compras, leads, ventas) —
+                excluimos engagements y mensajes porque Meta los reporta en la
+                misma columna "Resultados" pero NO son conversiones.
+                {conversionsAreFiltered && (
+                  <><br /><strong className="text-warning">
+                    Excluyendo {realCampaigns.length - conversionCampaigns.length} campaña(s) de
+                    tráfico/interacción/mensajes.
+                  </strong></>
+                )}
+              </>} />
             </p>
             <p className="text-3xl font-bold tabular-nums">{hasConversionsField ? formatNumber(totalConversions) : '—'}</p>
+            {conversionsAreFiltered && (
+              <p className="text-[10px] text-muted-foreground mt-0.5">
+                de {conversionCampaigns.length} campaña{conversionCampaigns.length === 1 ? '' : 's'} de conversión
+              </p>
+            )}
           </CardContent></Card>
           <Card><CardContent className="pt-6">
             <p className="text-sm text-muted-foreground flex items-center gap-1">
@@ -452,7 +492,28 @@ export default function Marketing() {
                     <TableCell className="text-right tabular-nums">{formatCurrency(c.spend)}</TableCell>
                     {totalRevenue > 0 && <TableCell className="text-right tabular-nums">{formatCurrency(c.revenue)}</TableCell>}
                     {globalRoas > 0 && <TableCell className="text-right font-bold tabular-nums">{c.roas > 0 ? `${c.roas}x` : '—'}</TableCell>}
-                    {hasConversionsField && <TableCell className="text-right tabular-nums">{c.conversions > 0 ? formatNumber(c.conversions) : '0'}</TableCell>}
+                    {hasConversionsField && (
+                      <TableCell className="text-right tabular-nums">
+                        {c.conversions > 0 ? (
+                          isRealConversionObjective(c.objective) ? (
+                            <span>{formatNumber(c.conversions)}</span>
+                          ) : (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <span className="text-muted-foreground/60 cursor-help underline decoration-dotted">
+                                  {formatNumber(c.conversions)}*
+                                </span>
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                <p className="text-xs max-w-xs">
+                                  Esta campaña es de "{c.objective}" — los "Resultados" reportados son engagements/clicks/mensajes, NO conversiones reales. Por eso no entran en el total de Conversiones.
+                                </p>
+                              </TooltipContent>
+                            </Tooltip>
+                          )
+                        ) : '0'}
+                      </TableCell>
+                    )}
                     {hasReachField && <TableCell className="text-right tabular-nums">{c.reach > 0 ? formatNumber(c.reach) : '0'}</TableCell>}
                     {hasImpressionsField && <TableCell className="text-right tabular-nums">{c.impressions > 0 ? formatNumber(c.impressions) : '0'}</TableCell>}
                     {totalClicks > 0 && <TableCell className="text-right tabular-nums">{c.clicks > 0 ? formatNumber(c.clicks) : '—'}</TableCell>}
