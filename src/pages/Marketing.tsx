@@ -265,7 +265,11 @@ export default function Marketing() {
   // representa una conversión real (Conversiones, Catálogo, Leads).
   const isRealConversionObjective = (obj: string): boolean => {
     if (!obj) return false;
-    const n = obj.toLowerCase();
+    // FIX Codex review PR#10: normalizar acentos antes de matchear.
+    // Sin esto, "Catálogo" (con tilde) NO matcheaba 'catalog' y la
+    // campaña quedaba excluida del KPI de conversiones aunque tuviera
+    // objetivo real de conversión.
+    const n = obj.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
     return n.includes('conversi') || n.includes('venta') || n.includes('compra')
       || n.includes('catalog') || n.includes('lead') || n.includes('purchase');
   };

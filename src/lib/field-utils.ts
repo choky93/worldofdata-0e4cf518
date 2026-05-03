@@ -316,10 +316,15 @@ export const FIELD_DATE = [
   // "Reporting ends" como columnas de fecha. Sin estos keywords, el
   // cálculo de DataQuality no encontraba fecha → consistency=0,
   // completeness baja, DQ ~35%. Ahora se detectan correctamente.
+  // FIX Codex review PR#10 (P1): NO incluir 'fin'/'inicio'/'desde'/'hasta'
+  // como keywords sueltos — son demasiado cortos y matchean por prefijo
+  // (Pass 2.5) o partial (Pass 3) cualquier columna que empiece/contenga
+  // esos strings (ej. "Final", "Finanzas", "Inicio_sesion"), eligiéndola
+  // como columna de fecha y rompiendo filtrado por período.
+  // Mantenemos solo las formas completas y específicas.
   'inicio_del_informe', 'fin_del_informe', 'inicio del informe', 'fin del informe',
   'reporting_starts', 'reporting_ends', 'reporting starts', 'reporting ends',
-  'inicio', 'fin', 'desde', 'hasta', 'start_date', 'end_date',
-  'fecha_inicio', 'fecha_fin',
+  'start_date', 'end_date', 'fecha_inicio', 'fecha_fin',
   // Aliases históricos (datos ya cargados con headers genéricos)
   '__EMPTY', '__empty', 'unnamed:_0', 'unnamed_0', 'unnamed', 'col_0', 'column_0',
 ];
