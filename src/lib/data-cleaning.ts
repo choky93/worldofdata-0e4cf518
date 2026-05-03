@@ -3,7 +3,8 @@
  * Used both at ingestion time (CargaDatos) and at display time (modules).
  */
 
-const DATE_KEYWORDS = ['fecha', 'date', 'periodo', 'mes', 'month', 'dia', 'day'];
+const DATE_KEYWORDS = ['fecha', 'date', 'periodo', 'period', 'mes', 'month', 'dia', 'day',
+  'inicio', 'fin', 'desde', 'hasta', 'reporting_starts', 'reporting_ends'];
 
 function normalize(s: string): string {
   return s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]/g, '');
@@ -55,6 +56,24 @@ function isNameColumn(header: string): boolean {
   return NAME_KEYWORDS.some(kw => nh.includes(kw));
 }
 
+/** True si el valor parece una fecha (cualquier formato razonable). */
+function looksLikeDate(v: unknown): boolean {
+  if (!v) return false;
+  if (v instanceof Date) return !isNaN(v.getTime());
+  const s = String(v).trim();
+  if (!s) return false;
+  // ISO: 2026-04-01, 2026-04
+  if (/^\d{4}-\d{1,2}(-\d{1,2})?/.test(s)) return true;
+  // dd/mm/yyyy o dd-mm-yyyy
+  if (/^\d{1,2}[/-]\d{1,2}[/-]\d{2,4}/.test(s)) return true;
+  // Nombre de mes
+  if (/\b(ene|feb|mar|abr|may|jun|jul|ago|sep|oct|nov|dic|jan|apr|aug|dec)/i.test(s)) return true;
+  // Serial Excel (40000-50000 son fechas razonables: 2009-2036)
+  const n = parseFloat(s);
+  if (!isNaN(n) && n >= 40000 && n <= 60000) return true;
+  return false;
+}
+
 /**
  * Filter out summary/total rows.
  * A summary row has ALL name/descriptor columns empty but at least one numeric value > 0.
@@ -63,6 +82,15 @@ export function filterSummaryRows(rows: Record<string, unknown>[], headers: stri
   const nameHeaders = headers.filter(isNameColumn);
   if (nameHeaders.length === 0) return rows; // Can't detect without name columns
 
+  // FIX feedback Lucas (2026-05-01): el filtro era demasiado agresivo con
+  // archivos de Meta/Google Ads. Filas legítimas tipo {Nombre campaña: '',
+  // Inicio del informe: '01/04/2026', Importe gastado: 25000} se marcaban
+  // como TOTAL y se descartaban → "me terminó cargando un 30%".
+  // Ahora si la fila tiene FECHA válida, NO es summary (es un dato real
+  // por día/período sin nombre repetido — patrón típico de Meta cuando
+  // exportás métricas por fecha).
+  const dateHeaders = headers.filter(isDateColumn);
+
   return rows.filter(row => {
     const allNamesEmpty = nameHeaders.every(h => {
       const v = row[h];
@@ -70,6 +98,11 @@ export function filterSummaryRows(rows: Record<string, unknown>[], headers: stri
     });
 
     if (!allNamesEmpty) return true; // Has a name → keep
+
+    // Si tiene fecha válida en alguna columna de fecha → es dato real,
+    // no summary. Esto rescata las métricas por día de Meta/Google.
+    const hasValidDate = dateHeaders.some(h => looksLikeDate(row[h]));
+    if (hasValidDate) return true;
 
     // Check if it has numeric values (likely a total row)
     const hasNumeric = Object.values(row).some(v => {
@@ -125,7 +158,19 @@ const SPANISH_MONTHS: Record<string, number> = {
 
 export function parseDate(raw: string): Date | null {
   if (!raw || raw === '—' || raw === '-') return null;
-  const trimmed = raw.trim();
+  let trimmed = raw.trim();
+
+  // FIX feedback Lucas (2026-05-01): rangos tipo "01/04/2026 - 30/04/2026"
+  // o "01/04/2026 al 30/04/2026" no se parseaban → quedaban filas sin fecha
+  // → Marketing rompía rangos. Tomamos la primera fecha del rango (es la
+  // de inicio, la más útil para agrupar por mes).
+  const rangeSep = /\s*(?:[—–\-]|al\s|to\s|hasta\s)\s*/i;
+  if (rangeSep.test(trimmed)) {
+    const firstPart = trimmed.split(rangeSep)[0]?.trim();
+    if (firstPart && firstPart.length >= 6) {
+      trimmed = firstPart;
+    }
+  }
 
   // Parsear fecha ISO como hora local para evitar bug de timezone (Argentina UTC-3)
   const isoMatch = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})/);

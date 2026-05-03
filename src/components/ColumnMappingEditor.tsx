@@ -246,7 +246,22 @@ export function ColumnMappingEditor({ open, onOpenChange, fileId, fileName, cate
         .eq('data_category', '_column_mapping');
       if (updErr) throw updErr;
 
-      // 2) Limpiar processing_error y marcar el archivo como procesado.
+      // 2) FIX feedback Lucas (2026-05-01): "asigné todo, le di guardar pero
+      //    no cambió nada". Causa: solo actualizábamos el _column_mapping
+      //    pero los CHUNKS DE DATOS reales seguían con la data_category vieja
+      //    (ej. 'otro') → useExtractedData los leía desde el bucket equivocado
+      //    y /marketing seguía vacío.
+      //    Replicamos el patrón de handleReclassify (CargaDatos.tsx:1770):
+      //    actualizar data_category de TODOS los chunks de datos del file
+      //    (excluyendo meta-chunks que tienen prefijo _).
+      const { error: chunksErr } = await supabase
+        .from('file_extracted_data')
+        .update({ data_category: effectiveCategory })
+        .eq('file_upload_id', fileId)
+        .not('data_category', 'in', '("_raw_cache","_classification","_column_mapping")');
+      if (chunksErr) throw chunksErr;
+
+      // 3) Limpiar processing_error y marcar el archivo como procesado.
       //    AUDIT FIX: antes usábamos status='completed' que NO existe en el
       //    resto del sistema (los filtros buscan 'processed'/'review'/etc).
       //    Eso hacía desaparecer el archivo de la UI tras guardar el mapeo
