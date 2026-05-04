@@ -27,6 +27,9 @@ import {
   getSystemLabel,
   isSourceSystem,
 } from '@/lib/source-systems';
+// Wave B: deterministic parsers — try to map headers locally before paying
+// for an AI classification call.
+import { selectParser } from '@/lib/parsers/router';
 import { SchemaPreviewDialog, type SchemaPreviewPayload } from '@/components/SchemaPreviewDialog';
 import { MultiSheetPickerDialog, type SheetInfo } from '@/components/MultiSheetPickerDialog';
 import { ColumnMappingEditor } from '@/components/ColumnMappingEditor';
@@ -1517,6 +1520,22 @@ export default function CargaDatos() {
 
             updateItem({ totalChunks: totalBatches, totalRows: parsedRows.length, currentChunk: 0 });
 
+            // Wave B: try the deterministic parser BEFORE invoking the edge
+            // function. If we get a confident mapping (≥0.8) we forward it
+            // and the edge function skips the AI classification call.
+            let localParser: ReturnType<typeof selectParser> = null;
+            try {
+              localParser = selectParser(selectedSource, parsedHeaders);
+            } catch (e) {
+              console.warn('[CargaDatos] selectParser threw, falling back to AI:', e);
+            }
+            const useLocalParser = !!(localParser && localParser.result.confidence >= 0.8);
+            if (useLocalParser && localParser) {
+              console.log(`[CargaDatos] Local parser "${localParser.parser.systemId}" matched (conf=${localParser.result.confidence.toFixed(2)}) — skipping AI classification`);
+              toast.success(`Procesado localmente con parser ${getSystemLabel(localParser.parser.systemId)} — ahorraste ~70% costo de IA.`, { duration: 6000 });
+              resolvedCategory = localParser.result.category;
+            }
+
             for (let bi = 0; bi < totalBatches; bi++) {
               updateItem({ currentChunk: bi });
               const batchRows = parsedRows.slice(bi * ROW_BATCH_SIZE, (bi + 1) * ROW_BATCH_SIZE);
@@ -1532,7 +1551,14 @@ export default function CargaDatos() {
                     totalRows: parsedRows.length,
                     // 5.1: pass user-chosen category to ALL batches (incl. bi=0)
                     // so the edge function honors the Schema Preview override.
-                    ...(categoryOverride ? { category: categoryOverride } : (bi > 0 && resolvedCategory ? { category: resolvedCategory } : {})),
+                    ...(categoryOverride ? { category: categoryOverride } : (bi > 0 && resolvedCategory ? { category: resolvedCategory } : (useLocalParser && localParser ? { category: localParser.result.category } : {}))),
+                    // Wave B: forward the local parser mapping so the edge
+                    // function can skip the AI classification call.
+                    ...(bi === 0 && useLocalParser && localParser ? {
+                      precomputedMapping: localParser.result.mapping,
+                      precomputedSummary: `Procesado localmente con parser ${getSystemLabel(localParser.parser.systemId)} (confianza ${(localParser.result.confidence * 100).toFixed(0)}%).`,
+                      localParserName: localParser.parser.systemId,
+                    } : {}),
                   },
                 });
                 if (pfError) throw pfError;

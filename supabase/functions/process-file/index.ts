@@ -1160,6 +1160,12 @@ serve(async (req) => {
     const totalRows = body.totalRows as number | undefined;
     const explicitCategory = body.category as string | undefined;
     const sheetName = body.sheetName as string | undefined;
+    // Wave B: when a deterministic local parser handled the headers,
+    // CargaDatos sends the mapping (and category) inline so we can skip
+    // the AI classification call entirely.
+    const precomputedMapping = body.precomputedMapping as Record<string, string | null> | undefined;
+    const precomputedSummary = body.precomputedSummary as string | undefined;
+    const localParserName = body.localParserName as string | undefined;
 
     const preParsedData = body.preParsedData;
 
@@ -1192,10 +1198,27 @@ serve(async (req) => {
     // ══════════════════════════════════════════════════════════
     if (rowBatch && headers && batchIndex !== undefined && totalBatches !== undefined) {
       if (batchIndex === 0) {
-        // First batch: classify with AI
-        // Ola 20: pasamos usageCtx para registrar consumo de Anthropic en api_usage_logs
+        // First batch: classify with AI — UNLESS a local parser already
+        // produced a confident mapping (Wave B). In that case we honor it
+        // and skip the AI call entirely (cost win).
         const usageCtx = { companyId, userId: null, fileUploadId };
-        let { category, summary, column_mapping, confidence } = await classifyWithAI(headers, rowBatch.slice(0, 10), file_name, sheetName, usageCtx, sourceSystemHint);
+        let category: string;
+        let summary: string;
+        let column_mapping: Record<string, string | null>;
+        let confidence: number;
+        if (precomputedMapping && explicitCategory) {
+          category = explicitCategory;
+          summary = precomputedSummary || `Procesado localmente con parser ${localParserName || 'determinístico'}.`;
+          column_mapping = precomputedMapping;
+          confidence = 0.95;
+          console.log(`[process-file] Skipping AI classification — using local parser "${localParserName}" mapping (${Object.keys(column_mapping).length} fields)`);
+        } else {
+          const aiResult = await classifyWithAI(headers, rowBatch.slice(0, 10), file_name, sheetName, usageCtx, sourceSystemHint);
+          category = aiResult.category;
+          summary = aiResult.summary;
+          column_mapping = aiResult.column_mapping;
+          confidence = (aiResult as any).confidence ?? 0.8;
+        }
 
         // 5.1: if the user confirmed an explicit category in the Schema
         // Preview dialog, honor it — keep the AI's column_mapping but
