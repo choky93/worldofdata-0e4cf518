@@ -271,7 +271,13 @@ export default function Marketing() {
     // objetivo real de conversión.
     const n = obj.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
     return n.includes('conversi') || n.includes('venta') || n.includes('compra')
-      || n.includes('catalog') || n.includes('lead') || n.includes('purchase');
+      || n.includes('catalog') || n.includes('lead') || n.includes('purchase')
+      // FIX audit Tanda 8 H4: App promotion ("Promoción de aplicaciones",
+      // "Instalaciones de la app") y Tienda física ("Visitas a la tienda")
+      // también son objetivos de conversión real (paga por instalación o
+      // por visita atribuida).
+      || n.includes('instalac') || n.includes('app install')
+      || n.includes('tienda fisica') || n.includes('store visit');
   };
   const conversionCampaigns = realCampaigns.filter(c => isRealConversionObjective(c.objective));
   const totalConversions = conversionCampaigns.reduce((s, c) => s + c.conversions, 0);

@@ -168,7 +168,10 @@ function detectSemanticFromHeader(header: string): string | null {
   if (/(importe.*gastado|gasto.*publicit|spend|amount.spent|cost\b)/.test(h)) return 'spend';
   if (/(inicio.*informe|reporting.starts|fecha.*inicio|start.date|desde)/.test(h)) return 'start_date';
   if (/(fin.*informe|reporting.ends|fecha.*fin|end.date|hasta)/.test(h)) return 'end_date';
-  if (/^(plataforma|platform)$/.test(h)) return 'platform';
+  // FIX audit Tanda 8 H2: 'platform' fue removido de FIELDS_BY_CATEGORY.marketing
+  // (la plataforma se infiere del nombre del archivo, no es columna mapeable).
+  // Antes esta regla creaba un mapping fantasma {platform: 'Plataforma'} que
+  // el editor nunca renderizaba como campo, generando confusión en backend.
   if (/^(objetivo|objective|tipo.*campa[ñn]a|campaign.objective|indicador.*resultado)$/.test(h)) return 'objective';
   if (/^(impresiones|impressions|impr\.?)/.test(h)) return 'impressions';
   if (/^(alcance|reach|personas.*alcanzadas)/.test(h)) return 'reach';
@@ -179,6 +182,11 @@ function detectSemanticFromHeader(header: string): string | null {
   if (/(ingresos.*atribuidos|valor.*conversion|revenue|purchase.value)/.test(h)) return 'revenue';
 
   // ── Ventas / facturas / gastos generales ───────────────────
+  // FIX audit Tanda 8 H3: cobertura para AFIP/Mis Comprobantes y Mercado Pago.
+  // AFIP usa "Imp. Total", "Imp. Neto Gravado" con punto+espacio que rompía
+  // el regex anclado de abajo. MP usa "Dinero recibido (ARS)", "Monto cobrado".
+  if (/^(imp\.?\s*(total|neto|gravado|liquidado)|tipo.*comprobante)/.test(h)) return 'amount';
+  if (/(dinero.*recibido|dinero.*cobrado|monto.*cobrado|monto.*neto)/.test(h)) return 'amount';
   if (/^(monto|total|importe|amount|valor|precio.venta|precio.de.venta)/.test(h)) return 'amount';
   if (/^(fecha|date|periodo|mes|month|day|dia)/.test(h)) return 'date';
   if (/^(cliente|client|comprador|customer|raz[oó]n.social|empresa)/.test(h)) return 'client';
@@ -202,6 +210,10 @@ function detectSemanticFromHeader(header: string): string | null {
   if (/(created.date|fecha.*creacion|date.created)/.test(h)) return 'created_date';
   if (/^(owner|deal.owner|vendedor|sales.rep|asignado)/.test(h)) return 'owner';
   if (/^(account|account.name|cuenta|company.name)/.test(h)) return 'account';
+  // FIX audit Tanda 8 H3: Pipedrive en español usa "Persona de contacto" y
+  // "Organización" como columnas estándar de leads/oportunidades.
+  if (/^(persona.*contacto|contacto)/.test(h)) return 'client';
+  if (/^(organizaci[oó]n|empresa.*deal)/.test(h)) return 'account';
   if (/(probability|probabilidad|win.probability)/.test(h)) return 'probability';
   if (/(lead.source|source|origen|fuente|canal|channel)/.test(h)) return 'lead_source';
 
