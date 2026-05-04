@@ -171,7 +171,9 @@ const SEMANTIC_LABELS: Record<string, string> = {
   category: 'Categoría', quantity: 'Cantidad', unit_price: 'P. Unitario',
   cost: 'Costo', profit: 'Ganancia', tax: 'Impuesto',
   payment_method: 'Forma pago', invoice_number: 'N° Comp.',
-  spend: 'Inversión', campaign_name: 'Campaña', platform: 'Plataforma',
+  // FIX audit Tanda 8 H2: 'platform' removido — ya no es campo mapeable
+  // en marketing (Tanda 8). Se infiere del nombre del archivo.
+  spend: 'Inversión', campaign_name: 'Campaña',
   clicks: 'Clics', impressions: 'Impresiones', conversions: 'Conversiones',
   roas: 'ROAS', reach: 'Alcance', supplier: 'Proveedor', status: 'Estado',
   start_date: 'Inicio', end_date: 'Fin', revenue: 'Ingresos atribuidos',
@@ -843,8 +845,10 @@ export default function CargaDatos() {
               // FIX feedback Lucas Tanda 8 (Bug A): pasamos el mapping manual al
               // computeDataQuality para que reconozca columnas no estándar
               // (ej. "Inicio del informe" mapeada a start_date en Meta Ads).
+              // FIX audit Tanda 8 H6: removido `as never` — la signature
+              // ahora acepta Record<string, string|undefined>.
               const fileMapping = newMappings[c.file_upload_id];
-              const dq = computeDataQuality(rows, c.data_category, fileMapping as never);
+              const dq = computeDataQuality(rows, c.data_category, fileMapping);
               newDq[c.file_upload_id] = dq;
             } catch {
               // computeDataQuality puede romper con un dato raro — lo skipeamos

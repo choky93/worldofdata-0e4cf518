@@ -66,7 +66,12 @@ export function computeDataQuality(
   // el usuario mapea start_date manualmente, ahora cuenta como fecha
   // válida para el cálculo de DQ. Antes el editor dejaba "Calidad 35%"
   // aunque mapeara todo correctamente porque mapping.date seguía undefined.
-  mapping?: { date?: string; amount?: string; name?: string; start_date?: string; end_date?: string }
+  // FIX audit Tanda 8 H6: el tipo es Record<string, string | undefined>
+  // (en vez del shape estricto) para que CargaDatos pueda pasar el mapping
+  // completo sin necesitar `as never`. Las lecturas mapping?.date,
+  // mapping?.start_date, etc. siguen siendo type-safe gracias al optional
+  // chaining + index signature.
+  mapping?: Record<string, string | undefined>
 ): DataQualityScore {
   const total = rows.length;
   if (total === 0) {

@@ -325,6 +325,17 @@ export const FIELD_DATE = [
   'inicio_del_informe', 'fin_del_informe', 'inicio del informe', 'fin del informe',
   'reporting_starts', 'reporting_ends', 'reporting starts', 'reporting ends',
   'start_date', 'end_date', 'fecha_inicio', 'fecha_fin',
+  // FIX audit Tanda 8 H5: cobertura para TikTok Ads (Stat time day, By Day),
+  // LinkedIn Ads (Date Range, Day Started) y Mailchimp (Send Date, Send Time).
+  // Solo formas multi-token largas — NO se incluyen keywords cortas tipo
+  // 'week'/'year'/'quarter' porque caerían en Pass 2.5/Pass 3 y seleccionarían
+  // falsamente columnas tipo "weekly_revenue" como columna de fecha
+  // (mismo riesgo que Codex P1 marcó para 'fin'/'inicio'). Para cubrir
+  // headers literales tipo "Week"/"Year" de Google Ads habría que extender
+  // findField con un set de "match exacto solamente", queda para próxima ola.
+  'date_range', 'send_date', 'send_time', 'send date', 'send time',
+  'stat_time_day', 'stat time day', 'day_started', 'day started',
+  'by_day', 'by day',
   // Aliases históricos (datos ya cargados con headers genéricos)
   '__EMPTY', '__empty', 'unnamed:_0', 'unnamed_0', 'unnamed', 'col_0', 'column_0',
 ];
