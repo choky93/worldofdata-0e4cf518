@@ -17,6 +17,16 @@ import * as XLSX from 'xlsx';
 import { cleanParsedRows, cleanParsedRowsWithStats, detectPeriodOverlap, parseDate } from '@/lib/data-cleaning';
 import { useExtractedData } from '@/hooks/useExtractedData';
 import { findString, FIELD_DATE, FIELD_NAME } from '@/lib/field-utils';
+// Wave A: source-system segmentation — capture origin at upload time so we can
+// route to deterministic parsers (Wave B) and feed the AI prompt with priors.
+import {
+  type Category as SourceCategory,
+  type SourceSystem,
+  CATEGORY_LABELS as SOURCE_CATEGORY_LABELS,
+  SOURCE_SYSTEMS_BY_CATEGORY,
+  getSystemLabel,
+  isSourceSystem,
+} from '@/lib/source-systems';
 import { SchemaPreviewDialog, type SchemaPreviewPayload } from '@/components/SchemaPreviewDialog';
 import { MultiSheetPickerDialog, type SheetInfo } from '@/components/MultiSheetPickerDialog';
 import { ColumnMappingEditor } from '@/components/ColumnMappingEditor';
@@ -724,6 +734,16 @@ export default function CargaDatos() {
   // scope) and cached in session state. Old files show no badge until reprocessed.
   const [dqScoresMap, setDqScoresMap] = useState<Record<string, DataQualityScore>>({});
   const [uploadQueue, setUploadQueue] = useState<UploadQueueItem[]>([]);
+
+  // Wave A: source-system segmentation. The user MUST choose category +
+  // origin system before any file can be queued. We persist the chosen
+  // system on each `file_uploads` row and forward it as a hint to the
+  // AI prompt and deterministic parsers (Wave B).
+  const [sourceCategory, setSourceCategory] = useState<SourceCategory | ''>('');
+  const [sourceSystem, setSourceSystem] = useState<SourceSystem | ''>('');
+  // Reset system when category changes (the system list depends on category).
+  useEffect(() => { setSourceSystem(''); }, [sourceCategory]);
+  const sourceSelectionReady = !!sourceCategory && !!sourceSystem;
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const pollInFlightRef = useRef(false); // 1.3: guard against overlapping polls
   const prevErrorIdsRef = useRef<Set<string>>(new Set());
@@ -1073,6 +1093,11 @@ export default function CargaDatos() {
     const filesToUpload = Array.from(fileList);
     if (filesToUpload.length === 0) return;
 
+    // Wave A: snapshot the user's selected origin so we don't race with state
+    // updates if they change the dropdown mid-upload. `selectedSource` is null
+    // for legacy callers (e.g. retries) — the column is nullable.
+    const selectedSource: SourceSystem | null = isSourceSystem(sourceSystem) ? sourceSystem : null;
+
     // 2.2 Validate file formats AND per-file size (50MB cap on edge function).
     // Surface ALL rejects in a single toast list rather than one toast per file.
     const SUPPORTED_EXTENSIONS = ['xlsx', 'xls', 'xlsm', 'csv', 'pdf', 'png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp', 'doc', 'docx', 'xml', 'txt'];
@@ -1311,6 +1336,8 @@ export default function CargaDatos() {
                       // hash still detects duplicates if sheets are reordered or if
                       // the user re-uploads the same workbook with the same sheets.
                       file_hash: `${fileHash}-sheet-${(sd.name || `idx${si}`).toLowerCase().replace(/[^a-z0-9]+/g, '_').slice(0, 40)}`,
+                      // Wave A: propagate origin to per-sheet records too.
+                      source_system: selectedSource,
                     }).select('id').single();
 
                     if (sheetDbErr || !sheetDbData) throw new Error(sheetDbErr?.message || 'DB insert failed');
@@ -1469,6 +1496,8 @@ export default function CargaDatos() {
           uploaded_by: user.id,
           company_id: profile.company_id!,
           file_hash: fileHash,
+          // Wave A: persist user-declared origin system (nullable for legacy).
+          source_system: selectedSource,
         }).select('id').single();
 
         if (dbError) {
@@ -2359,9 +2388,53 @@ export default function CargaDatos() {
           <StatusDashboard files={files} totalCount={totalCount} archivedCount={archivedFiles.length} onRefresh={fetchFiles} />
           <FreshnessPanel lastUploadDates={lastUploadDates} />
 
+          {/* Wave A: source-system selectors. Mandatory before upload to feed
+              both deterministic parsers (Wave B) and AI prompt priors. */}
+          <div className="rounded-xl border bg-muted/30 p-4 space-y-3">
+            <div className="flex flex-col sm:flex-row gap-3">
+              <div className="flex-1 min-w-0">
+                <Label className="text-xs font-semibold mb-1 block">Categoría del archivo</Label>
+                <Select
+                  value={sourceCategory || undefined}
+                  onValueChange={(v) => setSourceCategory(v as SourceCategory)}
+                  disabled={isUploading}
+                >
+                  <SelectTrigger className="h-9 text-sm">
+                    <SelectValue placeholder="Elegí una categoría..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(Object.keys(SOURCE_CATEGORY_LABELS) as SourceCategory[]).map(cat => (
+                      <SelectItem key={cat} value={cat}>{SOURCE_CATEGORY_LABELS[cat]}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex-1 min-w-0">
+                <Label className="text-xs font-semibold mb-1 block">Sistema de origen</Label>
+                <Select
+                  value={sourceSystem || undefined}
+                  onValueChange={(v) => setSourceSystem(v as SourceSystem)}
+                  disabled={isUploading || !sourceCategory}
+                >
+                  <SelectTrigger className="h-9 text-sm">
+                    <SelectValue placeholder={sourceCategory ? 'Elegí el sistema...' : 'Primero elegí categoría'} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {sourceCategory && SOURCE_SYSTEMS_BY_CATEGORY[sourceCategory].map(sys => (
+                      <SelectItem key={sys} value={sys}>{getSystemLabel(sys)}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Indicá de qué sistema viene el archivo para que lo procesemos correctamente y reduzcamos costos de IA.
+            </p>
+          </div>
+
           {/* Drop zone */}
           <div
-            className={`border-2 border-dashed rounded-xl p-12 text-center transition-all cursor-pointer ${dragInvalidMsg ? 'border-destructive bg-destructive/5' : dragging ? 'border-primary bg-primary/5 scale-[1.01]' : 'border-border hover:border-primary/50'} ${isUploading ? 'pointer-events-none opacity-60' : ''}`}
+            className={`border-2 border-dashed rounded-xl p-12 text-center transition-all cursor-pointer ${dragInvalidMsg ? 'border-destructive bg-destructive/5' : dragging ? 'border-primary bg-primary/5 scale-[1.01]' : 'border-border hover:border-primary/50'} ${(isUploading || !sourceSelectionReady) ? 'pointer-events-none opacity-60' : ''}`}
             onDragOver={(e) => {
               e.preventDefault();
               setDragging(true);
@@ -2387,7 +2460,7 @@ export default function CargaDatos() {
             }}
             onDragLeave={() => { setDragging(false); setDragInvalidMsg(null); }}
             onDrop={(e) => { setDragInvalidMsg(null); handleDrop(e); }}
-            onClick={() => !isUploading && document.getElementById('file-input')?.click()}
+            onClick={() => !isUploading && sourceSelectionReady && document.getElementById('file-input')?.click()}
           >
             {isUploading ? (
               <Loader2 className="h-10 w-10 mx-auto text-primary mb-3 animate-spin" />
@@ -2399,6 +2472,8 @@ export default function CargaDatos() {
             <p className={`font-medium text-base ${dragInvalidMsg ? 'text-destructive' : ''}`}>
               {isUploading
                 ? 'Subiendo archivos...'
+                : !sourceSelectionReady
+                ? 'Elegí categoría y sistema antes de subir el archivo'
                 : dragInvalidMsg
                 ?? (dragging ? '↓ Soltá los archivos acá ↓' : 'Arrastrá tus archivos a este recuadro')}
             </p>

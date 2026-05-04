@@ -382,6 +382,35 @@ async function extractPdfText(buffer: ArrayBuffer): Promise<{ text: string; page
   }
 }
 
+// Wave A: short hints describing typical column structure of common origins.
+// Prepended to the classification prompt when the user declared the source
+// system at upload time. Only listed systems get a non-empty hint; others
+// fall back to the generic prompt.
+function getExpectedColumnsHint(sourceSystem?: string | null): string {
+  if (!sourceSystem) return '';
+  const hints: Record<string, string> = {
+    meta_ads: 'Reporte de Meta Ads (Facebook/Instagram). Columnas típicas: "Nombre de la campaña", "Inicio del informe", "Fin del informe", "Importe gastado (ARS/USD)", "Impresiones", "Alcance", "Clics (todos)", "CTR (todos)", "CPC (todos)", "Resultados", "Costo por resultado", "ROAS de resultados".',
+    google_ads: 'Reporte de Google Ads. Columnas típicas: "Campaign", "Day"/"Date"/"Week", "Cost", "Impressions", "Clicks", "CTR", "Avg. CPC", "Conversions", "Cost / conv.", "Conv. value".',
+    tiktok_ads: 'Reporte de TikTok Ads. Columnas típicas: "Campaign name", "By Day"/"Stat time day", "Cost", "Impressions", "Clicks", "CTR", "CPC", "Conversions".',
+    linkedin_ads: 'Reporte de LinkedIn Campaign Manager. Columnas típicas: "Campaign Name", "Date Range"/"Day Started", "Total Spent", "Impressions", "Clicks", "Average CTR", "Conversions".',
+    mailchimp: 'Reporte de Mailchimp. Columnas típicas: "Title"/"Campaign", "Send Date"/"Send Time", "Successful Deliveries", "Opens", "Clicks", "Open Rate", "Click Rate".',
+    tango: 'Export de Tango Gestión (PyME argentina). Columnas típicas: "Cód. Cliente", "Razón Social", "Fecha", "Tipo Comprobante", "Número", "Importe", "Importe Neto", "IVA", "Total". Para stock: "Cód. Producto", "Descripción", "Stock", "Precio".',
+    bejerman: 'Export de Bejerman. Columnas típicas: "Fecha", "Comprobante", "Cliente", "Razón Social", "Importe", "Subtotal", "IVA", "Total".',
+    contabilium: 'Export de Contabilium. Columnas típicas: "Fecha", "Numero", "Tipo", "Cliente", "Subtotal", "IVA", "Total", "Estado".',
+    xubio: 'Export de Xubio. Columnas típicas: "Fecha", "Tipo de Comprobante", "Numero", "Cliente/Proveedor", "Subtotal", "IVA", "Total".',
+    mercado_pago: 'Reporte de Mercado Pago. Columnas típicas: "Fecha de origen", "Fecha de aprobación", "Detalle de la operación", "Tipo de operación", "Estado", "Valor del producto", "Comisión", "Dinero recibido", "ID de operación".',
+    afip_mis_comprobantes: 'Export de AFIP Mis Comprobantes. Columnas típicas: "Fecha de Emisión", "Tipo de Comprobante", "Punto de Venta", "Número Desde", "CUIT", "Denominación Emisor"/"Receptor", "Tipo Cambio", "Imp. Neto Gravado", "IVA", "Imp. Total".',
+    mercado_libre: 'Reporte de ventas Mercado Libre. Columnas típicas: "Fecha de venta", "# de venta", "Producto", "SKU", "Cantidad", "Precio unitario", "Total", "Estado", "Comprador".',
+    tienda_nube: 'Export de Tienda Nube. Columnas típicas: "Fecha", "Número de orden", "Cliente", "Email", "Total", "Estado de pago", "Productos".',
+    shopify: 'Export de Shopify. Columnas típicas: "Name" (order), "Created at", "Total", "Subtotal", "Taxes", "Financial Status", "Customer", "Lineitem name", "Lineitem quantity".',
+    pipedrive: 'Export de Pipedrive (CRM). Columnas típicas: "Title" (deal), "Value", "Currency", "Stage", "Status", "Owner", "Organization", "Person", "Expected close date", "Add time".',
+    hubspot: 'Export de HubSpot (CRM). Columnas típicas: "Deal Name", "Amount", "Deal Stage", "Pipeline", "Close Date", "Create Date", "Deal Owner", "Associated Company", "Deal Type".',
+    salesforce: 'Export de Salesforce (CRM). Columnas típicas: "Opportunity Name", "Amount", "Stage", "Close Date", "Owner Name", "Account Name", "Probability (%)", "Forecast Category", "Lead Source".',
+    zoho: 'Export de Zoho CRM. Columnas típicas: "Deal Name", "Amount", "Stage", "Closing Date", "Created Time", "Deal Owner", "Account Name", "Probability (%)".',
+  };
+  return hints[sourceSystem] || '';
+}
+
 // ─── AI Classification (lightweight — headers + sample only) ──
 async function classifyWithAI(
   headers: string[],
@@ -389,10 +418,17 @@ async function classifyWithAI(
   fileName: string,
   sheetName?: string,
   usageCtx?: { companyId?: string; userId?: string | null; fileUploadId?: string },
+  sourceSystem?: string | null,
 ): Promise<{ category: string; summary: string; column_mapping: Record<string, string | null> }> {
-  console.log(`[process-file] AI classification for "${fileName}"${sheetName ? ` (hoja: "${sheetName}")` : ''} (${headers.length} cols, ${sampleRows.length} sample rows)`);
+  console.log(`[process-file] AI classification for "${fileName}"${sheetName ? ` (hoja: "${sheetName}")` : ''}${sourceSystem ? ` [origen: ${sourceSystem}]` : ''} (${headers.length} cols, ${sampleRows.length} sample rows)`);
 
-  const systemPrompt = `Sos un especialista en análisis de datos de PyMEs latinoamericanas. Tu tarea es clasificar archivos de datos de negocios y mapear sus columnas a campos semánticos estándar.
+  // Wave A: prepend a strong prior when the user declared the origin system.
+  const sourceHint = getExpectedColumnsHint(sourceSystem);
+  const sourcePreamble = sourceSystem
+    ? `IMPORTANT: This file is exported from \`${sourceSystem}\`.${sourceHint ? ` Expected column structure: ${sourceHint}` : ''} Use this as STRONG PRIOR when classifying and mapping columns. If the headers clearly match this origin, prefer the standard mapping for that system over generic guesses.\n\n`
+    : '';
+
+  const systemPrompt = sourcePreamble + `Sos un especialista en análisis de datos de PyMEs latinoamericanas. Tu tarea es clasificar archivos de datos de negocios y mapear sus columnas a campos semánticos estándar.
 
 ROL: Actuás como un contador/analista de datos experto en empresas argentinas. Conocés todos los formatos de archivos que usan las PyMEs: desde Excel prolijo hasta CSVs exportados de sistemas de gestión, reportes de Meta Ads, informes de stock de depósito, y resúmenes de ventas hechos a mano.
 
@@ -991,11 +1027,12 @@ async function processTabularData(
   fileName: string,
   fileUploadId: string,
   companyId: string,
+  sourceSystemHint?: string | null,
 ): Promise<{ category: string; summary: string; totalRows: number }> {
   console.log(`[process-file] Deterministic tabular processing: ${allRows.length} rows, ${headers.length} columns`);
 
   const sampleRows = allRows.slice(0, 10);
-  const { category, summary, column_mapping } = await classifyWithAI(headers, sampleRows, fileName);
+  const { category, summary, column_mapping } = await classifyWithAI(headers, sampleRows, fileName, undefined, undefined, sourceSystemHint);
   console.log(`[process-file] Classification: category=${category}, mapping keys=${Object.keys(column_mapping).join(',')}`);
 
   // Apply date normalization using both keywords AND mapped date column
@@ -1143,6 +1180,9 @@ serve(async (req) => {
     if (fetchErr || !fileRecord) throw new Error(`File not found: ${fetchErr?.message}`);
 
     const { file_name, storage_path } = fileRecord;
+    // Wave A: optional user-declared origin system. Forwarded to the AI
+    // prompt so the model has a strong prior about expected columns.
+    const sourceSystemHint: string | null = (fileRecord as any)?.source_system ?? null;
     const ext = file_name.split('.').pop()?.toLowerCase() || '';
 
     let resultInfo: { category: string; summary: string; totalRows: number };
@@ -1155,7 +1195,7 @@ serve(async (req) => {
         // First batch: classify with AI
         // Ola 20: pasamos usageCtx para registrar consumo de Anthropic en api_usage_logs
         const usageCtx = { companyId, userId: null, fileUploadId };
-        let { category, summary, column_mapping, confidence } = await classifyWithAI(headers, rowBatch.slice(0, 10), file_name, sheetName, usageCtx);
+        let { category, summary, column_mapping, confidence } = await classifyWithAI(headers, rowBatch.slice(0, 10), file_name, sheetName, usageCtx, sourceSystemHint);
 
         // 5.1: if the user confirmed an explicit category in the Schema
         // Preview dialog, honor it — keep the AI's column_mapping but
@@ -1350,7 +1390,7 @@ serve(async (req) => {
       if (rows.length > 0) {
         const parsedHeaders = Object.keys(rows[0]);
         console.log(`[process-file] Legacy preParsed → parsed ${rows.length} rows, using deterministic path`);
-        resultInfo = await processTabularData(sb, rows, parsedHeaders, file_name, fileUploadId, companyId);
+        resultInfo = await processTabularData(sb, rows, parsedHeaders, file_name, fileUploadId, companyId, sourceSystemHint);
       } else {
         console.log(`[process-file] Legacy preParsed → could not parse rows, using AI extraction`);
         const result = await extractWithAI(content.substring(0, MAX_CONTENT_CHARS), file_name, undefined, undefined, undefined, globalUsageCtx);
@@ -1391,7 +1431,7 @@ serve(async (req) => {
         const fixed = fixBrokenHeaders(allRows);
         allRows = cleanRows(fixed.rows, fixed.headers.length > 0 ? fixed.headers : Object.keys(allRows[0]));
         const parsedHeaders = fixed.headers.length > 0 ? fixed.headers : Object.keys(allRows[0]);
-        resultInfo = await processTabularData(sb, allRows, parsedHeaders, file_name, fileUploadId, companyId);
+        resultInfo = await processTabularData(sb, allRows, parsedHeaders, file_name, fileUploadId, companyId, sourceSystemHint);
       } else {
         const result = await extractWithAI(text.substring(0, MAX_CONTENT_CHARS), file_name, undefined, undefined, undefined, globalUsageCtx);
         { const { error: d } = await sb.from("file_extracted_data").delete().eq("file_upload_id", fileUploadId);
@@ -1459,7 +1499,7 @@ serve(async (req) => {
           if (allRows.length > 0) {
             const fixed = fixBrokenHeaders(allRows);
             const cleaned = cleanRows(fixed.rows, fixed.headers.length > 0 ? fixed.headers : headers);
-            resultInfo = await processTabularData(sb, cleaned, fixed.headers.length > 0 ? fixed.headers : headers, file_name, fileUploadId, companyId);
+            resultInfo = await processTabularData(sb, cleaned, fixed.headers.length > 0 ? fixed.headers : headers, file_name, fileUploadId, companyId, sourceSystemHint);
           } else {
             throw new Error("No rows parsed");
           }
@@ -1476,7 +1516,7 @@ serve(async (req) => {
           if (allRows.length > 0) {
             const fixed = fixBrokenHeaders(allRows);
             const cleaned = cleanRows(fixed.rows, fixed.headers.length > 0 ? fixed.headers : headers);
-            resultInfo = await processTabularData(sb, cleaned, fixed.headers.length > 0 ? fixed.headers : headers, file_name, fileUploadId, companyId);
+            resultInfo = await processTabularData(sb, cleaned, fixed.headers.length > 0 ? fixed.headers : headers, file_name, fileUploadId, companyId, sourceSystemHint);
           } else {
             const wb = XLSX.read(bytes, { type: 'array' });
             const csv = XLSX.utils.sheet_to_csv(wb.Sheets[wb.SheetNames[0]], { FS: ',', RS: '\n' });
@@ -1533,7 +1573,7 @@ serve(async (req) => {
         const pdfRows = parseCSV(pdfResult.text);
         if (pdfRows.length > 10) {
           const pdfHeaders = Object.keys(pdfRows[0]);
-          resultInfo = await processTabularData(sb, pdfRows, pdfHeaders, file_name, fileUploadId, companyId);
+          resultInfo = await processTabularData(sb, pdfRows, pdfHeaders, file_name, fileUploadId, companyId, sourceSystemHint);
         } else if (pdfResult.text.length > MAX_CONTENT_CHARS) {
           const textChunks = chunkText(pdfResult.text, CHUNK_CHARS);
           processingMetadata.chunked = true;

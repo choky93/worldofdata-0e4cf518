@@ -347,6 +347,7 @@ export type Database = {
           priority: number
           processing_error: string | null
           processing_started_at: string | null
+          source_system: string | null
           status: string | null
           storage_path: string | null
           total_chunks: number | null
@@ -364,6 +365,7 @@ export type Database = {
           priority?: number
           processing_error?: string | null
           processing_started_at?: string | null
+          source_system?: string | null
           status?: string | null
           storage_path?: string | null
           total_chunks?: number | null
@@ -381,6 +383,7 @@ export type Database = {
           priority?: number
           processing_error?: string | null
           processing_started_at?: string | null
+          source_system?: string | null
           status?: string | null
           storage_path?: string | null
           total_chunks?: number | null
