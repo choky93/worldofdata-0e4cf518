@@ -30,6 +30,9 @@ import {
 // Wave B: deterministic parsers — try to map headers locally before paying
 // for an AI classification call.
 import { selectParser } from '@/lib/parsers/router';
+// Wave C.3: header → mapping cache so repeated uploads of the same file
+// shape skip the AI classification entirely.
+import { getCachedMapping, putCachedMapping } from '@/lib/mapping-cache';
 import { SchemaPreviewDialog, type SchemaPreviewPayload } from '@/components/SchemaPreviewDialog';
 import { MultiSheetPickerDialog, type SheetInfo } from '@/components/MultiSheetPickerDialog';
 import { ColumnMappingEditor } from '@/components/ColumnMappingEditor';
@@ -1536,6 +1539,24 @@ export default function CargaDatos() {
               resolvedCategory = localParser.result.category;
             }
 
+            // Wave C.3: if no local parser matched, check the header-hash
+            // mapping cache. A hit means we processed a file with the same
+            // header shape before — reuse that mapping and skip AI.
+            let cachedMappingHit: Awaited<ReturnType<typeof getCachedMapping>> = null;
+            if (!useLocalParser) {
+              try {
+                cachedMappingHit = await getCachedMapping(parsedHeaders);
+                if (cachedMappingHit) {
+                  console.log(`[CargaDatos] Mapping cache HIT (category=${cachedMappingHit.category}) — skipping AI`);
+                  toast.success('Mapeo recuperado de caché — ahorraste el costo de IA en este archivo.', { duration: 5000 });
+                  resolvedCategory = cachedMappingHit.category;
+                }
+              } catch (e) {
+                console.warn('[CargaDatos] mapping cache read failed (non-fatal):', e);
+              }
+            }
+            const useCachedMapping = !!cachedMappingHit;
+
             for (let bi = 0; bi < totalBatches; bi++) {
               updateItem({ currentChunk: bi });
               const batchRows = parsedRows.slice(bi * ROW_BATCH_SIZE, (bi + 1) * ROW_BATCH_SIZE);
@@ -1551,7 +1572,15 @@ export default function CargaDatos() {
                     totalRows: parsedRows.length,
                     // 5.1: pass user-chosen category to ALL batches (incl. bi=0)
                     // so the edge function honors the Schema Preview override.
-                    ...(categoryOverride ? { category: categoryOverride } : (bi > 0 && resolvedCategory ? { category: resolvedCategory } : (useLocalParser && localParser ? { category: localParser.result.category } : {}))),
+                    ...(categoryOverride
+                      ? { category: categoryOverride }
+                      : (bi > 0 && resolvedCategory
+                        ? { category: resolvedCategory }
+                        : (useLocalParser && localParser
+                          ? { category: localParser.result.category }
+                          : (useCachedMapping && cachedMappingHit
+                            ? { category: cachedMappingHit.category }
+                            : {})))),
                     // Wave B: forward the local parser mapping so the edge
                     // function can skip the AI classification call.
                     ...(bi === 0 && useLocalParser && localParser ? {
@@ -1559,11 +1588,41 @@ export default function CargaDatos() {
                       precomputedSummary: `Procesado localmente con parser ${getSystemLabel(localParser.parser.systemId)} (confianza ${(localParser.result.confidence * 100).toFixed(0)}%).`,
                       localParserName: localParser.parser.systemId,
                     } : {}),
+                    // Wave C.3: forward cached AI mapping when we have one.
+                    ...(bi === 0 && !useLocalParser && useCachedMapping && cachedMappingHit ? {
+                      precomputedMapping: cachedMappingHit.column_mapping,
+                      precomputedSummary: cachedMappingHit.summary,
+                      localParserName: 'cache',
+                    } : {}),
                   },
                 });
                 if (pfError) throw pfError;
                 if (bi === 0 && pfData?.category) {
                   resolvedCategory = pfData.category;
+                  // Wave C.3: persist the AI-resolved mapping to the cache so
+                  // subsequent uploads of files with identical headers can
+                  // skip the AI classification call. Only when we actually
+                  // ran the AI (no local parser, no cache hit). Best-effort.
+                  if (!useLocalParser && !useCachedMapping && parsedHeaders) {
+                    try {
+                      const { data: classRow } = await supabase
+                        .from('file_extracted_data')
+                        .select('extracted_json')
+                        .eq('file_upload_id', dbData.id)
+                        .eq('data_category', '_classification')
+                        .maybeSingle();
+                      const ej: any = classRow?.extracted_json;
+                      if (ej?.column_mapping && ej?.category) {
+                        await putCachedMapping(parsedHeaders, {
+                          category: ej.category,
+                          summary: ej.summary || '',
+                          column_mapping: ej.column_mapping,
+                        });
+                      }
+                    } catch (cacheErr) {
+                      console.warn('[CargaDatos] mapping cache write failed (non-fatal):', cacheErr);
+                    }
+                  }
                 }
                 processedRows += batchRows.length;
               } catch (chunkErr: any) {
